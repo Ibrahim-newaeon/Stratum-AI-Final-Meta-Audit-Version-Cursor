@@ -28,6 +28,14 @@ interface Tenant {
   domain: string | null;
   plan: 'free' | 'starter' | 'professional' | 'enterprise';
   plan_expires_at: string | null;
+  /** Paddle customer id (ctm_...) once the tenant has a billing account. */
+  paddle_customer_id?: string | null;
+  /** Paddle subscription id (sub_...) of the current subscription. */
+  paddle_subscription_id?: string | null;
+  /** Paddle subscription status: active|trialing|past_due|paused|canceled. */
+  subscription_status?: string | null;
+  /** End of the current Paddle billing period (ISO-8601). */
+  current_period_end?: string | null;
   max_users: number;
   max_campaigns: number;
   settings: Record<string, unknown>;
@@ -36,6 +44,15 @@ interface Tenant {
   updated_at: string;
   user_count?: number;
 }
+
+/** Badge styles for the Paddle subscription status shown next to the plan. */
+const subscriptionStatusStyles: Record<string, string> = {
+  active: 'bg-green-500/10 text-green-500',
+  trialing: 'bg-cyan-500/10 text-cyan-500',
+  past_due: 'bg-red-500/10 text-red-500',
+  paused: 'bg-amber-500/10 text-amber-500',
+  canceled: 'bg-gray-500/10 text-gray-500',
+};
 
 interface TenantFormData {
   name: string;
@@ -53,6 +70,10 @@ const mockTenants: Tenant[] = [
     domain: 'acme.stratum.ai',
     plan: 'enterprise',
     plan_expires_at: '2025-12-31T00:00:00Z',
+    paddle_customer_id: 'ctm_01hv2q7k8m3n4p5r6s7t8u9v0w',
+    paddle_subscription_id: 'sub_01hv2q8b9c0d1e2f3g4h5j6k7m',
+    subscription_status: 'active',
+    current_period_end: '2025-12-31T00:00:00Z',
     max_users: 100,
     max_campaigns: 1000,
     settings: {},
@@ -68,6 +89,10 @@ const mockTenants: Tenant[] = [
     domain: null,
     plan: 'professional',
     plan_expires_at: '2025-06-30T00:00:00Z',
+    paddle_customer_id: 'ctm_01hv2qa1b2c3d4e5f6g7h8j9k0',
+    paddle_subscription_id: 'sub_01hv2qb2c3d4e5f6g7h8j9k0m1',
+    subscription_status: 'past_due',
+    current_period_end: '2025-06-30T00:00:00Z',
     max_users: 25,
     max_campaigns: 200,
     settings: {},
@@ -493,9 +518,29 @@ function TenantRow({
         </div>
       </td>
       <td className="px-4 py-4">
-        <span className={cn('px-2 py-1 rounded-full text-xs font-medium text-white', plan.color)}>
-          {plan.label}
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className={cn('px-2 py-1 rounded-full text-xs font-medium text-white', plan.color)}
+          >
+            {plan.label}
+          </span>
+          {tenant.subscription_status && (
+            <span
+              className={cn(
+                'px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide',
+                subscriptionStatusStyles[tenant.subscription_status] ??
+                  'bg-muted text-muted-foreground'
+              )}
+              title={
+                tenant.paddle_subscription_id
+                  ? `Paddle subscription ${tenant.paddle_subscription_id}`
+                  : 'Paddle subscription status'
+              }
+            >
+              {tenant.subscription_status.replace('_', ' ')}
+            </span>
+          )}
+        </div>
         {tenant.plan_expires_at && (
           <p className="text-xs text-muted-foreground mt-1">
             Expires: {new Date(tenant.plan_expires_at).toLocaleDateString()}

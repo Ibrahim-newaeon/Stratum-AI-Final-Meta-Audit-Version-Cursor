@@ -42,6 +42,7 @@ export {
   type AuditLogEntry,
   type Invoice,
   type Subscription,
+  type SuperAdminSubscriptionStatus,
 } from './useSuperAdmin';
 
 // Re-export from API modules

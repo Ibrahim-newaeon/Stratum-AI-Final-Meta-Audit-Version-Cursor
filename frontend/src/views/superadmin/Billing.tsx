@@ -1,8 +1,12 @@
 /**
  * Billing (Super Admin View)
  *
- * Platform billing management - plans, invoices, subscriptions
- * Revenue metrics and dunning management
+ * Platform billing overview - plans, invoices, subscriptions.
+ *
+ * Paddle Billing is the system of record: transactions, invoices, payment methods and
+ * dunning (payment retries) all live in Paddle. This view reads the state mirrored on
+ * tenants, shows Paddle identifiers and links out to Paddle-hosted invoice PDFs. It never
+ * mutates billing state - there is no "retry payment" or "generate invoice" here.
  */
 
 import { useState } from 'react';
@@ -11,28 +15,27 @@ import {
   useBillingInvoices,
   useBillingPlans,
   useBillingSubscriptions,
-  useRetryPayment,
   useRevenue,
 } from '@/api/hooks';
 import { useToast } from '@/components/ui/use-toast';
 import {
-  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
   ArrowTrendingUpIcon,
   CheckCircleIcon,
   ClockIcon,
-  CreditCardIcon,
   CurrencyDollarIcon,
   DocumentTextIcon,
   EnvelopeIcon,
   ExclamationTriangleIcon,
+  PauseCircleIcon,
   PencilSquareIcon,
   UserGroupIcon,
   XCircleIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 
-type PlanType = 'starter' | 'pro' | 'enterprise';
-type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing';
+type PlanType = 'free' | 'starter' | 'professional' | 'enterprise';
+type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'paused' | 'canceled';
 type InvoiceStatus = 'paid' | 'pending' | 'overdue' | 'failed';
 
 interface Subscription {
@@ -40,12 +43,16 @@ interface Subscription {
   tenantId: string;
   tenantName: string;
   plan: PlanType;
-  status: SubscriptionStatus;
+  /** Paddle status; null for tenants without a Paddle subscription. */
+  status: SubscriptionStatus | null;
   mrr: number;
-  startDate: Date;
-  nextBilling: Date;
-  paymentMethod: string;
-  failedPayments: number;
+  startDate: Date | null;
+  nextBilling: Date | null;
+  cancelAtPeriodEnd: boolean;
+  /** Paddle subscription id (sub_...). */
+  paddleSubscriptionId: string | null;
+  /** Paddle customer id (ctm_...). */
+  paddleCustomerId: string | null;
 }
 
 interface Invoice {
@@ -53,9 +60,46 @@ interface Invoice {
   tenantName: string;
   amount: number;
   status: InvoiceStatus;
-  dueDate: Date;
+  dueDate: Date | null;
   paidAt: Date | null;
+  /** Paddle transaction id (txn_...) backing this invoice. */
+  paddleTransactionId: string | null;
+  /** Paddle-hosted invoice PDF URL, when available. */
+  invoiceUrl: string | null;
 }
+
+interface Plan {
+  id: string;
+  name: string;
+  /** Monthly list price; null means custom pricing (enterprise). */
+  price: number | null;
+  features: string[];
+  subscribers: number;
+  highlighted?: boolean;
+}
+
+const INVOICE_PDF_UNAVAILABLE = 'Invoice PDF is available from Paddle';
+
+const PLAN_TYPES: PlanType[] = ['free', 'starter', 'professional', 'enterprise'];
+
+const toPlanType = (value: string): PlanType =>
+  PLAN_TYPES.includes(value as PlanType) ? (value as PlanType) : 'free';
+
+const toDate = (value: string | null | undefined): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatDate = (value: Date | null): string => (value ? value.toLocaleDateString() : '—');
+
+const formatPrice = (price: number | null): string =>
+  price === null ? 'Custom' : `$${price.toLocaleString()}`;
+
+const formatStatus = (status: SubscriptionStatus | InvoiceStatus | null): string =>
+  status ? status.replace('_', ' ') : 'no subscription';
+
+const daysFromNow = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 export default function Billing() {
   const [activeTab, setActiveTab] = useState<'overview' | 'subscriptions' | 'invoices' | 'plans'>(
@@ -66,7 +110,7 @@ export default function Billing() {
   // Modal states
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<(typeof mockPlans)[0] | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showEditPlanModal, setShowEditPlanModal] = useState(false);
@@ -76,7 +120,6 @@ export default function Billing() {
   const { data: plansData } = useBillingPlans();
   const { data: invoicesData } = useBillingInvoices();
   const { data: subscriptionsData } = useBillingSubscriptions();
-  const retryPaymentMutation = useRetryPayment();
 
   // Default mock data
   const mockMetrics = {
@@ -89,21 +132,7 @@ export default function Billing() {
     totalRevenue: 1250000,
   };
 
-  // Use API data or fallback to mock
-  const metrics = {
-    mrr: revenueData?.mrr ?? mockMetrics.mrr,
-    mrrGrowth: revenueData?.mrrGrowth ?? mockMetrics.mrrGrowth,
-    arr: revenueData?.arr ?? mockMetrics.arr,
-    activeSubscriptions:
-      subscriptionsData?.items?.filter((s) => s.status === 'active').length ??
-      mockMetrics.activeSubscriptions,
-    churnRate: revenueData?.churnRate ?? mockMetrics.churnRate,
-    pastDue:
-      subscriptionsData?.items?.filter((s) => s.status === 'past_due').length ??
-      mockMetrics.pastDue,
-    totalRevenue: mockMetrics.totalRevenue,
-  };
-
+  // Mock subscriptions carry Paddle identifiers only - payment methods stay in Paddle.
   const mockSubscriptions: Subscription[] = [
     {
       id: 's1',
@@ -111,35 +140,38 @@ export default function Billing() {
       tenantName: 'Acme Corporation',
       plan: 'enterprise',
       status: 'active',
-      mrr: 1999,
+      mrr: 2499,
       startDate: new Date('2024-01-15'),
-      nextBilling: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
-      paymentMethod: 'Visa ****4242',
-      failedPayments: 0,
+      nextBilling: daysFromNow(15),
+      cancelAtPeriodEnd: false,
+      paddleSubscriptionId: 'sub_01hv2q8b9c0d1e2f3g4h5j6k7m',
+      paddleCustomerId: 'ctm_01hv2q7k8m3n4p5r6s7t8u9v0w',
     },
     {
       id: 's2',
       tenantId: 't2',
       tenantName: 'TechStart Inc',
-      plan: 'pro',
+      plan: 'professional',
       status: 'active',
-      mrr: 499,
+      mrr: 999,
       startDate: new Date('2024-03-01'),
-      nextBilling: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-      paymentMethod: 'Mastercard ****5555',
-      failedPayments: 0,
+      nextBilling: daysFromNow(5),
+      cancelAtPeriodEnd: false,
+      paddleSubscriptionId: 'sub_01hv2qb2c3d4e5f6g7h8j9k0m1',
+      paddleCustomerId: 'ctm_01hv2qa1b2c3d4e5f6g7h8j9k0',
     },
     {
       id: 's3',
       tenantId: 't3',
       tenantName: 'Fashion Forward',
-      plan: 'pro',
+      plan: 'starter',
       status: 'past_due',
       mrr: 499,
       startDate: new Date('2024-02-15'),
-      nextBilling: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-      paymentMethod: 'Visa ****1234',
-      failedPayments: 2,
+      nextBilling: daysFromNow(-5),
+      cancelAtPeriodEnd: false,
+      paddleSubscriptionId: 'sub_01hv2qc3d4e5f6g7h8j9k0m1n2',
+      paddleCustomerId: 'ctm_01hv2qd4e5f6g7h8j9k0m1n2p3',
     },
     {
       id: 's4',
@@ -148,10 +180,24 @@ export default function Billing() {
       plan: 'starter',
       status: 'trialing',
       mrr: 0,
-      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-      nextBilling: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      paymentMethod: 'Not set',
-      failedPayments: 0,
+      startDate: daysFromNow(-7),
+      nextBilling: daysFromNow(7),
+      cancelAtPeriodEnd: false,
+      paddleSubscriptionId: 'sub_01hv2qe5f6g7h8j9k0m1n2p3q4',
+      paddleCustomerId: 'ctm_01hv2qf6g7h8j9k0m1n2p3q4r5',
+    },
+    {
+      id: 's5',
+      tenantId: 't5',
+      tenantName: 'Bright Retail',
+      plan: 'professional',
+      status: 'paused',
+      mrr: 0,
+      startDate: new Date('2024-05-20'),
+      nextBilling: null,
+      cancelAtPeriodEnd: false,
+      paddleSubscriptionId: 'sub_01hv2qg7h8j9k0m1n2p3q4r5s6',
+      paddleCustomerId: 'ctm_01hv2qh8j9k0m1n2p3q4r5s6t7',
     },
   ];
 
@@ -159,43 +205,50 @@ export default function Billing() {
     {
       id: 'inv-001',
       tenantName: 'Acme Corporation',
-      amount: 1999,
+      amount: 2499,
       status: 'paid',
-      dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-      paidAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+      dueDate: daysFromNow(-5),
+      paidAt: daysFromNow(-6),
+      paddleTransactionId: 'txn_01hv2qj9k0m1n2p3q4r5s6t7u8',
+      invoiceUrl: null,
     },
     {
       id: 'inv-002',
       tenantName: 'TechStart Inc',
-      amount: 499,
+      amount: 999,
       status: 'pending',
-      dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      dueDate: daysFromNow(5),
       paidAt: null,
+      paddleTransactionId: 'txn_01hv2qk0m1n2p3q4r5s6t7u8v9',
+      invoiceUrl: null,
     },
     {
       id: 'inv-003',
       tenantName: 'Fashion Forward',
       amount: 499,
       status: 'overdue',
-      dueDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+      dueDate: daysFromNow(-10),
       paidAt: null,
+      paddleTransactionId: 'txn_01hv2qm1n2p3q4r5s6t7u8v9w0',
+      invoiceUrl: null,
     },
   ];
 
-  const mockPlans = [
+  // Mirrors core TIER_PRICING (Starter $499, Professional $999, Enterprise custom).
+  const mockPlans: Plan[] = [
     {
       id: 'starter',
       name: 'Starter',
-      price: 99,
-      features: ['2 platforms', '5 campaigns', 'Basic analytics', 'Email support'],
+      price: 499,
+      features: ['Meta (Facebook, Instagram, WhatsApp)', '50 campaigns', 'Basic analytics', 'Email support'],
       subscribers: 23,
     },
     {
-      id: 'pro',
-      name: 'Pro',
-      price: 499,
+      id: 'professional',
+      name: 'Professional',
+      price: 999,
       features: [
-        '5 platforms',
+        'Meta (Facebook, Instagram, WhatsApp)',
         'Unlimited campaigns',
         'Advanced analytics',
         'Priority support',
@@ -207,9 +260,9 @@ export default function Billing() {
     {
       id: 'enterprise',
       name: 'Enterprise',
-      price: 1999,
+      price: null,
       features: [
-        'Unlimited platforms',
+        'Meta (Facebook, Instagram, WhatsApp)',
         'Unlimited campaigns',
         'Custom analytics',
         'Dedicated support',
@@ -222,68 +275,80 @@ export default function Billing() {
 
   // Use API data or fallback to mock
   const subscriptions: Subscription[] =
-    subscriptionsData?.items?.map((s) => ({
-      id: s.id,
-      tenantId: String(s.tenantId),
-      tenantName: s.tenantName,
-      plan: s.plan as PlanType,
-      status: s.status,
-      mrr: s.mrr,
-      startDate: new Date(s.startDate),
-      nextBilling: new Date(s.nextBillingDate),
-      paymentMethod: s.paymentMethod,
-      failedPayments: s.failedPayments,
-    })) ?? mockSubscriptions;
+    subscriptionsData?.items && subscriptionsData.items.length > 0
+      ? subscriptionsData.items.map((s) => ({
+          id: s.id,
+          tenantId: String(s.tenantId),
+          tenantName: s.tenantName,
+          plan: toPlanType(s.plan),
+          status: s.status,
+          mrr: s.mrr,
+          startDate: toDate(s.startDate),
+          nextBilling: toDate(s.nextBillingDate),
+          cancelAtPeriodEnd: s.cancelAtPeriodEnd,
+          paddleSubscriptionId: s.paddleSubscriptionId ?? null,
+          paddleCustomerId: s.paddleCustomerId ?? null,
+        }))
+      : mockSubscriptions;
 
   const invoices: Invoice[] =
-    invoicesData?.items?.map((i) => ({
-      id: i.id,
-      tenantName: i.tenantName,
-      amount: i.amount,
-      status: i.status,
-      dueDate: new Date(i.dueDate),
-      paidAt: i.paidAt ? new Date(i.paidAt) : null,
-    })) ?? mockInvoices;
+    invoicesData?.items && invoicesData.items.length > 0
+      ? invoicesData.items.map((i) => ({
+          id: i.invoiceNumber ?? i.id,
+          tenantName: i.tenantName,
+          amount: i.amount,
+          status: i.status,
+          dueDate: toDate(i.dueDate),
+          paidAt: toDate(i.paidAt),
+          paddleTransactionId: i.paddleTransactionId ?? null,
+          invoiceUrl: i.invoiceUrl ?? null,
+        }))
+      : mockInvoices;
 
-  const plans =
-    plansData?.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: p.price,
-      features: p.features,
-      subscribers: p.subscriberCount,
-      highlighted: p.name === 'Pro',
-    })) ?? mockPlans;
+  const plans: Plan[] =
+    plansData && plansData.length > 0
+      ? plansData
+          .filter((p) => (p.tier ?? p.id) !== 'free')
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            features: p.features,
+            subscribers: p.subscriberCount,
+            highlighted: (p.tier ?? p.id) === 'professional',
+          }))
+      : mockPlans;
 
-  const handleRetryPayment = async (subscriptionId: string) => {
-    try {
-      await retryPaymentMutation.mutateAsync(subscriptionId);
-      toast({
-        title: 'Success',
-        description: 'Payment retry initiated successfully',
-      });
-    } catch (error) {
-      console.error('Failed to retry payment:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to retry payment. Please try again.',
-        variant: 'destructive',
-      });
-    }
+  const metrics = {
+    mrr: revenueData?.mrr ?? mockMetrics.mrr,
+    mrrGrowth: revenueData?.mrrGrowth ?? mockMetrics.mrrGrowth,
+    arr: revenueData?.arr ?? mockMetrics.arr,
+    activeSubscriptions: subscriptionsData?.items
+      ? subscriptionsData.items.filter((s) => s.status === 'active').length
+      : mockMetrics.activeSubscriptions,
+    churnRate: revenueData?.churnRate ?? mockMetrics.churnRate,
+    pastDue: subscriptionsData?.items
+      ? subscriptionsData.items.filter((s) => s.status === 'past_due').length
+      : mockMetrics.pastDue,
+    totalRevenue: mockMetrics.totalRevenue,
   };
+
+  const pastDueSubscriptions = subscriptions.filter((s) => s.status === 'past_due');
+  const pausedSubscriptions = subscriptions.filter((s) => s.status === 'paused');
 
   // Export billing report to CSV
   const handleExportReport = () => {
     try {
       const csvData = [
-        ['Invoice ID', 'Tenant', 'Amount', 'Status', 'Due Date', 'Paid At'],
+        ['Invoice ID', 'Tenant', 'Amount', 'Status', 'Due Date', 'Paid At', 'Paddle Transaction'],
         ...invoices.map((inv) => [
           inv.id,
           inv.tenantName,
           `$${inv.amount}`,
           inv.status,
-          inv.dueDate.toLocaleDateString(),
-          inv.paidAt ? inv.paidAt.toLocaleDateString() : 'N/A',
+          formatDate(inv.dueDate),
+          inv.paidAt ? formatDate(inv.paidAt) : 'N/A',
+          inv.paddleTransactionId ?? '',
         ]),
       ];
       const csvContent = csvData.map((row) => row.join(',')).join('\n');
@@ -313,7 +378,7 @@ export default function Billing() {
   const handleContactCustomer = (tenantName: string) => {
     // In production, this would fetch actual email from backend
     const email = `billing@${tenantName.toLowerCase().replace(/\s+/g, '')}.com`;
-    window.location.href = `mailto:${email}?subject=Payment%20Issue%20-%20${encodeURIComponent(tenantName)}&body=Dear%20${encodeURIComponent(tenantName)}%20Team,%0A%0AWe%20noticed%20there%20is%20an%20issue%20with%20your%20payment.%20Please%20contact%20us%20to%20resolve%20this.`;
+    window.location.href = `mailto:${email}?subject=Payment%20Issue%20-%20${encodeURIComponent(tenantName)}&body=Dear%20${encodeURIComponent(tenantName)}%20Team,%0A%0AWe%20noticed%20there%20is%20an%20issue%20with%20your%20payment.%20Please%20update%20your%20payment%20method%20from%20Settings%20%3E%20Billing.`;
     toast({
       title: 'Email Client Opened',
       description: `Opening email to contact ${tenantName}`,
@@ -332,51 +397,25 @@ export default function Billing() {
     setShowInvoiceModal(true);
   };
 
-  // Download invoice as PDF (placeholder)
+  // Download invoice - opens the Paddle-hosted invoice PDF when we have its URL
   const handleDownloadInvoice = (invoice: Invoice) => {
-    try {
-      // In production, this would call an API to generate actual PDF
-      const invoiceContent = `
-INVOICE
-=======
-Invoice ID: ${invoice.id}
-Tenant: ${invoice.tenantName}
-Amount: $${invoice.amount.toLocaleString()}
-Status: ${invoice.status}
-Due Date: ${invoice.dueDate.toLocaleDateString()}
-${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
-      `.trim();
-
-      const blob = new Blob([invoiceContent], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `invoice-${invoice.id}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
+    if (!invoice.invoiceUrl) {
       toast({
-        title: 'Invoice Downloaded',
-        description: `Invoice ${invoice.id} has been downloaded`,
+        title: 'Invoice PDF unavailable',
+        description: INVOICE_PDF_UNAVAILABLE,
       });
-    } catch (error) {
-      toast({
-        title: 'Download Failed',
-        description: 'Unable to download invoice',
-        variant: 'destructive',
-      });
+      return;
     }
+    window.open(invoice.invoiceUrl, '_blank', 'noopener,noreferrer');
   };
 
   // Edit plan - show modal
-  const handleEditPlan = (plan: (typeof mockPlans)[0]) => {
+  const handleEditPlan = (plan: Plan) => {
     setSelectedPlan(plan);
     setShowEditPlanModal(true);
   };
 
-  const getStatusColor = (status: SubscriptionStatus | InvoiceStatus) => {
+  const getStatusColor = (status: SubscriptionStatus | InvoiceStatus | null) => {
     switch (status) {
       case 'active':
       case 'paid':
@@ -386,14 +425,16 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
         return 'text-danger bg-danger/10';
       case 'pending':
       case 'trialing':
+      case 'paused':
         return 'text-warning bg-warning/10';
       case 'canceled':
       case 'failed':
+      default:
         return 'text-text-muted bg-surface-tertiary';
     }
   };
 
-  const getStatusIcon = (status: SubscriptionStatus | InvoiceStatus) => {
+  const getStatusIcon = (status: SubscriptionStatus | InvoiceStatus | null) => {
     switch (status) {
       case 'active':
       case 'paid':
@@ -405,7 +446,10 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
       case 'pending':
       case 'trialing':
         return <ClockIcon className="w-4 h-4" />;
+      case 'paused':
+        return <PauseCircleIcon className="w-4 h-4" />;
       case 'canceled':
+      default:
         return <XCircleIcon className="w-4 h-4" />;
     }
   };
@@ -423,7 +467,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Billing</h1>
-          <p className="text-text-muted">Revenue and subscription management</p>
+          <p className="text-text-muted">Revenue and subscription overview · powered by Paddle</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -509,57 +553,78 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-white">{plan.name}</span>
-                    <span className="text-stratum-400">${plan.price}/mo</span>
+                    <span className="text-stratum-400">
+                      {plan.price === null ? 'Custom' : `${formatPrice(plan.price)}/mo`}
+                    </span>
                   </div>
                   <div className="text-3xl font-bold text-white">{plan.subscribers}</div>
                   <div className="text-sm text-text-muted">subscribers</div>
                   <div className="mt-2 text-sm text-text-muted">
-                    ${(plan.price * plan.subscribers).toLocaleString()} MRR
+                    {plan.price === null
+                      ? 'Custom MRR'
+                      : `$${(plan.price * plan.subscribers).toLocaleString()} MRR`}
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Recent Activity */}
+          {/* Dunning Alerts (state mirrored from Paddle; retries run in Paddle) */}
           <div className="rounded-2xl bg-surface-secondary border border-white/10 p-6">
-            <h2 className="font-semibold text-white mb-4">Dunning Alerts</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-white">Dunning Alerts</h2>
+              <span className="text-xs text-text-muted">Payment retries are handled by Paddle</span>
+            </div>
             <div className="space-y-3">
-              {subscriptions
-                .filter((s) => s.status === 'past_due' || s.failedPayments > 0)
-                .map((sub) => (
-                  <div
-                    key={sub.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-danger/5 border border-danger/20"
-                  >
-                    <div className="flex items-center gap-3">
-                      <ExclamationTriangleIcon className="w-5 h-5 text-danger" />
-                      <div>
-                        <div className="font-medium text-white">{sub.tenantName}</div>
-                        <div className="text-sm text-text-muted">
-                          {sub.failedPayments} failed payment(s) - {sub.paymentMethod}
-                        </div>
+              {pastDueSubscriptions.map((sub) => (
+                <div
+                  key={sub.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-danger/5 border border-danger/20"
+                >
+                  <div className="flex items-center gap-3">
+                    <ExclamationTriangleIcon className="w-5 h-5 text-danger" />
+                    <div>
+                      <div className="font-medium text-white">{sub.tenantName}</div>
+                      <div className="text-sm text-text-muted">
+                        Payment past due · Paddle subscription{' '}
+                        <span className="font-mono">{sub.paddleSubscriptionId ?? '—'}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleContactCustomer(sub.tenantName)}
-                        className="px-3 py-1 rounded-lg bg-surface-tertiary text-text-secondary hover:text-white text-sm transition-colors"
-                      >
-                        Contact
-                      </button>
-                      <button
-                        onClick={() => handleRetryPayment(sub.id)}
-                        disabled={retryPaymentMutation.isPending}
-                        className="px-3 py-1 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 text-sm transition-colors disabled:opacity-50"
-                      >
-                        {retryPaymentMutation.isPending ? 'Retrying...' : 'Retry Payment'}
-                      </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleContactCustomer(sub.tenantName)}
+                      className="px-3 py-1 rounded-lg bg-surface-tertiary text-text-secondary hover:text-white text-sm transition-colors"
+                    >
+                      Contact
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {pausedSubscriptions.map((sub) => (
+                <div
+                  key={sub.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-warning/5 border border-warning/20"
+                >
+                  <div className="flex items-center gap-3">
+                    <PauseCircleIcon className="w-5 h-5 text-warning" />
+                    <div>
+                      <div className="font-medium text-white">{sub.tenantName}</div>
+                      <div className="text-sm text-text-muted">
+                        Subscription paused · Paddle subscription{' '}
+                        <span className="font-mono">{sub.paddleSubscriptionId ?? '—'}</span>
+                      </div>
                     </div>
                   </div>
-                ))}
-              {subscriptions.filter((s) => s.status === 'past_due' || s.failedPayments > 0)
-                .length === 0 && (
+                  <button
+                    onClick={() => handleContactCustomer(sub.tenantName)}
+                    className="px-3 py-1 rounded-lg bg-surface-tertiary text-text-secondary hover:text-white text-sm transition-colors"
+                  >
+                    Contact
+                  </button>
+                </div>
+              ))}
+              {pastDueSubscriptions.length === 0 && pausedSubscriptions.length === 0 && (
                 <div className="flex items-center gap-2 text-success p-3">
                   <CheckCircleIcon className="w-5 h-5" />
                   No dunning alerts - all payments up to date
@@ -572,7 +637,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
 
       {/* Subscriptions Tab */}
       {activeTab === 'subscriptions' && (
-        <div className="rounded-2xl bg-surface-secondary border border-white/10 overflow-hidden">
+        <div className="rounded-2xl bg-surface-secondary border border-white/10 overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/10">
@@ -581,7 +646,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                 <th className="text-left p-4 text-text-muted font-medium">Status</th>
                 <th className="text-left p-4 text-text-muted font-medium">MRR</th>
                 <th className="text-left p-4 text-text-muted font-medium">Next Billing</th>
-                <th className="text-left p-4 text-text-muted font-medium">Payment Method</th>
+                <th className="text-left p-4 text-text-muted font-medium">Paddle Subscription</th>
                 <th className="text-left p-4 text-text-muted font-medium">Actions</th>
               </tr>
             </thead>
@@ -604,16 +669,18 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                       )}
                     >
                       {getStatusIcon(sub.status)}
-                      {sub.status.replace('_', ' ')}
+                      {formatStatus(sub.status)}
                     </span>
+                    {sub.cancelAtPeriodEnd && (
+                      <div className="text-[11px] text-text-muted mt-1">Cancels at period end</div>
+                    )}
                   </td>
                   <td className="p-4 text-white font-medium">${sub.mrr.toLocaleString()}</td>
-                  <td className="p-4 text-text-muted">{sub.nextBilling.toLocaleDateString()}</td>
+                  <td className="p-4 text-text-muted">{formatDate(sub.nextBilling)}</td>
                   <td className="p-4">
-                    <div className="flex items-center gap-2 text-text-muted">
-                      <CreditCardIcon className="w-4 h-4" />
-                      {sub.paymentMethod}
-                    </div>
+                    <span className="font-mono text-xs text-text-muted">
+                      {sub.paddleSubscriptionId ?? '—'}
+                    </span>
                   </td>
                   <td className="p-4">
                     <button
@@ -632,7 +699,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
 
       {/* Invoices Tab */}
       {activeTab === 'invoices' && (
-        <div className="rounded-2xl bg-surface-secondary border border-white/10 overflow-hidden">
+        <div className="rounded-2xl bg-surface-secondary border border-white/10 overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/10">
@@ -641,6 +708,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                 <th className="text-left p-4 text-text-muted font-medium">Amount</th>
                 <th className="text-left p-4 text-text-muted font-medium">Status</th>
                 <th className="text-left p-4 text-text-muted font-medium">Due Date</th>
+                <th className="text-left p-4 text-text-muted font-medium">Paddle Transaction</th>
                 <th className="text-left p-4 text-text-muted font-medium">Actions</th>
               </tr>
             </thead>
@@ -661,7 +729,12 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                       {invoice.status}
                     </span>
                   </td>
-                  <td className="p-4 text-text-muted">{invoice.dueDate.toLocaleDateString()}</td>
+                  <td className="p-4 text-text-muted">{formatDate(invoice.dueDate)}</td>
+                  <td className="p-4">
+                    <span className="font-mono text-xs text-text-muted">
+                      {invoice.paddleTransactionId ?? '—'}
+                    </span>
+                  </td>
                   <td className="p-4">
                     <div className="flex items-center gap-2">
                       <button
@@ -672,7 +745,9 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                       </button>
                       <button
                         onClick={() => handleDownloadInvoice(invoice)}
-                        className="text-text-muted hover:text-white text-sm"
+                        disabled={!invoice.invoiceUrl}
+                        title={invoice.invoiceUrl ? 'Open invoice PDF' : INVOICE_PDF_UNAVAILABLE}
+                        className="text-text-muted hover:text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-muted"
                       >
                         Download
                       </button>
@@ -700,8 +775,8 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
             >
               <h3 className="text-xl font-semibold text-white mb-2">{plan.name}</h3>
               <div className="flex items-baseline gap-1 mb-4">
-                <span className="text-3xl font-bold text-white">${plan.price}</span>
-                <span className="text-text-muted">/month</span>
+                <span className="text-3xl font-bold text-white">{formatPrice(plan.price)}</span>
+                {plan.price !== null && <span className="text-text-muted">/month</span>}
               </div>
 
               <div className="py-4 border-t border-b border-white/10 mb-4">
@@ -774,22 +849,30 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Due Date</span>
-                <span className="text-white">{selectedInvoice.dueDate.toLocaleDateString()}</span>
+                <span className="text-white">{formatDate(selectedInvoice.dueDate)}</span>
               </div>
               {selectedInvoice.paidAt && (
                 <div className="flex justify-between">
                   <span className="text-text-muted">Paid At</span>
-                  <span className="text-white">{selectedInvoice.paidAt.toLocaleDateString()}</span>
+                  <span className="text-white">{formatDate(selectedInvoice.paidAt)}</span>
                 </div>
               )}
+              <div className="flex justify-between gap-4">
+                <span className="text-text-muted">Paddle Transaction</span>
+                <span className="text-white font-mono text-xs break-all text-right">
+                  {selectedInvoice.paddleTransactionId ?? '—'}
+                </span>
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => handleDownloadInvoice(selectedInvoice)}
-                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-stratum-500 text-white hover:bg-stratum-600 transition-colors"
+                disabled={!selectedInvoice.invoiceUrl}
+                title={selectedInvoice.invoiceUrl ? 'Open invoice PDF' : INVOICE_PDF_UNAVAILABLE}
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-stratum-500 text-white hover:bg-stratum-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <ArrowDownTrayIcon className="w-4 h-4" />
+                <ArrowTopRightOnSquareIcon className="w-4 h-4" />
                 Download
               </button>
               <button
@@ -811,7 +894,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-surface-secondary rounded-2xl border border-white/10 p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-white">Manage Subscription</h2>
+              <h2 className="text-xl font-semibold text-white">Subscription</h2>
               <button
                 onClick={() => {
                   setShowSubscriptionModal(false);
@@ -842,7 +925,7 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                     getStatusColor(selectedSubscription.status)
                   )}
                 >
-                  {selectedSubscription.status.replace('_', ' ')}
+                  {formatStatus(selectedSubscription.status)}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -851,30 +934,36 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                   ${selectedSubscription.mrr.toLocaleString()}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Payment Method</span>
-                <span className="text-white">{selectedSubscription.paymentMethod}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-text-muted">Paddle Subscription</span>
+                <span className="text-white font-mono text-xs break-all text-right">
+                  {selectedSubscription.paddleSubscriptionId ?? '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-text-muted">Paddle Customer</span>
+                <span className="text-white font-mono text-xs break-all text-right">
+                  {selectedSubscription.paddleCustomerId ?? '—'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Next Billing</span>
-                <span className="text-white">
-                  {selectedSubscription.nextBilling.toLocaleDateString()}
-                </span>
+                <span className="text-white">{formatDate(selectedSubscription.nextBilling)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Start Date</span>
-                <span className="text-white">
-                  {selectedSubscription.startDate.toLocaleDateString()}
-                </span>
+                <span className="text-white">{formatDate(selectedSubscription.startDate)}</span>
               </div>
-              {selectedSubscription.failedPayments > 0 && (
+              {selectedSubscription.cancelAtPeriodEnd && (
                 <div className="flex justify-between">
-                  <span className="text-text-muted">Failed Payments</span>
-                  <span className="text-danger font-semibold">
-                    {selectedSubscription.failedPayments}
-                  </span>
+                  <span className="text-text-muted">Scheduled change</span>
+                  <span className="text-warning font-semibold">Cancels at period end</span>
                 </div>
               )}
+              <p className="text-xs text-text-muted pt-2 border-t border-white/10">
+                Plan changes, cancellations and payment retries are managed in Paddle and mirrored
+                here through webhooks.
+              </p>
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -885,19 +974,6 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                 <EnvelopeIcon className="w-4 h-4" />
                 Contact
               </button>
-              {selectedSubscription.status === 'past_due' && (
-                <button
-                  onClick={() => {
-                    handleRetryPayment(selectedSubscription.id);
-                    setShowSubscriptionModal(false);
-                    setSelectedSubscription(null);
-                  }}
-                  disabled={retryPaymentMutation.isPending}
-                  className="flex-1 py-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors disabled:opacity-50"
-                >
-                  {retryPaymentMutation.isPending ? 'Retrying...' : 'Retry Payment'}
-                </button>
-              )}
               <button
                 onClick={() => {
                   setShowSubscriptionModal(false);
@@ -939,12 +1015,16 @@ ${invoice.paidAt ? `Paid At: ${invoice.paidAt.toLocaleDateString()}` : ''}
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-muted mb-2">Price ($/month)</label>
+                <label className="block text-sm text-text-muted mb-2">List Price ($/month)</label>
                 <input
-                  type="number"
-                  defaultValue={selectedPlan.price}
-                  className="w-full px-4 py-2 rounded-lg bg-surface-tertiary border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-stratum-500/50"
+                  type="text"
+                  value={formatPrice(selectedPlan.price)}
+                  readOnly
+                  className="w-full px-4 py-2 rounded-lg bg-surface-tertiary border border-white/10 text-text-muted focus:outline-none"
                 />
+                <p className="text-xs text-text-muted mt-1">
+                  The billable price is set on the Paddle price (pri_...) for this tier.
+                </p>
               </div>
               <div>
                 <label className="block text-sm text-text-muted mb-2">

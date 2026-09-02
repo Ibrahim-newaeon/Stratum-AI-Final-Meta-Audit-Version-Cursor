@@ -89,6 +89,14 @@ services:
       - META_APP_SECRET=${META_APP_SECRET:-}
       # Monitoring
       - SENTRY_DSN=${SENTRY_DSN:-}
+      # Paddle Billing (optional; empty API key = billing disabled, sandbox by default)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ../../ml_service/models:/app/ml_service/models:ro
     ports:
@@ -133,6 +141,14 @@ services:
       - HUBSPOT_API_KEY=${HUBSPOT_API_KEY:-}
       - SALESFORCE_CLIENT_ID=${SALESFORCE_CLIENT_ID:-}
       - ZOHO_CLIENT_ID=${ZOHO_CLIENT_ID:-}
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ../../ml_service/models:/app/ml_service/models:ro
     depends_on:
@@ -159,6 +175,14 @@ services:
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-stratum_enterprise}:${POSTGRES_PASSWORD:-enterprise_secure_password}@db:5432/${POSTGRES_DB:-stratum_enterprise}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     depends_on:
       - worker
     networks:
@@ -182,7 +206,7 @@ services:
       - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
       - VITE_SUBSCRIPTION_TIER=enterprise
     ports:
-      - "5173:80"
+      - "5173:8080"
     depends_on:
       - api
     networks:

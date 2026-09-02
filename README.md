@@ -41,6 +41,7 @@ Signal Health Check → Trust Gate → Automation Decision
 | **Meta Platform** | Facebook, Instagram, and WhatsApp integrations (Meta Marketing API) |
 | **Measurement & Verification** | Google Analytics 4 read-only baseline (Data API + service account) and Google Tag Manager web/server-side tagging for Meta Pixel/CAPI, independent verification, not an ad channel |
 | **CRM Integration** | HubSpot bidirectional sync with identity matching |
+| **Billing** | Paddle Billing (Merchant of Record): Paddle.js overlay checkout, signed webhooks keep the tenant plan in sync, customer portal and invoice PDFs |
 | **Attribution** | 6 models including Markov Chain & Shapley Value |
 | **Pacing** | Budget forecasting with EWMA predictions |
 | **A/B Testing** | Statistical analysis with power calculations |
@@ -109,6 +110,7 @@ Interactive calculator at `/calculator` estimates the business impact of improve
 ### Infrastructure
 - Docker, AWS-ready (ECS, RDS, ElastiCache)
 - Prometheus, Grafana, Sentry
+- Paddle Billing (subscriptions, invoices, customer portal) via a thin httpx client and Paddle.js v2
 
 ## Quick Start
 

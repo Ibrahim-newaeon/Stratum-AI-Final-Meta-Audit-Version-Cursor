@@ -34,6 +34,17 @@ GA_IMG_HOSTS = (
     "https://*.googletagmanager.com"
 )
 
+# Paddle Billing: Paddle.js v2 (script) + checkout/API hosts (connect + overlay iframe).
+# The *.paddle.com wildcard also covers the sandbox hosts (sandbox-api.paddle.com,
+# sandbox-buy.paddle.com, sandbox-checkout-service.paddle.com, sandbox-cdn.paddle.com).
+PADDLE_SCRIPT_HOSTS = "https://cdn.paddle.com"
+PADDLE_CONNECT_HOSTS = "https://*.paddle.com"
+PADDLE_FRAME_HOSTS = "https://*.paddle.com"
+
+# Permissions-Policy: the Payment Request API is only needed inside the Paddle
+# checkout frames (Apple Pay / Google Pay).
+PAYMENT_PERMISSION_POLICY = 'payment=(self "https://buy.paddle.com" "https://sandbox-buy.paddle.com")'
+
 
 def build_csp(production: bool) -> str:
     """
@@ -49,15 +60,15 @@ def build_csp(production: bool) -> str:
     if production:
         directives = [
             "default-src 'self'",
-            f"script-src 'self' https://cdn.jsdelivr.net {GTM_SCRIPT_HOSTS}",
+            f"script-src 'self' https://cdn.jsdelivr.net {GTM_SCRIPT_HOSTS} {PADDLE_SCRIPT_HOSTS}",
             "style-src 'self' 'unsafe-inline'",
             "font-src 'self' data:",
             f"img-src 'self' data: https: blob: {GA_IMG_HOSTS}",
             (
-                "connect-src 'self' https://api.stripe.com https://*.sentry.io wss: ws: "
+                f"connect-src 'self' {PADDLE_CONNECT_HOSTS} https://*.sentry.io wss: ws: "
                 f"{GA_CONNECT_HOSTS}"
             ),
-            "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+            f"frame-src 'self' {PADDLE_FRAME_HOSTS}",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
@@ -67,15 +78,18 @@ def build_csp(production: bool) -> str:
     else:
         directives = [
             "default-src 'self'",
-            f"script-src 'self' 'unsafe-inline' 'unsafe-eval' {GTM_SCRIPT_HOSTS}",
+            (
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+                f"{GTM_SCRIPT_HOSTS} {PADDLE_SCRIPT_HOSTS}"
+            ),
             "style-src 'self' 'unsafe-inline'",
             "font-src 'self' data:",
             f"img-src 'self' data: https: blob: {GA_IMG_HOSTS}",
             (
-                "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* "
-                f"{GA_CONNECT_HOSTS}"
+                f"connect-src 'self' {PADDLE_CONNECT_HOSTS} ws: wss: "
+                f"http://localhost:* http://127.0.0.1:* {GA_CONNECT_HOSTS}"
             ),
-            "frame-src 'self'",
+            f"frame-src 'self' {PADDLE_FRAME_HOSTS}",
             "object-src 'none'",
         ]
     return "; ".join(directives)
@@ -125,7 +139,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "camera=(), "
             "microphone=(), "
             "geolocation=(), "
-            "payment=(), "
+            f"{PAYMENT_PERMISSION_POLICY}, "
             "usb=(), "
             "magnetometer=(), "
             "gyroscope=(), "

@@ -38,7 +38,11 @@ def upgrade() -> None:
         sa.Column('domain', sa.String(length=255), nullable=True),
         sa.Column('plan', sa.String(length=50), nullable=False, server_default='free'),
         sa.Column('plan_expires_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('stripe_customer_id', sa.String(length=255), nullable=True),
+        # Paddle Billing (merchant of record): customer / subscription linkage
+        sa.Column('paddle_customer_id', sa.String(length=255), nullable=True),
+        sa.Column('paddle_subscription_id', sa.String(length=255), nullable=True),
+        sa.Column('subscription_status', sa.String(length=32), nullable=True),
+        sa.Column('current_period_end', sa.DateTime(timezone=True), nullable=True),
         sa.Column('settings', postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default='{}'),
         sa.Column('feature_flags', postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default='{}'),
         sa.Column('max_users', sa.Integer(), nullable=False, server_default='5'),
@@ -52,6 +56,17 @@ def upgrade() -> None:
     )
     op.create_index('ix_tenants_slug', 'tenants', ['slug'])
     op.create_index('ix_tenants_active', 'tenants', ['is_deleted', 'plan'])
+    op.create_index('ix_tenants_paddle_customer', 'tenants', ['paddle_customer_id'])
+
+    # Paddle webhook events (idempotency ledger for POST /api/v1/webhooks/paddle)
+    op.create_table(
+        'paddle_webhook_events',
+        sa.Column('event_id', sa.String(length=64), nullable=False),
+        sa.Column('event_type', sa.String(length=64), nullable=False),
+        sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('processed_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.PrimaryKeyConstraint('event_id', name='pk_paddle_webhook_events')
+    )
 
     # Users table
     op.create_table(
@@ -395,6 +410,8 @@ def downgrade() -> None:
     op.drop_table('campaign_metrics')
     op.drop_table('campaigns')
     op.drop_table('users')
+    op.drop_table('paddle_webhook_events')
+    op.drop_index('ix_tenants_paddle_customer', table_name='tenants')
     op.drop_table('tenants')
 
     # Drop enum types

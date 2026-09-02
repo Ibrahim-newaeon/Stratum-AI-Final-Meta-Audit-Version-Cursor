@@ -79,6 +79,14 @@ services:
       # CRM Integrations
       - PIPEDRIVE_API_TOKEN=${PIPEDRIVE_API_TOKEN:-}
       - HUBSPOT_API_KEY=${HUBSPOT_API_KEY:-}
+      # Paddle Billing (optional; empty API key = billing disabled, sandbox by default)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ../../ml_service/models:/app/ml_service/models:ro
     ports:
@@ -120,6 +128,14 @@ services:
       - USE_MOCK_AD_DATA=${USE_MOCK_AD_DATA:-true}
       - PIPEDRIVE_API_TOKEN=${PIPEDRIVE_API_TOKEN:-}
       - HUBSPOT_API_KEY=${HUBSPOT_API_KEY:-}
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ../../ml_service/models:/app/ml_service/models:ro
     depends_on:
@@ -146,6 +162,14 @@ services:
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-stratum_pro}:${POSTGRES_PASSWORD:-pro_secure_password}@db:5432/${POSTGRES_DB:-stratum_professional}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     depends_on:
       - worker
     networks:

@@ -72,6 +72,14 @@ services:
       # Slack Integration
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - SLACK_CHANNEL=${SLACK_CHANNEL:-#stratum-alerts}
+      # Paddle Billing (optional; empty API key = billing disabled, sandbox by default)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./backend:/app
       - ./ml_service/models:/app/ml_service/models:ro
@@ -116,6 +124,14 @@ services:
       # Slack Integration (for background alerts)
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - SLACK_CHANNEL=${SLACK_CHANNEL:-#stratum-alerts}
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./backend:/app
       - ./ml_service/models:/app/ml_service/models:ro
@@ -151,6 +167,14 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./backend:/app
     depends_on:

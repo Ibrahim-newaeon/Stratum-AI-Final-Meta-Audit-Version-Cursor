@@ -93,29 +93,51 @@ export interface AuditLogEntry {
   status: string;
 }
 
+/** Paddle subscription lifecycle states mirrored on the tenant. */
+export type SuperAdminSubscriptionStatus =
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'paused'
+  | 'canceled';
+
 export interface Invoice {
   id: number;
   tenant_id: number;
   tenant_name: string;
+  invoice_number?: string | null;
   amount: number;
+  total?: number;
   currency: string;
   status: string;
-  due_date: string;
+  due_date: string | null;
   paid_at: string | null;
-  stripe_invoice_id: string | null;
+  created_at?: string | null;
+  /** Paddle transaction id (txn_...) backing this invoice, when known. */
+  paddle_transaction_id: string | null;
+  /** Paddle-hosted invoice PDF URL, when available. */
+  invoice_url: string | null;
 }
 
 export interface Subscription {
   id: number;
   tenant_id: number;
   tenant_name: string;
-  plan_id: number;
-  plan_name: string;
-  status: string;
-  current_period_start: string;
-  current_period_end: string;
+  plan_id: string | number | null;
+  plan_name: string | null;
+  /** Paddle status; null for tenants without a Paddle subscription (free / admin-granted). */
+  status: SuperAdminSubscriptionStatus | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
   cancel_at_period_end: boolean;
   mrr: number;
+  /** Paddle subscription id (sub_...). */
+  paddle_subscription_id: string | null;
+  /** Paddle customer id (ctm_...). */
+  paddle_customer_id: string | null;
+  plan_expires_at?: string | null;
+  /** 'subscriptions' when read from the raw table, 'tenant' when derived from tenants. */
+  source?: 'subscriptions' | 'tenant';
 }
 
 // =============================================================================
@@ -141,6 +163,20 @@ export const superAdminQueryKeys = {
 // =============================================================================
 // API Functions
 // =============================================================================
+
+/**
+ * The superadmin billing endpoints wrap their lists in an object
+ * (`{ invoices: [...] }`, `{ subscriptions: [...] }`). Accept both that envelope and a
+ * bare array so callers always receive a list.
+ */
+const unwrapList = <T>(payload: unknown, key: string): T[] => {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === 'object') {
+    const list = (payload as Record<string, unknown>)[key];
+    if (Array.isArray(list)) return list as T[];
+  }
+  return [];
+};
 
 const fetchSuperAdminOverview = async (date?: string): Promise<SuperAdminOverview> => {
   const params = date ? `?date=${date}` : '';
@@ -235,10 +271,10 @@ const fetchInvoices = async (filters?: {
   if (filters?.skip) params.append('skip', String(filters.skip));
   if (filters?.limit) params.append('limit', String(filters.limit));
 
-  const response = await apiClient.get<ApiResponse<Invoice[]>>(
+  const response = await apiClient.get<ApiResponse<unknown>>(
     `/superadmin/billing/invoices?${params.toString()}`
   );
-  return response.data.data;
+  return unwrapList<Invoice>(response.data.data, 'invoices');
 };
 
 const fetchSubscriptions = async (filters?: {
@@ -253,10 +289,10 @@ const fetchSubscriptions = async (filters?: {
   if (filters?.skip) params.append('skip', String(filters.skip));
   if (filters?.limit) params.append('limit', String(filters.limit));
 
-  const response = await apiClient.get<ApiResponse<Subscription[]>>(
+  const response = await apiClient.get<ApiResponse<unknown>>(
     `/superadmin/billing/subscriptions?${params.toString()}`
   );
-  return response.data.data;
+  return unwrapList<Subscription>(response.data.data, 'subscriptions');
 };
 
 // =============================================================================

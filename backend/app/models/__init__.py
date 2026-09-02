@@ -17,6 +17,8 @@ from app.base_models import (
     CreativeAsset,
     MLPrediction,
     NotificationPreference,
+    # Paddle Billing webhook idempotency ledger
+    PaddleWebhookEvent,
     Rule,
     RuleAction,
     RuleExecution,
@@ -254,6 +256,7 @@ __all__ = [
     "MLPrediction",
     "NotificationPreference",
     "APIKey",
+    "PaddleWebhookEvent",
     "WhatsAppContact",
     "WhatsAppTemplate",
     "WhatsAppMessage",

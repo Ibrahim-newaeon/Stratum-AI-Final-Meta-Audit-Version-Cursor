@@ -19,6 +19,8 @@ from app.api.v1.endpoints import (
     auth,
     autopilot,
     autopilot_enforcement,
+    # Billing (Paddle Billing)
+    billing,
     campaign_builder,
     campaigns,
     capi,
@@ -48,7 +50,8 @@ from app.api.v1.endpoints import (
     onboarding,
     onboarding_agent,
     pacing,
-    payments,
+    # Paddle Webhooks (public, signature-verified notification endpoint)
+    paddle_webhook,
     predictions,
     profit,
     qa_fixes,
@@ -56,7 +59,6 @@ from app.api.v1.endpoints import (
     rules,
     simulator,
     slack,
-    stripe_webhook,
     subscription,
     superadmin,
     superadmin_analytics,
@@ -371,16 +373,16 @@ api_router.include_router(
     tags=["Subscription"],
 )
 
-# Payment Processing (Stripe integration)
+# Billing (Paddle Billing)
 api_router.include_router(
-    payments.router,
-    tags=["Payments"],
+    billing.router,
+    tags=["Billing"],
 )
 
-# Stripe Webhooks (public endpoint for Stripe events)
+# Paddle Webhooks (public, signature-verified notification endpoint)
 api_router.include_router(
-    stripe_webhook.router,
-    tags=["Stripe Webhooks"],
+    paddle_webhook.router,
+    tags=["Paddle Webhooks"],
 )
 
 # MFA (Two-Factor Authentication)

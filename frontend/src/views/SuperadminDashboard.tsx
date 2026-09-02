@@ -23,6 +23,7 @@ import {
   Database,
   DollarSign,
   Edit,
+  ExternalLink,
   Eye,
   FileText,
   Globe,
@@ -112,6 +113,37 @@ interface SystemAlert {
   timestamp: string;
 }
 
+/** Invoice row from GET /superadmin/billing/invoices (Paddle issues the invoices). */
+interface InvoiceRow {
+  id: number;
+  tenant_id: number | null;
+  tenant_name: string | null;
+  invoice_number: string | null;
+  status: string | null;
+  total: number;
+  due_date: string | null;
+  paid_at: string | null;
+  paddle_transaction_id: string | null;
+  invoice_url: string | null;
+}
+
+/** Subscription row from GET /superadmin/billing/subscriptions (Paddle state on tenants). */
+interface SubscriptionRow {
+  id: number;
+  tenant_id: number;
+  tenant_name: string | null;
+  plan_id: string | null;
+  plan_name: string | null;
+  status: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  paddle_subscription_id: string | null;
+  paddle_customer_id: string | null;
+  mrr: number;
+}
+
+const INVOICE_PDF_UNAVAILABLE = 'Invoice PDF is available from Paddle';
+
 // =============================================================================
 // Mock data for features not yet connected
 // =============================================================================
@@ -169,7 +201,8 @@ export default function SuperadminDashboard() {
   const [churnRisks, setChurnRisks] = useState<ChurnRisk[]>([]);
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
   const [plans, setPlans] = useState<any[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
   const getAuthHeaders = () => {
@@ -182,26 +215,37 @@ export default function SuperadminDashboard() {
     setError(null);
 
     try {
-      const [revenueRes, tenantsRes, healthRes, churnRes, plansRes, invoicesRes, auditRes] =
-        await Promise.allSettled([
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/revenue`, { headers: getAuthHeaders() }),
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/tenants/portfolio`, {
-            headers: getAuthHeaders(),
-          }),
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/system/health`, {
-            headers: getAuthHeaders(),
-          }),
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/churn/risks`, { headers: getAuthHeaders() }),
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/billing/plans`, {
-            headers: getAuthHeaders(),
-          }),
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/billing/invoices`, {
-            headers: getAuthHeaders(),
-          }),
-          axios.get(`${API_BASE_URL}/api/v1/superadmin/audit?limit=100`, {
-            headers: getAuthHeaders(),
-          }),
-        ]);
+      const [
+        revenueRes,
+        tenantsRes,
+        healthRes,
+        churnRes,
+        plansRes,
+        invoicesRes,
+        subscriptionsRes,
+        auditRes,
+      ] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/revenue`, { headers: getAuthHeaders() }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/tenants/portfolio`, {
+          headers: getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/system/health`, {
+          headers: getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/churn/risks`, { headers: getAuthHeaders() }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/billing/plans`, {
+          headers: getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/billing/invoices`, {
+          headers: getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/billing/subscriptions`, {
+          headers: getAuthHeaders(),
+        }),
+        axios.get(`${API_BASE_URL}/api/v1/superadmin/audit?limit=100`, {
+          headers: getAuthHeaders(),
+        }),
+      ]);
 
       // Handle each response individually
       if (revenueRes.status === 'fulfilled' && revenueRes.value.data.success) {
@@ -221,6 +265,9 @@ export default function SuperadminDashboard() {
       }
       if (invoicesRes.status === 'fulfilled' && invoicesRes.value.data.success) {
         setInvoices(invoicesRes.value.data.data.invoices || []);
+      }
+      if (subscriptionsRes.status === 'fulfilled' && subscriptionsRes.value.data.success) {
+        setSubscriptions(subscriptionsRes.value.data.data.subscriptions || []);
       }
       if (auditRes.status === 'fulfilled' && auditRes.value.data.success) {
         setAuditLogs(auditRes.value.data.data.logs || []);
@@ -1166,10 +1213,9 @@ export default function SuperadminDashboard() {
             <div className="rounded-xl border bg-card shadow-card overflow-hidden">
               <div className="p-4 border-b flex items-center justify-between">
                 <h3 className="font-semibold">Subscription Plans</h3>
-                <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm">
-                  <Plus className="w-4 h-4" />
-                  Add Plan
-                </button>
+                <span className="text-xs text-muted-foreground">
+                  Prices and products are managed in the Paddle catalogue
+                </span>
               </div>
               <table className="w-full text-sm">
                 <thead className="bg-muted/30">
@@ -1196,10 +1242,16 @@ export default function SuperadminDashboard() {
                         <PlanBadge plan={plan.tier} />
                       </td>
                       <td className="py-3 px-4 text-right font-medium">
-                        {formatCurrency(plan.price || 0)}
-                        <span className="text-muted-foreground text-xs">
-                          /{plan.billing_period || 'mo'}
-                        </span>
+                        {plan.price === null || plan.price === undefined ? (
+                          <span className="text-muted-foreground">Custom</span>
+                        ) : (
+                          <>
+                            {formatCurrency(plan.price)}
+                            <span className="text-muted-foreground text-xs">
+                              /{plan.billing_period || 'mo'}
+                            </span>
+                          </>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">{plan.limits?.max_users || '-'}</td>
                       <td className="py-3 px-4 text-center">{plan.limits?.max_campaigns || '-'}</td>
@@ -1242,10 +1294,7 @@ export default function SuperadminDashboard() {
                     <option>Pending</option>
                     <option>Overdue</option>
                   </select>
-                  <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm">
-                    <Plus className="w-4 h-4" />
-                    Generate Invoice
-                  </button>
+                  <span className="text-xs text-muted-foreground">Issued by Paddle</span>
                 </div>
               </div>
               {invoices.length === 0 ? (
@@ -1254,63 +1303,154 @@ export default function SuperadminDashboard() {
                   <p>No invoices found</p>
                 </div>
               ) : (
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/30">
-                    <tr>
-                      <th className="text-left py-3 px-4 font-medium">Invoice</th>
-                      <th className="text-left py-3 px-4 font-medium">Tenant</th>
-                      <th className="text-right py-3 px-4 font-medium">Amount</th>
-                      <th className="text-center py-3 px-4 font-medium">Status</th>
-                      <th className="text-left py-3 px-4 font-medium">Due Date</th>
-                      <th className="text-right py-3 px-4 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {invoices.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-muted/30">
-                        <td className="py-3 px-4 font-medium">{inv.invoice_number}</td>
-                        <td className="py-3 px-4">{inv.tenant_name}</td>
-                        <td className="py-3 px-4 text-right font-medium">
-                          {formatCurrency(inv.total)}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span
-                            className={cn(
-                              'px-2 py-1 rounded-full text-xs',
-                              inv.status === 'paid'
-                                ? 'bg-green-500/10 text-green-500'
-                                : inv.status === 'pending'
-                                  ? 'bg-blue-500/10 text-blue-500'
-                                  : inv.status === 'overdue'
-                                    ? 'bg-red-500/10 text-red-500'
-                                    : 'bg-gray-500/10 text-gray-500'
-                            )}
-                          >
-                            {inv.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">{inv.due_date || '-'}</td>
-                        <td className="py-3 px-4 text-right">
-                          <button className="p-1.5 rounded hover:bg-muted" title="View">
-                            <Eye className="w-4 h-4" />
-                          </button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30">
+                      <tr>
+                        <th className="text-left py-3 px-4 font-medium">Invoice</th>
+                        <th className="text-left py-3 px-4 font-medium">Tenant</th>
+                        <th className="text-right py-3 px-4 font-medium">Amount</th>
+                        <th className="text-center py-3 px-4 font-medium">Status</th>
+                        <th className="text-left py-3 px-4 font-medium">Due Date</th>
+                        <th className="text-left py-3 px-4 font-medium">Paddle Transaction</th>
+                        <th className="text-right py-3 px-4 font-medium">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y">
+                      {invoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-muted/30">
+                          <td className="py-3 px-4 font-medium">
+                            {inv.invoice_number || `#${inv.id}`}
+                          </td>
+                          <td className="py-3 px-4">{inv.tenant_name}</td>
+                          <td className="py-3 px-4 text-right font-medium">
+                            {formatCurrency(inv.total)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span
+                              className={cn(
+                                'px-2 py-1 rounded-full text-xs',
+                                inv.status === 'paid'
+                                  ? 'bg-green-500/10 text-green-500'
+                                  : inv.status === 'pending'
+                                    ? 'bg-blue-500/10 text-blue-500'
+                                    : inv.status === 'overdue'
+                                      ? 'bg-red-500/10 text-red-500'
+                                      : 'bg-gray-500/10 text-gray-500'
+                              )}
+                            >
+                              {inv.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
+                            {inv.paddle_transaction_id || '—'}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {inv.invoice_url ? (
+                              <a
+                                href={inv.invoice_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex p-1.5 rounded hover:bg-muted"
+                                title="Open invoice PDF"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            ) : (
+                              <button
+                                className="p-1.5 rounded text-muted-foreground opacity-50 cursor-not-allowed"
+                                title={INVOICE_PDF_UNAVAILABLE}
+                                disabled
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}
 
-          {/* Subscriptions */}
+          {/* Subscriptions (Paddle state mirrored on tenants) */}
           {billingSubTab === 'subscriptions' && (
-            <div className="rounded-xl border bg-card p-6 shadow-card">
-              <h3 className="font-semibold mb-4">Active Subscriptions</h3>
-              <p className="text-muted-foreground text-center py-8">
-                Subscription management coming soon. View and manage tenant subscriptions, trials,
-                and upgrades.
-              </p>
+            <div className="rounded-xl border bg-card shadow-card overflow-hidden">
+              <div className="p-4 border-b flex items-center justify-between">
+                <h3 className="font-semibold">Subscriptions</h3>
+                <span className="text-xs text-muted-foreground">
+                  Managed in Paddle · mirrored via webhooks
+                </span>
+              </div>
+              {subscriptions.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>No subscriptions found</p>
+                  <p className="text-xs mt-1">
+                    Tenants appear here once they subscribe through Paddle checkout
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30">
+                      <tr>
+                        <th className="text-left py-3 px-4 font-medium">Tenant</th>
+                        <th className="text-left py-3 px-4 font-medium">Plan</th>
+                        <th className="text-center py-3 px-4 font-medium">Status</th>
+                        <th className="text-right py-3 px-4 font-medium">MRR</th>
+                        <th className="text-left py-3 px-4 font-medium">Current Period End</th>
+                        <th className="text-left py-3 px-4 font-medium">Paddle Subscription</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {subscriptions.map((sub, idx) => (
+                        <tr
+                          key={`${sub.tenant_id}-${sub.id}`}
+                          className="hover:bg-muted/30 motion-enter"
+                          style={{ animationDelay: `${idx * 20}ms` }}
+                        >
+                          <td className="py-3 px-4">
+                            <p className="font-medium">{sub.tenant_name || `Tenant #${sub.tenant_id}`}</p>
+                            {sub.paddle_customer_id && (
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {sub.paddle_customer_id}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <PlanBadge plan={sub.plan_id || 'free'} />
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <SubscriptionStatusBadge status={sub.status} />
+                            {sub.cancel_at_period_end && (
+                              <p className="text-[11px] text-muted-foreground mt-1">
+                                Cancels at period end
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium">
+                            {formatCurrency(sub.mrr || 0)}
+                          </td>
+                          <td className="py-3 px-4">
+                            {sub.current_period_end
+                              ? new Date(sub.current_period_end).toLocaleDateString()
+                              : '-'}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-xs text-muted-foreground">
+                            {sub.paddle_subscription_id || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1563,6 +1703,30 @@ function PlanBadge({ plan }: { plan: string }) {
       )}
     >
       {plan}
+    </span>
+  );
+}
+
+/** Badge for a Paddle subscription status (active|trialing|past_due|paused|canceled|none). */
+function SubscriptionStatusBadge({ status }: { status: string | null }) {
+  const colors: Record<string, string> = {
+    active: 'bg-green-500/10 text-green-500',
+    trialing: 'bg-cyan-500/10 text-cyan-500',
+    past_due: 'bg-red-500/10 text-red-500',
+    paused: 'bg-amber-500/10 text-amber-500',
+    canceled: 'bg-gray-500/10 text-gray-500',
+  };
+
+  const label = status ? status.replace('_', ' ') : 'no subscription';
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center px-2 py-1 rounded-md text-xs font-medium capitalize',
+        (status && colors[status]) || 'bg-muted text-muted-foreground'
+      )}
+    >
+      {label}
     </span>
   );
 }

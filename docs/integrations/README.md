@@ -6,6 +6,7 @@ Stratum AI has two kinds of integrations and they must never be confused:
 |------|--------------|-------------------|-------------------------|
 | **Meta activation** | Facebook, Instagram, WhatsApp (Meta Marketing API, Conversions API, WhatsApp Cloud API, Custom Audiences) | Reads campaigns, executes trust-gated actions, syncs CDP audiences, sends CAPI events | Act on any non-Meta ad platform |
 | **Measurement & Verification** (القياس والتحقق) | Google Analytics 4 (read-only), Google Tag Manager (tag deployment) | Reads an independent revenue/conversion baseline; deploys tags | Treat GA4/GTM as an ad channel, connect Google Ads, use Customer Match, read gclid, request write scopes or Google sign-in |
+| **Billing** | Paddle Billing (Merchant of Record) | Paddle.js overlay checkout, customer portal, invoices, signed webhooks that keep `Tenant.plan` in sync | Store card data, use any other payment provider, treat billing as an ad platform or data source |
 
 `AdPlatform`, `SyncPlatform`, `Platform` unions, `TenantPlatformConnection`, ConnectPlatforms, onboarding
 platform lists, CAPI platforms, platform filters and "ROAS by platform" stay **Meta-only**. GA4 and GTM live
@@ -21,6 +22,16 @@ in their own tables (`tenant_ga4_integrations`, `tenant_gtm_integrations`) behin
 - Meta Pixel + Conversions API for event delivery (see `backend/app/services/capi/`).
 - WhatsApp Cloud API for messaging and conversation attribution.
 - CDP Audience Sync pushes segments to Meta Custom Audiences (Facebook, Instagram, WhatsApp).
+
+---
+
+## Billing (Paddle Billing)
+
+Tenant subscriptions are billed through Paddle Billing as Merchant of Record: a thin httpx client over the
+Paddle REST API (`backend/app/services/paddle_service.py`), authenticated routes under `/api/v1/billing`,
+the public signed webhook `POST /api/v1/webhooks/paddle`, and the Paddle.js v2 overlay checkout inside
+Settings > Billing. Configuration is the seven `PADDLE_*` variables (sandbox by default, optional).
+Full reference, event mapping, CSP hosts and the upgrade script: [billing-paddle.md](./billing-paddle.md).
 
 ---
 
@@ -108,4 +119,9 @@ Property IDs, service-account keys and container IDs are per tenant and live in 
 
 The frontend and API CSP allow `https://www.googletagmanager.com` (scripts) and the
 `google-analytics.com` / `analytics.google.com` / `googletagmanager.com` hosts for connections and images.
+For Paddle Billing they also allow `https://cdn.paddle.com` in `script-src` (Paddle.js v2) and
+`https://*.paddle.com` in `connect-src` and `frame-src` (checkout overlay and customer portal; the wildcard
+covers the `sandbox-*` hosts), and nginx opens `Permissions-Policy: payment` for `self`,
+`https://buy.paddle.com` and `https://sandbox-buy.paddle.com`. The host list is identical in
+`backend/app/middleware/security.py`, `frontend/nginx.conf` and `nginx/beta.conf`.
 Google Fonts hosts are intentionally not allow-listed (out of scope).

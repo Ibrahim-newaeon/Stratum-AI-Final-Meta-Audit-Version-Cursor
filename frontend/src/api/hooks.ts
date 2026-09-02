@@ -5,7 +5,7 @@
  * and adds new hooks for superadmin endpoints.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient, ApiResponse, PaginatedResponse } from './client';
 
 // =============================================================================
@@ -580,33 +580,52 @@ export interface AuditLogEntry {
 export interface BillingPlan {
   id: string;
   name: string;
-  price: number;
+  /** Tier slug (free|starter|professional|enterprise) when known. */
+  tier?: string | null;
+  /** Monthly list price; null means custom pricing (enterprise). Billable prices live in Paddle. */
+  price: number | null;
   features: string[];
   subscriberCount: number;
   mrr: number;
 }
 
+export type BillingInvoiceStatus = 'paid' | 'pending' | 'overdue' | 'failed';
+
 export interface BillingInvoice {
   id: string;
   tenantId: number;
   tenantName: string;
+  invoiceNumber: string | null;
   amount: number;
-  status: 'paid' | 'pending' | 'overdue' | 'failed';
-  dueDate: string;
+  currency: string;
+  status: BillingInvoiceStatus;
+  dueDate: string | null;
   paidAt: string | null;
+  /** Paddle transaction id (txn_...) backing this invoice, when known. */
+  paddleTransactionId?: string | null;
+  /** Paddle-hosted invoice PDF URL, when available. */
+  invoiceUrl?: string | null;
 }
+
+/** Paddle subscription lifecycle states. */
+export type BillingSubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'paused' | 'canceled';
 
 export interface BillingSubscription {
   id: string;
   tenantId: number;
   tenantName: string;
   plan: string;
-  status: 'active' | 'past_due' | 'canceled' | 'trialing';
+  planName: string | null;
+  /** Paddle status; null for tenants without a Paddle subscription (free / admin-granted). */
+  status: BillingSubscriptionStatus | null;
   mrr: number;
-  startDate: string;
-  nextBillingDate: string;
-  paymentMethod: string;
-  failedPayments: number;
+  startDate: string | null;
+  nextBillingDate: string | null;
+  cancelAtPeriodEnd: boolean;
+  /** Paddle subscription id (sub_...). */
+  paddleSubscriptionId?: string | null;
+  /** Paddle customer id (ctm_...). */
+  paddleCustomerId?: string | null;
 }
 
 export interface SuperadminDashboard {
@@ -622,6 +641,98 @@ export interface SuperadminDashboard {
 // Superadmin API Functions
 // =============================================================================
 
+type RawRecord = Record<string, unknown>;
+
+const asString = (value: unknown): string | null =>
+  typeof value === 'string' && value.length > 0 ? value : null;
+
+const asNumber = (value: unknown, fallback = 0): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+/**
+ * Superadmin billing endpoints return `{ <key>: [...], total }` envelopes. Accept that
+ * envelope or a bare array and always hand back a list of raw rows.
+ */
+const extractList = (payload: unknown, key: string): RawRecord[] => {
+  if (Array.isArray(payload)) return payload as RawRecord[];
+  if (payload && typeof payload === 'object') {
+    const list = (payload as RawRecord)[key];
+    if (Array.isArray(list)) return list as RawRecord[];
+  }
+  return [];
+};
+
+const toPaginated = <T>(
+  items: T[],
+  payload: unknown,
+  params?: { skip?: number; limit?: number }
+): PaginatedResponse<T> => {
+  const total =
+    payload && typeof payload === 'object' && typeof (payload as RawRecord).total === 'number'
+      ? ((payload as RawRecord).total as number)
+      : items.length;
+  return { items, total, skip: params?.skip ?? 0, limit: params?.limit ?? items.length };
+};
+
+/** Map a plan id like `professional_monthly` or a bare tier to its tier slug. */
+const normalizePlanTier = (planId: string | null): string => {
+  const value = (planId ?? '').toLowerCase();
+  if (value.includes('enterprise')) return 'enterprise';
+  if (value.includes('professional') || value.includes('pro')) return 'professional';
+  if (value.includes('starter')) return 'starter';
+  return 'free';
+};
+
+const mapBillingPlan = (row: RawRecord): BillingPlan => {
+  const rawFeatures = row.features;
+  const features = Array.isArray(rawFeatures)
+    ? rawFeatures.map(String)
+    : rawFeatures && typeof rawFeatures === 'object'
+      ? Object.keys(rawFeatures as RawRecord)
+      : [];
+  return {
+    id: String(row.id ?? row.tier ?? ''),
+    name: asString(row.display_name ?? row.name) ?? String(row.id ?? ''),
+    tier: asString(row.tier),
+    price: typeof row.price === 'number' ? row.price : null,
+    features,
+    subscriberCount: asNumber(row.subscriber_count ?? row.subscriberCount),
+    mrr: asNumber(row.mrr),
+  };
+};
+
+const mapBillingInvoice = (row: RawRecord): BillingInvoice => ({
+  id: String(row.id ?? ''),
+  tenantId: asNumber(row.tenant_id ?? row.tenantId),
+  tenantName: asString(row.tenant_name ?? row.tenantName) ?? '',
+  invoiceNumber: asString(row.invoice_number ?? row.invoiceNumber),
+  amount: asNumber(row.total ?? row.amount),
+  currency: asString(row.currency) ?? 'USD',
+  status: (asString(row.status) ?? 'pending') as BillingInvoiceStatus,
+  dueDate: asString(row.due_date ?? row.dueDate),
+  paidAt: asString(row.paid_at ?? row.paidAt),
+  paddleTransactionId: asString(row.paddle_transaction_id ?? row.paddleTransactionId),
+  invoiceUrl: asString(row.invoice_url ?? row.invoiceUrl),
+});
+
+const mapBillingSubscription = (row: RawRecord): BillingSubscription => {
+  const planId = asString(row.plan_id ?? row.plan);
+  return {
+    id: String(row.id ?? ''),
+    tenantId: asNumber(row.tenant_id ?? row.tenantId),
+    tenantName: asString(row.tenant_name ?? row.tenantName) ?? '',
+    plan: normalizePlanTier(planId),
+    planName: asString(row.plan_name ?? row.planName),
+    status: asString(row.status) as BillingSubscriptionStatus | null,
+    mrr: asNumber(row.mrr),
+    startDate: asString(row.current_period_start ?? row.startDate),
+    nextBillingDate: asString(row.current_period_end ?? row.nextBillingDate),
+    cancelAtPeriodEnd: Boolean(row.cancel_at_period_end ?? row.cancelAtPeriodEnd),
+    paddleSubscriptionId: asString(row.paddle_subscription_id ?? row.paddleSubscriptionId),
+    paddleCustomerId: asString(row.paddle_customer_id ?? row.paddleCustomerId),
+  };
+};
+
 export const superadminApi = {
   // Dashboard
   getDashboard: async (): Promise<SuperadminDashboard> => {
@@ -629,10 +740,18 @@ export const superadminApi = {
     return response.data.data;
   },
 
-  // Revenue
+  // Revenue (backend returns snake_case percentages; normalize to the camelCase shape)
   getRevenue: async (): Promise<RevenueMetrics> => {
-    const response = await apiClient.get<ApiResponse<RevenueMetrics>>('/superadmin/revenue');
-    return response.data.data;
+    const response = await apiClient.get<ApiResponse<RawRecord>>('/superadmin/revenue');
+    const raw = response.data.data ?? {};
+    return {
+      mrr: asNumber(raw.mrr),
+      arr: asNumber(raw.arr),
+      nrr: asNumber(raw.nrr),
+      mrrGrowth: asNumber(raw.mrrGrowth ?? raw.mrr_growth_pct),
+      arrGrowth: asNumber(raw.arrGrowth ?? raw.arr_growth_pct ?? raw.mrr_growth_pct),
+      churnRate: asNumber(raw.churnRate ?? raw.churn_rate),
+    };
   },
 
   getRevenueBreakdown: async (): Promise<RevenueBreakdown[]> => {
@@ -692,46 +811,50 @@ export const superadminApi = {
     return response.data.data;
   },
 
-  // Billing - Plans
+  // Billing - Plans (catalogue mirror; billable prices are managed in Paddle)
   getBillingPlans: async (): Promise<BillingPlan[]> => {
-    const response = await apiClient.get<ApiResponse<BillingPlan[]>>('/superadmin/billing/plans');
-    return response.data.data;
+    const response = await apiClient.get<ApiResponse<unknown>>('/superadmin/billing/plans');
+    return extractList(response.data.data, 'plans').map(mapBillingPlan);
   },
 
-  // Billing - Invoices
+  // Billing - Invoices (read-only; Paddle issues and hosts the invoices)
   getBillingInvoices: async (params?: {
     status?: string;
     tenantId?: number;
     skip?: number;
     limit?: number;
   }): Promise<PaginatedResponse<BillingInvoice>> => {
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<BillingInvoice>>>(
-      '/superadmin/billing/invoices',
-      { params }
-    );
-    return response.data.data;
+    const response = await apiClient.get<ApiResponse<unknown>>('/superadmin/billing/invoices', {
+      params: {
+        status_filter: params?.status,
+        tenant_id: params?.tenantId,
+        skip: params?.skip,
+        limit: params?.limit,
+      },
+    });
+    const payload = response.data.data;
+    return toPaginated(extractList(payload, 'invoices').map(mapBillingInvoice), payload, params);
   },
 
-  // Billing - Subscriptions
+  // Billing - Subscriptions (Paddle state mirrored on tenants)
   getBillingSubscriptions: async (params?: {
     status?: string;
     plan?: string;
     skip?: number;
     limit?: number;
   }): Promise<PaginatedResponse<BillingSubscription>> => {
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<BillingSubscription>>>(
+    const response = await apiClient.get<ApiResponse<unknown>>(
       '/superadmin/billing/subscriptions',
-      { params }
+      {
+        params: { status_filter: params?.status, skip: params?.skip, limit: params?.limit },
+      }
     );
-    return response.data.data;
-  },
-
-  // Retry failed payment
-  retryPayment: async (subscriptionId: string): Promise<{ success: boolean }> => {
-    const response = await apiClient.post<ApiResponse<{ success: boolean }>>(
-      `/superadmin/billing/subscriptions/${subscriptionId}/retry-payment`
-    );
-    return response.data.data;
+    const payload = response.data.data;
+    let items = extractList(payload, 'subscriptions').map(mapBillingSubscription);
+    if (params?.plan) {
+      items = items.filter((s) => s.plan === params.plan);
+    }
+    return toPaginated(items, payload, params);
   },
 };
 
@@ -877,17 +1000,5 @@ export function useBillingSubscriptions(params?: {
   });
 }
 
-/**
- * Retry failed payment
- */
-export function useRetryPayment() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: superadminApi.retryPayment,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['superadmin', 'billing', 'subscriptions'] });
-      queryClient.invalidateQueries({ queryKey: ['superadmin', 'billing', 'invoices'] });
-    },
-  });
-}
+// NOTE: there is intentionally no "retry payment" mutation. Paddle Billing owns dunning and
+// payment retries; superadmins manage those from the Paddle dashboard.

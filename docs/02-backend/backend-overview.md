@@ -13,6 +13,7 @@
 | Database | PostgreSQL | 16 | Primary data store |
 | Cache | Redis | 7 | Caching, message broker |
 | Logging | Structlog | Latest | Structured JSON logging |
+| Billing | Paddle Billing REST | `Paddle-Version: 1` | Subscriptions, invoices, customer portal, signed webhooks (thin httpx client, no SDK) |
 
 ---
 
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
 | `trust_engine/` | Signal health & trust gate |
 | `integrations/` | External API clients |
 | `notifications/` | Email, Slack, WhatsApp |
+| `paddle_service.py` | Billing: thin httpx client for Paddle Billing REST (no SDK), webhook signature verification, tenant subscription sync |
 
 ### Workers (`app/workers/`)
 
@@ -215,7 +217,26 @@ class Settings(BaseSettings):
     # Security
     secret_key: str
     jwt_secret_key: str
+
+    # Billing (Paddle Billing; all optional, sandbox by default)
+    paddle_api_key: Optional[str] = None
+    paddle_client_token: Optional[str] = None
+    paddle_webhook_secret: Optional[str] = None
+    paddle_environment: Literal["sandbox", "production"] = "sandbox"
+    paddle_starter_price_id: Optional[str] = None
+    paddle_professional_price_id: Optional[str] = None
+    paddle_enterprise_price_id: Optional[str] = None
+
+    @property
+    def paddle_enabled(self) -> bool: ...          # bool(paddle_api_key)
+    @property
+    def paddle_fully_configured(self) -> bool: ...
+    @property
+    def paddle_api_base_url(self) -> str: ...      # sandbox-api.paddle.com | api.paddle.com
 ```
+
+The Paddle validator raises only in production (API key set while `paddle_environment` is not
+`production`, or a companion value is missing), so CI and the dev server boot without billing configured.
 
 **Access settings anywhere:**
 ```python

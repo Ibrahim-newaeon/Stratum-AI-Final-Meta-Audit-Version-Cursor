@@ -42,6 +42,14 @@ export interface Tenant {
   domain: string | null;
   plan: string;
   plan_expires_at: string | null;
+  /** Paddle customer id (ctm_...) once the tenant has a billing account. */
+  paddle_customer_id?: string | null;
+  /** Paddle subscription id (sub_...) of the current subscription. */
+  paddle_subscription_id?: string | null;
+  /** Paddle subscription status: active|trialing|past_due|paused|canceled. */
+  subscription_status?: string | null;
+  /** End of the current Paddle billing period (ISO-8601). */
+  current_period_end?: string | null;
   max_users: number;
   max_campaigns: number;
   settings: Record<string, any>;

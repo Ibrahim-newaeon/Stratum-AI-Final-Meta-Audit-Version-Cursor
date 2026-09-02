@@ -15,8 +15,11 @@ import warnings
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PADDLE_SANDBOX_API_BASE_URL = "https://sandbox-api.paddle.com"
+PADDLE_PRODUCTION_API_BASE_URL = "https://api.paddle.com"
 
 
 class Settings(BaseSettings):
@@ -262,26 +265,42 @@ class Settings(BaseSettings):
     rate_limit_burst: int = Field(default=20)
 
     # -------------------------------------------------------------------------
-    # Stripe Payment Configuration
+    # Paddle Billing Configuration
     # -------------------------------------------------------------------------
-    stripe_secret_key: Optional[str] = Field(
-        default=None, description="Stripe Secret Key (sk_live_... or sk_test_...)"
+    # Paddle is the merchant of record for subscriptions. Checkout runs
+    # client-side (Paddle.js overlay, needs the client token); the backend uses
+    # the API key for the REST API and the webhook secret to verify notifications.
+    paddle_api_key: Optional[str] = Field(
+        default=None, description="Paddle API key (server-side, Bearer auth for api.paddle.com)"
     )
-    stripe_publishable_key: Optional[str] = Field(
-        default=None, description="Stripe Publishable Key (pk_live_... or pk_test_...)"
+    paddle_client_token: Optional[str] = Field(
+        default=None, description="Paddle client-side token used by Paddle.js (test_... / live_...)"
     )
-    stripe_webhook_secret: Optional[str] = Field(
-        default=None, description="Stripe Webhook Signing Secret (whsec_...)"
+    paddle_webhook_secret: Optional[str] = Field(
+        default=None,
+        description="Paddle notification endpoint secret key (pdl_ntfset_...) for webhook signatures",
     )
-    stripe_starter_price_id: Optional[str] = Field(
-        default=None, description="Stripe Price ID for Starter tier (price_...)"
+    paddle_environment: Literal["sandbox", "production"] = Field(
+        default="sandbox", description="Paddle environment: 'sandbox' or 'production'"
     )
-    stripe_professional_price_id: Optional[str] = Field(
-        default=None, description="Stripe Price ID for Professional tier (price_...)"
+    paddle_starter_price_id: Optional[str] = Field(
+        default=None, description="Paddle Price ID for Starter tier (pri_...)"
     )
-    stripe_enterprise_price_id: Optional[str] = Field(
-        default=None, description="Stripe Price ID for Enterprise tier (price_...)"
+    paddle_professional_price_id: Optional[str] = Field(
+        default=None, description="Paddle Price ID for Professional tier (pri_...)"
     )
+    paddle_enterprise_price_id: Optional[str] = Field(
+        default=None, description="Paddle Price ID for Enterprise tier (pri_...)"
+    )
+
+    @field_validator("paddle_environment", mode="before")
+    @classmethod
+    def _normalize_paddle_environment(cls, value: object) -> object:
+        """Accept ``SANDBOX`` / `` production `` etc. by lower-casing and stripping."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            return normalized or "sandbox"
+        return value
 
     # -------------------------------------------------------------------------
     # CDN Cache Invalidation
@@ -328,23 +347,30 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
-    def stripe_enabled(self) -> bool:
-        """Check if Stripe is configured (has secret key)."""
-        return bool(self.stripe_secret_key)
+    def paddle_enabled(self) -> bool:
+        """Check if Paddle is configured (has an API key)."""
+        return bool(self.paddle_api_key)
 
     @property
-    def stripe_fully_configured(self) -> bool:
-        """Check if all Stripe settings are properly configured for payments."""
+    def paddle_fully_configured(self) -> bool:
+        """Check if all Paddle settings needed for checkout + webhooks are set."""
         return all(
             [
-                self.stripe_secret_key,
-                self.stripe_publishable_key,
-                self.stripe_webhook_secret,
-                self.stripe_starter_price_id,
-                self.stripe_professional_price_id,
-                self.stripe_enterprise_price_id,
+                self.paddle_api_key,
+                self.paddle_client_token,
+                self.paddle_webhook_secret,
+                self.paddle_starter_price_id,
+                self.paddle_professional_price_id,
+                self.paddle_enterprise_price_id,
             ]
         )
+
+    @property
+    def paddle_api_base_url(self) -> str:
+        """Paddle REST base URL for the configured environment."""
+        if self.paddle_environment == "production":
+            return PADDLE_PRODUCTION_API_BASE_URL
+        return PADDLE_SANDBOX_API_BASE_URL
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
@@ -407,44 +433,40 @@ class Settings(BaseSettings):
                     )
                     break
 
-        # Validate Stripe configuration in production
-        # If Stripe secret key is set, all other Stripe settings must also be set
-        if self.stripe_secret_key:
-            stripe_issues = []
-            if not self.stripe_publishable_key:
-                stripe_issues.append(
-                    "STRIPE_PUBLISHABLE_KEY is required when STRIPE_SECRET_KEY is set"
+        # Validate Paddle Billing configuration
+        # If the Paddle API key is set, the companions needed for client-side
+        # checkout (client token), webhooks (secret) and plan mapping (price ids)
+        # must also be set. Production must additionally point at the live
+        # Paddle environment (never the sandbox).
+        if self.paddle_api_key:
+            paddle_issues = []
+            if not self.paddle_client_token:
+                paddle_issues.append(
+                    "PADDLE_CLIENT_TOKEN is required when PADDLE_API_KEY is set (Paddle.js checkout)"
                 )
-            if not self.stripe_webhook_secret:
-                stripe_issues.append("STRIPE_WEBHOOK_SECRET is required for payment webhooks")
-            if not self.stripe_starter_price_id:
-                stripe_issues.append(
-                    "STRIPE_STARTER_PRICE_ID is required for subscription checkout"
+            if not self.paddle_webhook_secret:
+                paddle_issues.append("PADDLE_WEBHOOK_SECRET is required for Paddle webhooks")
+            if not self.paddle_starter_price_id:
+                paddle_issues.append(
+                    "PADDLE_STARTER_PRICE_ID is required for subscription checkout"
                 )
-            if not self.stripe_professional_price_id:
-                stripe_issues.append(
-                    "STRIPE_PROFESSIONAL_PRICE_ID is required for subscription checkout"
+            if not self.paddle_professional_price_id:
+                paddle_issues.append(
+                    "PADDLE_PROFESSIONAL_PRICE_ID is required for subscription checkout"
                 )
-            if not self.stripe_enterprise_price_id:
-                stripe_issues.append(
-                    "STRIPE_ENTERPRISE_PRICE_ID is required for subscription checkout"
+            if not self.paddle_enterprise_price_id:
+                paddle_issues.append(
+                    "PADDLE_ENTERPRISE_PRICE_ID is required for subscription checkout"
                 )
 
-            # Check for test keys in production
-            if self.is_production:
-                if self.stripe_secret_key.startswith("sk_test_"):
-                    stripe_issues.append(
-                        "STRIPE_SECRET_KEY is using test key in production (should be sk_live_...)"
-                    )
-                if self.stripe_publishable_key and self.stripe_publishable_key.startswith(
-                    "pk_test_"
-                ):
-                    stripe_issues.append(
-                        "STRIPE_PUBLISHABLE_KEY is using test key in production (should be pk_live_...)"
-                    )
+            # Sandbox billing must never be used in production
+            if self.is_production and self.paddle_environment != "production":
+                paddle_issues.append(
+                    "PADDLE_ENVIRONMENT must be 'production' in production (sandbox configured)"
+                )
 
-            if stripe_issues:
-                issues.extend(stripe_issues)
+            if paddle_issues:
+                issues.extend(paddle_issues)
 
         if issues:
             if self.is_production:

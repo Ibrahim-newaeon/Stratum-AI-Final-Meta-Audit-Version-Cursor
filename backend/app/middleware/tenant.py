@@ -36,6 +36,11 @@ PUBLIC_ENDPOINTS = {
     # Authenticates with X-Source-Key; the endpoint derives the tenant from the
     # CDP source itself and never reads request.state.tenant_id.
     "/api/v1/cdp/ingest",
+    # Paddle Billing notifications. Public but signature-verified
+    # (Paddle-Signature HMAC over the raw body); the handler resolves the tenant
+    # from the event payload (custom_data.tenant_id / paddle_customer_id) and
+    # never reads request.state.tenant_id.
+    "/api/v1/webhooks/paddle",
 }
 
 

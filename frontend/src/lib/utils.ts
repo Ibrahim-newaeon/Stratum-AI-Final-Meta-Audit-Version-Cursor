@@ -72,7 +72,7 @@ export function getPlatformColor(platform: string): string {
     uber: '#000000',
     airbnb: '#FF5A5F',
     shopify: '#96BF48',
-    stripe: '#635BFF',
+    paddle: '#FDDD35',
     slack: '#4A154B',
   };
   return colors[platform.toLowerCase()] || '#6B7280';

@@ -342,6 +342,82 @@ redis-cli -h redis.production SET "pause:low_priority_sync" "true" EX 3600
 
 ---
 
+### Paddle Webhook Failures
+
+**Alert**: `POST /api/v1/webhooks/paddle` answering 4xx/5xx, failed deliveries in Paddle > Developer Tools > Notifications > Logs, or tenants stuck on the wrong plan after paying
+**Severity**: High (billing state drift)
+**Response Time**: < 30 minutes
+
+The endpoint (`backend/app/api/v1/endpoints/paddle_webhook.py`) verifies `Paddle-Signature: ts=<unix>;h1=<hex>`
+as HMAC-SHA256 over `<ts>:<raw body>` with `PADDLE_WEBHOOK_SECRET` and rejects `|now - ts| > 300s`
+(`app.services.paddle_service.verify_webhook_signature`). Response codes: **503** no webhook secret
+configured, **400** missing/invalid/stale signature or malformed JSON, **200** `{status: received | duplicate | ignored}`,
+**500** handler exception after rollback (Paddle retries automatically). Every processed `event_id` is stored in
+`paddle_webhook_events`, so duplicates and replays are harmless.
+
+#### Triage
+
+```bash
+# 1. What is the endpoint answering? (400 = signature/timestamp, 503 = secret missing, 500 = handler)
+kubectl logs -l app=stratum-api -n production | grep "webhooks/paddle" | tail -50
+# Docker: docker compose logs api --since 1h | grep "webhooks/paddle"
+
+# 2. Compare with Paddle's side: Paddle dashboard > Developer Tools > Notifications > Logs
+#    (one row per delivery attempt with the status code and response body Stratum returned)
+
+# 3. Signature rejects: the destination's secret key in Paddle must match PADDLE_WEBHOOK_SECRET
+#    (sandbox and production destinations have different secrets)
+kubectl get secret stratum-paddle -n production -o jsonpath='{.data.PADDLE_WEBHOOK_SECRET}' | base64 -d | cut -c1-6
+
+# 4. Timestamp rejects: check the API host clock (tolerance is 5 minutes)
+date -u && chronyc tracking   # or: timedatectl
+
+# 5. Was the event already processed? (a "duplicate" answer on a Paddle retry is expected)
+psql "$DATABASE_URL_SYNC" -c "SELECT event_id, event_type, occurred_at, processed_at FROM paddle_webhook_events WHERE event_id = 'evt_...';"
+```
+
+#### Resolution
+
+```bash
+# 1. Wrong or rotated secret: update PADDLE_WEBHOOK_SECRET and restart the API
+kubectl rollout restart deployment/stratum-api -n production
+# Docker: docker compose up -d --no-deps api
+
+# 2. Clock drift: fix NTP on the API host, then replay
+
+# 3. Replay: Paddle > Developer Tools > Notifications > Logs > open the event > Replay.
+#    Safe to repeat: an event id already in paddle_webhook_events returns 200 {"status": "duplicate"};
+#    an event whose handler raised was rolled back (not recorded) and is processed on replay.
+
+# 4. Reconcile a tenant by hand when a replay is not possible: read the live subscription from Paddle
+#    (GET /subscriptions/{id}) and apply the normal sync rules
+cd backend && .venv/bin/python - <<'PY'
+import asyncio
+
+from app.db.session import AsyncSessionLocal
+from app.services.paddle_service import get_paddle_client, sync_tenant_subscription
+
+TENANT_ID = 123
+SUBSCRIPTION_ID = "sub_..."
+
+
+async def main() -> None:
+    subscription = await get_paddle_client().get_subscription(SUBSCRIPTION_ID)
+    async with AsyncSessionLocal() as db:
+        await sync_tenant_subscription(db, TENANT_ID, subscription)
+        await db.commit()
+    print(subscription.status, subscription.tier, subscription.current_period_end)
+
+
+asyncio.run(main())
+PY
+
+# 5. Verify: tenants.plan / subscription_status / current_period_end now match Paddle
+psql "$DATABASE_URL_SYNC" -c "SELECT id, plan, plan_expires_at, paddle_subscription_id, subscription_status, current_period_end FROM tenants WHERE id = 123;"
+```
+
+---
+
 ## Maintenance Tasks
 
 ### Rotate Secrets
@@ -356,10 +432,20 @@ redis-cli -h redis.production SET "pause:low_priority_sync" "true" EX 3600
 openssl rand -base64 32 > new_jwt_secret.txt
 openssl rand -base64 32 > new_encryption_key.txt
 
+# 1b. Paddle Billing keys are issued by Paddle, not generated locally:
+#     PADDLE_API_KEY        -> Paddle > Developer Tools > Authentication > API keys (create new, revoke old after cutover)
+#     PADDLE_CLIENT_TOKEN   -> Developer Tools > Authentication > Client-side tokens (create new, revoke old)
+#     PADDLE_WEBHOOK_SECRET -> Developer Tools > Notifications > destination > rotate secret key
+#     Rotate the destination secret and PADDLE_WEBHOOK_SECRET together: deliveries signed with the old
+#     secret get 400 until the API restarts with the new value; replay them from Notifications > Logs.
+
 # 2. Update secrets in AWS
 aws secretsmanager update-secret \
   --secret-id stratum/production/jwt-secret \
   --secret-string file://new_jwt_secret.txt
+aws secretsmanager update-secret \
+  --secret-id stratum/production/paddle \
+  --secret-string '{"PADDLE_API_KEY":"<new>","PADDLE_CLIENT_TOKEN":"<new>","PADDLE_WEBHOOK_SECRET":"<new>"}'
 
 # 3. Deploy new version that reads updated secrets
 kubectl rollout restart deployment/stratum-api -n production
@@ -481,3 +567,4 @@ aws rds describe-db-instances \
 - [Monitoring](./monitoring.md) - Metrics and alerting
 - [Incidents](./incidents.md) - Incident management process
 - [Security](../06-appendix/security.md) - Security procedures
+- [Paddle Billing](../integrations/billing-paddle.md) - Billing integration reference (webhook events, tenant sync rules, CSP hosts)

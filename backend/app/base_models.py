@@ -45,6 +45,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -156,7 +157,15 @@ class Tenant(Base, TimestampMixin, SoftDeleteMixin):
     plan_expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Paddle Billing linkage (Paddle is the merchant of record; kept in sync by
+    # app.services.paddle_service from API responses and webhook events)
+    paddle_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    paddle_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Paddle status string: active | trialing | past_due | paused | canceled
+    subscription_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    current_period_end: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Settings
     settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
@@ -219,6 +228,31 @@ class Tenant(Base, TimestampMixin, SoftDeleteMixin):
     __table_args__ = (
         Index("ix_tenants_slug", "slug"),
         Index("ix_tenants_active", "is_deleted", "plan"),
+        Index("ix_tenants_paddle_customer", "paddle_customer_id"),
+    )
+
+
+# =============================================================================
+# Paddle Webhook Event Ledger (webhook idempotency)
+# =============================================================================
+class PaddleWebhookEvent(Base):
+    """
+    Processed Paddle webhook notifications (``POST /api/v1/webhooks/paddle``).
+
+    The webhook handler inserts the Paddle ``event_id`` before applying an
+    event; a redelivery hits the primary key and is acknowledged as
+    ``duplicate`` without re-applying its side effects.
+    """
+
+    __tablename__ = "paddle_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
