@@ -41,7 +41,6 @@ import { useAnomalies, useInsights, useLivePredictions, useRecommendations } fro
 import { useTenantStore } from '@/stores/tenantStore';
 
 // Type for insight - defined early for mock data typing
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface Insight {
   id: number;
   type: string;
