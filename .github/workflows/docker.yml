@@ -134,10 +134,10 @@ jobs:
           POSTGRES_USER=stratum
           POSTGRES_PASSWORD=test_password
           POSTGRES_DB=stratum_ai
-          SECRET_KEY=test-secret-key
-          JWT_SECRET_KEY=test-jwt-secret
+          SECRET_KEY=ci-only-secret-key-not-for-production-0123456789
+          JWT_SECRET_KEY=ci-only-jwt-secret-key-not-for-production-0123456789
           PII_ENCRYPTION_KEY=dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVz
-          APP_ENV=test
+          APP_ENV=development
           EOF
 
       - name: Start services

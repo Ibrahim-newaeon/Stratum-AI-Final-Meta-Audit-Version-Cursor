@@ -1170,7 +1170,7 @@ export default function CMS() {
             {tab.icon}
             {tab.label}
             {tab.id === 'contacts' &&
-              contactsData?.contacts?.filter((c) => !c.is_read).length! > 0 && (
+              (contactsData?.contacts?.filter((c) => !c.is_read).length ?? 0) > 0 && (
                 <span className="px-1.5 py-0.5 text-xs bg-blue-500 text-white rounded-full">
                   {contactsData?.contacts?.filter((c) => !c.is_read).length}
                 </span>

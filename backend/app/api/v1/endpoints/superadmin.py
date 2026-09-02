@@ -18,16 +18,21 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.tiers import TIER_PRICING, SubscriptionTier
 from app.db.session import get_async_session
 from app.models import Campaign, Tenant, User, UserRole
 from app.schemas import APIResponse
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+# Paddle subscription statuses that generate recurring revenue. Trials, paused and
+# canceled subscriptions (and tenants with no Paddle subscription) contribute 0 MRR.
+BILLABLE_SUBSCRIPTION_STATUSES = frozenset({"active", "past_due"})
 
 
 # =============================================================================
@@ -92,6 +97,128 @@ class ChurnRiskItem(BaseModel):
     mrr_at_risk: float
 
 
+class SuperadminInvoice(BaseModel):
+    """Invoice row for the superadmin billing view.
+
+    ``paddle_transaction_id`` (txn_...) and ``invoice_url`` (Paddle-hosted invoice PDF)
+    are only populated when the ``invoices`` table carries those columns.
+    """
+
+    id: int
+    tenant_id: Optional[int]
+    tenant_name: Optional[str]
+    invoice_number: Optional[str]
+    status: Optional[str]
+    amount_cents: Optional[int]
+    amount: float
+    tax_cents: Optional[int]
+    total_cents: Optional[int]
+    total: float
+    currency: Optional[str]
+    due_date: Optional[str]
+    paid_at: Optional[str]
+    created_at: Optional[str]
+    paddle_transaction_id: Optional[str] = None
+    invoice_url: Optional[str] = None
+
+
+class SuperadminSubscription(BaseModel):
+    """Subscription row for the superadmin billing view.
+
+    ``status`` mirrors the Paddle subscription status
+    (active|trialing|past_due|paused|canceled) and is ``None`` for tenants without a
+    Paddle subscription (e.g. free or admin-granted plans). ``source`` tells whether the
+    row came from the raw ``subscriptions`` table or the ``tenants`` fallback, in which
+    case ``id`` is the tenant id.
+    """
+
+    id: int
+    tenant_id: int
+    tenant_name: Optional[str]
+    plan_id: Optional[str]
+    plan_name: Optional[str]
+    status: Optional[str]
+    current_period_start: Optional[str]
+    current_period_end: Optional[str]
+    cancel_at_period_end: bool = False
+    discount_percent: Optional[float] = None
+    paddle_subscription_id: Optional[str] = None
+    paddle_customer_id: Optional[str] = None
+    plan_expires_at: Optional[str] = None
+    mrr: float = 0.0
+    source: str = "subscriptions"
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    """Serialize an optional datetime as an ISO-8601 string."""
+    return value.isoformat() if value else None
+
+
+def _tenant_subscription_status(tenant: Tenant) -> str:
+    """Return the Paddle subscription status of a tenant for platform analytics.
+
+    Tenants without a Paddle subscription (``subscription_status`` is NULL) are treated as
+    ``active`` platform accounts so that free / admin-granted plans still count as live
+    tenants in the revenue and portfolio views.
+    """
+    return getattr(tenant, "subscription_status", None) or "active"
+
+
+def _plan_display_name(plan: Optional[str]) -> Optional[str]:
+    """Human readable plan name, taken from ``TIER_PRICING`` when the plan is a paid tier."""
+    if not plan:
+        return None
+    try:
+        return str(TIER_PRICING[SubscriptionTier(plan)]["name"])
+    except (ValueError, KeyError):
+        return plan.replace("_", " ").title()
+
+
+def _plan_list_price(plan: Optional[str]) -> float:
+    """Monthly list price of a plan from ``TIER_PRICING`` (0 for free / custom pricing)."""
+    if not plan:
+        return 0.0
+    try:
+        price = TIER_PRICING[SubscriptionTier(plan)]["price"]
+    except (ValueError, KeyError):
+        return 0.0
+    return float(price) if price else 0.0
+
+
+def _tenant_mrr(tenant: Tenant) -> float:
+    """Monthly recurring revenue attributed to a tenant.
+
+    Uses an explicit ``mrr_cents`` value when the tenant carries one; otherwise derives it
+    from the plan's list price while the Paddle subscription is billable (active or
+    past_due). Trials, paused / canceled subscriptions, tenants without a Paddle
+    subscription and custom-priced (enterprise) plans contribute 0.
+    """
+    mrr_cents = getattr(tenant, "mrr_cents", None)
+    if mrr_cents:
+        return mrr_cents / 100
+    if getattr(tenant, "subscription_status", None) not in BILLABLE_SUBSCRIPTION_STATUSES:
+        return 0.0
+    return _plan_list_price(tenant.plan)
+
+
+async def _table_columns(db: AsyncSession, table_name: str) -> set[str]:
+    """Return the column names of a table in the current schema (empty when it is absent)."""
+    result = await db.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = :table_name
+            """
+        ),
+        {"table_name": table_name},
+    )
+    return {row[0] for row in result.fetchall()}
+
+
 # =============================================================================
 # Dependencies
 # =============================================================================
@@ -133,13 +260,13 @@ async def get_revenue_metrics(
     result = await db.execute(select(Tenant).where(Tenant.is_deleted == False))
     tenants = result.scalars().all()
 
-    # Calculate MRR
-    total_mrr = sum(getattr(t, "mrr_cents", 0) or 0 for t in tenants) / 100
+    # Calculate MRR (derived from plan list price while the Paddle subscription is billable)
+    total_mrr = sum(_tenant_mrr(t) for t in tenants)
 
-    # Count tenants by status
-    active_count = len([t for t in tenants if getattr(t, "status", "active") == "active"])
+    # Count tenants by Paddle subscription status
+    active_count = len([t for t in tenants if _tenant_subscription_status(t) == "active"])
     trial_count = len(
-        [t for t in tenants if t.plan == "trial" or getattr(t, "status", "") == "trialing"]
+        [t for t in tenants if t.plan == "trial" or _tenant_subscription_status(t) == "trialing"]
     )
 
     # Calculate ARPA
@@ -191,7 +318,7 @@ async def get_revenue_breakdown(
         if plan not in by_plan:
             by_plan[plan] = {"count": 0, "mrr": 0}
         by_plan[plan]["count"] += 1
-        by_plan[plan]["mrr"] += (getattr(t, "mrr_cents", 0) or 0) / 100
+        by_plan[plan]["mrr"] += _tenant_mrr(t)
 
     return APIResponse(
         success=True,
@@ -222,11 +349,11 @@ async def get_tenant_portfolio(
     """
     require_superadmin(request)
 
-    # Build query
+    # Build query (status_filter matches the Paddle subscription status stored on the tenant)
     query = select(Tenant).where(Tenant.is_deleted == False)
 
     if status_filter:
-        query = query.where(Tenant.status == status_filter)
+        query = query.where(Tenant.subscription_status == status_filter)
     if plan_filter:
         query = query.where(Tenant.plan == plan_filter)
 
@@ -271,8 +398,8 @@ async def get_tenant_portfolio(
                 "name": t.name,
                 "slug": t.slug,
                 "plan": t.plan,
-                "status": getattr(t, "status", "active"),
-                "mrr": (getattr(t, "mrr_cents", 0) or 0) / 100,
+                "status": _tenant_subscription_status(t),
+                "mrr": _tenant_mrr(t),
                 "users_count": user_counts.get(t.id, 0),
                 "users_limit": t.max_users,
                 "campaigns_count": campaign_counts.get(t.id, 0),
@@ -388,7 +515,7 @@ async def get_churn_risks(
         risk_score, risk_factors = calculate_churn_risk(t)
 
         if risk_score >= min_risk:
-            mrr = (getattr(t, "mrr_cents", 0) or 0) / 100
+            mrr = _tenant_mrr(t)
             risks.append(
                 {
                     "tenant_id": t.id,
@@ -417,7 +544,7 @@ async def get_churn_risks(
     )
 
 
-def calculate_churn_risk(tenant) -> tuple[float, list[str]]:
+def calculate_churn_risk(tenant: Tenant) -> tuple[float, list[str]]:
     """
     Calculate churn risk score for a tenant.
     Based on Multi_Tenant_and_Super_Admin_Spec.md Section 6.
@@ -427,7 +554,8 @@ def calculate_churn_risk(tenant) -> tuple[float, list[str]]:
     risk += 0.25 * data_failures_14d
     risk += 0.20 * unresolved_alerts
     risk += 0.20 * low_time_to_value
-    if status == past_due: risk += 0.25
+    if paddle status == past_due: risk += 0.25
+    if paddle status == canceled: risk += 0.50
     """
     risk = 0.0
     factors = []
@@ -465,14 +593,17 @@ def calculate_churn_risk(tenant) -> tuple[float, list[str]]:
             risk += 0.15
             factors.append(f"Trial ending in {days_left} days")
 
-    # Status past due
-    status = getattr(tenant, "status", "active")
-    if status == "past_due":
+    # Paddle subscription status (dunning is handled by Paddle; we only read the state)
+    subscription_status = _tenant_subscription_status(tenant)
+    if subscription_status == "past_due":
         risk += 0.25
         factors.append("Payment past due")
-    elif status == "cancelled":
+    elif subscription_status in ("canceled", "cancelled"):
         risk += 0.50
-        factors.append("Subscription cancelled")
+        factors.append("Subscription canceled")
+    elif subscription_status == "paused":
+        risk += 0.30
+        factors.append("Subscription paused")
 
     # Clamp to 0-1
     risk = max(0.0, min(1.0, risk))
@@ -503,8 +634,11 @@ def get_churn_actions(factors: list[str]) -> list[str]:
         actions.append("Schedule demo of premium features")
 
     if "payment" in factor_str or "past due" in factor_str:
-        actions.append("Send dunning email sequence")
+        actions.append("Check the Paddle dunning status and payment-method updates")
         actions.append("Offer payment plan options")
+
+    if "paused" in factor_str:
+        actions.append("Reach out to understand why the subscription was paused")
 
     if not actions:
         actions.append("Monitor and gather more data")
@@ -534,10 +668,6 @@ async def get_audit_logs(
     require_superadmin(request)
 
     try:
-        from sqlalchemy import MetaData
-
-        metadata = MetaData()
-
         # Build query for audit_logs table
         query = """
             SELECT id, timestamp, tenant_id, user_id, user_email, action,
@@ -566,8 +696,6 @@ async def get_audit_logs(
         query += " ORDER BY timestamp DESC LIMIT :limit OFFSET :skip"
         params["limit"] = limit
         params["skip"] = skip
-
-        from sqlalchemy import text
 
         result = await db.execute(text(query), params)
         rows = result.fetchall()
@@ -640,8 +768,6 @@ async def create_audit_log(
     try:
         import json
 
-        from sqlalchemy import text
-
         query = text("""
             INSERT INTO audit_logs
             (timestamp, tenant_id, user_id, user_email, action, resource_type,
@@ -687,8 +813,6 @@ async def get_subscription_plans(
     require_superadmin(request)
 
     try:
-        from sqlalchemy import text
-
         result = await db.execute(
             text("""
             SELECT id, name, display_name, tier, billing_period, price_cents,
@@ -727,42 +851,48 @@ async def get_subscription_plans(
         return APIResponse(success=True, data={"plans": plans})
     except Exception as e:
         logger.warning(f"Plans query failed: {e}")
-        # Return default plans
-        return APIResponse(
-            success=True,
-            data={
-                "plans": [
-                    {
-                        "id": "free",
-                        "name": "Free",
-                        "tier": "free",
-                        "price": 0,
-                        "limits": {"max_users": 5, "max_campaigns": 10, "max_connectors": 2},
-                    },
-                    {
-                        "id": "starter_monthly",
-                        "name": "Starter",
-                        "tier": "starter",
-                        "price": 99,
-                        "limits": {"max_users": 10, "max_campaigns": 50, "max_connectors": 3},
-                    },
-                    {
-                        "id": "professional_monthly",
-                        "name": "Professional",
-                        "tier": "professional",
-                        "price": 299,
-                        "limits": {"max_users": 25, "max_campaigns": 200, "max_connectors": 5},
-                    },
-                    {
-                        "id": "enterprise_monthly",
-                        "name": "Enterprise",
-                        "tier": "enterprise",
-                        "price": 999,
-                        "limits": {"max_users": 100, "max_campaigns": 1000, "max_connectors": 10},
-                    },
-                ],
-            },
-        )
+        await db.rollback()
+        # Return the built-in tier catalogue (prices come from core TIER_PRICING; the
+        # billable Paddle prices themselves live in the Paddle catalogue).
+        default_limits = {
+            "free": {"max_users": 5, "max_campaigns": 10, "max_connectors": 2},
+            "starter": {"max_users": 10, "max_campaigns": 50, "max_connectors": 3},
+            "professional": {"max_users": 25, "max_campaigns": 200, "max_connectors": 5},
+            "enterprise": {"max_users": 100, "max_campaigns": 1000, "max_connectors": 10},
+        }
+        plans = [
+            {
+                "id": "free",
+                "name": "Free",
+                "display_name": "Free",
+                "tier": "free",
+                "billing_period": "monthly",
+                "price_cents": 0,
+                "price": 0,
+                "currency": "USD",
+                "limits": default_limits["free"],
+                "features": {},
+                "is_active": True,
+            }
+        ]
+        for tier, pricing in TIER_PRICING.items():
+            price = pricing.get("price")
+            plans.append(
+                {
+                    "id": f"{tier.value}_monthly",
+                    "name": pricing["name"],
+                    "display_name": pricing["name"],
+                    "tier": tier.value,
+                    "billing_period": pricing.get("billing_period", "monthly"),
+                    "price_cents": int(price * 100) if price else None,
+                    "price": price,  # None = custom pricing (enterprise)
+                    "currency": pricing.get("currency", "USD"),
+                    "limits": default_limits[tier.value],
+                    "features": {},
+                    "is_active": True,
+                }
+            )
+        return APIResponse(success=True, data={"plans": plans})
 
 
 class PlanUpdate(BaseModel):
@@ -791,8 +921,6 @@ async def update_subscription_plan(
 
     try:
         import json
-
-        from sqlalchemy import text
 
         updates = []
         params = {"plan_id": plan_id}
@@ -850,21 +978,36 @@ async def get_invoices(
     """
     Get all invoices across tenants.
     SuperAdmin only.
+
+    Each row is a ``SuperadminInvoice``. ``paddle_transaction_id`` and ``invoice_url``
+    are read from the ``invoices`` table only when ``information_schema`` reports those
+    columns; otherwise they are ``None``. Invoices are created and hosted by Paddle;
+    this endpoint is read-only.
     """
     require_superadmin(request)
 
     try:
-        from sqlalchemy import text
+        invoice_columns = await _table_columns(db, "invoices")
+        if not invoice_columns:
+            raise RuntimeError("invoices table does not exist")
 
-        query = """
+        has_txn_id = "paddle_transaction_id" in invoice_columns
+        has_invoice_url = "invoice_url" in invoice_columns
+
+        select_txn_id = "i.paddle_transaction_id" if has_txn_id else "NULL"
+        select_invoice_url = "i.invoice_url" if has_invoice_url else "NULL"
+
+        query = f"""
             SELECT i.id, i.tenant_id, t.name as tenant_name, i.invoice_number,
                    i.status, i.amount_cents, i.tax_cents, i.total_cents,
-                   i.currency, i.due_date, i.paid_at, i.created_at
+                   i.currency, i.due_date, i.paid_at, i.created_at,
+                   {select_txn_id} AS paddle_transaction_id,
+                   {select_invoice_url} AS invoice_url
             FROM invoices i
             LEFT JOIN tenants t ON i.tenant_id = t.id
             WHERE 1=1
         """
-        params = {}
+        params: dict[str, object] = {}
 
         if status_filter:
             query += " AND i.status = :status"
@@ -883,22 +1026,24 @@ async def get_invoices(
         invoices = []
         for row in rows:
             invoices.append(
-                {
-                    "id": row[0],
-                    "tenant_id": row[1],
-                    "tenant_name": row[2],
-                    "invoice_number": row[3],
-                    "status": row[4],
-                    "amount_cents": row[5],
-                    "amount": row[5] / 100 if row[5] else 0,
-                    "tax_cents": row[6],
-                    "total_cents": row[7],
-                    "total": row[7] / 100 if row[7] else 0,
-                    "currency": row[8],
-                    "due_date": row[9].isoformat() if row[9] else None,
-                    "paid_at": row[10].isoformat() if row[10] else None,
-                    "created_at": row[11].isoformat() if row[11] else None,
-                }
+                SuperadminInvoice(
+                    id=row[0],
+                    tenant_id=row[1],
+                    tenant_name=row[2],
+                    invoice_number=row[3],
+                    status=row[4],
+                    amount_cents=row[5],
+                    amount=row[5] / 100 if row[5] else 0,
+                    tax_cents=row[6],
+                    total_cents=row[7],
+                    total=row[7] / 100 if row[7] else 0,
+                    currency=row[8],
+                    due_date=_iso(row[9]),
+                    paid_at=_iso(row[10]),
+                    created_at=_iso(row[11]),
+                    paddle_transaction_id=row[12],
+                    invoice_url=row[13],
+                ).model_dump()
             )
 
         # Get summary
@@ -927,6 +1072,7 @@ async def get_invoices(
         )
     except Exception as e:
         logger.warning(f"Invoices query failed: {e}")
+        await db.rollback()
         return APIResponse(
             success=True,
             data={
@@ -938,6 +1084,58 @@ async def get_invoices(
         )
 
 
+async def _subscriptions_from_tenants(
+    db: AsyncSession,
+    skip: int,
+    limit: int,
+    status_filter: Optional[str],
+) -> list[dict]:
+    """Build subscription rows from the Paddle billing state stored on ``tenants``.
+
+    Used when the raw ``subscriptions`` table is absent. Includes every non-deleted tenant
+    that is on a paid plan or carries any Paddle subscription state; free tenants without
+    a Paddle subscription are skipped. Row ``id`` is the tenant id (``source='tenant'``).
+    """
+    query = select(Tenant).where(Tenant.is_deleted == False)
+
+    query = query.where(
+        or_(
+            Tenant.plan != "free",
+            Tenant.subscription_status.is_not(None),
+            Tenant.paddle_subscription_id.is_not(None),
+        )
+    )
+    if status_filter:
+        query = query.where(Tenant.subscription_status == status_filter)
+
+    query = query.order_by(desc(Tenant.created_at)).offset(skip).limit(limit)
+    result = await db.execute(query)
+    tenants = result.scalars().all()
+
+    rows: list[dict] = []
+    for t in tenants:
+        rows.append(
+            SuperadminSubscription(
+                id=t.id,
+                tenant_id=t.id,
+                tenant_name=t.name,
+                plan_id=t.plan,
+                plan_name=_plan_display_name(t.plan),
+                status=getattr(t, "subscription_status", None),
+                current_period_start=None,
+                current_period_end=_iso(getattr(t, "current_period_end", None)),
+                cancel_at_period_end=False,
+                discount_percent=None,
+                paddle_subscription_id=getattr(t, "paddle_subscription_id", None),
+                paddle_customer_id=getattr(t, "paddle_customer_id", None),
+                plan_expires_at=_iso(t.plan_expires_at),
+                mrr=_tenant_mrr(t),
+                source="tenant",
+            ).model_dump()
+        )
+    return rows
+
+
 @router.get("/billing/subscriptions", response_model=APIResponse)
 async def get_subscriptions(
     request: Request,
@@ -947,24 +1145,49 @@ async def get_subscriptions(
     status_filter: Optional[str] = Query(None),
 ):
     """
-    Get all active subscriptions.
+    Get all subscriptions with their Paddle identifiers.
     SuperAdmin only.
+
+    Each row is a ``SuperadminSubscription``; ``status`` may be any Paddle status
+    (active|trialing|past_due|paused|canceled). When the raw ``subscriptions`` table is
+    present it is the source of truth and ``paddle_subscription_id`` /
+    ``paddle_customer_id`` are joined from ``tenants``; when it is absent the rows are
+    derived from the tenants' Paddle billing columns (``source='tenant'``).
     """
     require_superadmin(request)
 
     try:
-        from sqlalchemy import text
+        subscription_columns = await _table_columns(db, "subscriptions")
+        if not subscription_columns:
+            rows = await _subscriptions_from_tenants(db, skip, limit, status_filter)
+            return APIResponse(
+                success=True,
+                data={"subscriptions": rows, "total": len(rows), "source": "tenant"},
+            )
 
-        query = """
+        tenant_columns = await _table_columns(db, "tenants")
+        select_sub_id = (
+            "t.paddle_subscription_id" if "paddle_subscription_id" in tenant_columns else "NULL"
+        )
+        select_customer_id = (
+            "t.paddle_customer_id" if "paddle_customer_id" in tenant_columns else "NULL"
+        )
+        select_plan_expires = "t.plan_expires_at" if "plan_expires_at" in tenant_columns else "NULL"
+
+        query = f"""
             SELECT s.id, s.tenant_id, t.name as tenant_name, s.plan_id,
                    p.display_name as plan_name, s.status, s.current_period_start,
-                   s.current_period_end, s.cancel_at_period_end, s.discount_percent
+                   s.current_period_end, s.cancel_at_period_end, s.discount_percent,
+                   {select_sub_id} AS paddle_subscription_id,
+                   {select_customer_id} AS paddle_customer_id,
+                   {select_plan_expires} AS plan_expires_at,
+                   p.price_cents AS price_cents, t.plan AS tenant_plan
             FROM subscriptions s
             LEFT JOIN tenants t ON s.tenant_id = t.id
             LEFT JOIN subscription_plans p ON s.plan_id = p.id
             WHERE 1=1
         """
-        params = {}
+        params: dict[str, object] = {}
 
         if status_filter:
             query += " AND s.status = :status"
@@ -979,31 +1202,62 @@ async def get_subscriptions(
 
         subscriptions = []
         for row in rows:
+            status_value = row[5]
+            if row[13] is not None:
+                mrr = row[13] / 100 if status_value in BILLABLE_SUBSCRIPTION_STATUSES else 0.0
+            elif status_value in BILLABLE_SUBSCRIPTION_STATUSES:
+                mrr = _plan_list_price(row[14])
+            else:
+                mrr = 0.0
             subscriptions.append(
-                {
-                    "id": row[0],
-                    "tenant_id": row[1],
-                    "tenant_name": row[2],
-                    "plan_id": row[3],
-                    "plan_name": row[4],
-                    "status": row[5],
-                    "current_period_start": row[6].isoformat() if row[6] else None,
-                    "current_period_end": row[7].isoformat() if row[7] else None,
-                    "cancel_at_period_end": row[8],
-                    "discount_percent": row[9],
-                }
+                SuperadminSubscription(
+                    id=row[0],
+                    tenant_id=row[1],
+                    tenant_name=row[2],
+                    plan_id=str(row[3]) if row[3] is not None else None,
+                    plan_name=row[4],
+                    status=status_value,
+                    current_period_start=_iso(row[6]),
+                    current_period_end=_iso(row[7]),
+                    cancel_at_period_end=bool(row[8]),
+                    discount_percent=row[9],
+                    paddle_subscription_id=row[10],
+                    paddle_customer_id=row[11],
+                    plan_expires_at=_iso(row[12]),
+                    mrr=mrr,
+                    source="subscriptions",
+                ).model_dump()
             )
 
         return APIResponse(
             success=True,
-            data={"subscriptions": subscriptions, "total": len(subscriptions)},
+            data={
+                "subscriptions": subscriptions,
+                "total": len(subscriptions),
+                "source": "subscriptions",
+            },
         )
     except Exception as e:
         logger.warning(f"Subscriptions query failed: {e}")
-        return APIResponse(
-            success=True,
-            data={"subscriptions": [], "total": 0, "message": "Table not yet migrated"},
-        )
+        await db.rollback()
+        try:
+            rows = await _subscriptions_from_tenants(db, skip, limit, status_filter)
+            return APIResponse(
+                success=True,
+                data={"subscriptions": rows, "total": len(rows), "source": "tenant"},
+            )
+        except Exception as fallback_error:
+            logger.warning(f"Tenant subscription fallback failed: {fallback_error}")
+            await db.rollback()
+            return APIResponse(
+                success=True,
+                data={
+                    "subscriptions": [],
+                    "total": 0,
+                    "source": "none",
+                    "message": "Table not yet migrated",
+                },
+            )
 
 
 class SubscriptionAction(BaseModel):
@@ -1023,14 +1277,56 @@ async def perform_subscription_action(
     db: AsyncSession = Depends(get_async_session),
 ):
     """
-    Perform action on subscription (upgrade, downgrade, cancel, etc).
+    Apply a DB-only admin override to a row of the raw ``subscriptions`` table.
     SuperAdmin only.
+
+    Supported actions: ``cancel`` (flags cancel_at_period_end), ``upgrade`` (sets
+    plan_id), ``extend_trial`` (pushes current_period_end by ``extend_days``) and
+    ``resume`` (clears the cancel flag and marks the row active).
+
+    IMPORTANT: these overrides touch only Stratum's own database. Paddle is the billing
+    system of record, so any change that must affect what the customer is charged
+    (cancel, pause/resume, plan change, trial extension, payment retry) has to be made in
+    the Paddle dashboard or via the tenant-facing /billing endpoints, and will then be
+    mirrored back through the Paddle webhook. There is intentionally no retry-payment
+    action here: Paddle owns dunning.
     """
     user_id = require_superadmin(request)
 
-    try:
-        from sqlalchemy import text
+    # Fail fast with clear client errors instead of a 500 from a broken UPDATE:
+    # - the raw ``subscriptions`` table is optional (rows may be derived from
+    #   ``tenants``, whose id is the tenant id and which this endpoint never edits);
+    # - an unknown action or a missing parameter used to commit nothing and still
+    #   report success.
+    if action_req.action not in ("cancel", "upgrade", "extend_trial", "resume"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported action '{action_req.action}'. "
+                "Supported: cancel, upgrade, extend_trial, resume."
+            ),
+        )
+    if action_req.action == "upgrade" and not action_req.new_plan_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="new_plan_id is required for the upgrade action",
+        )
+    if action_req.action == "extend_trial" and not action_req.extend_days:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="extend_days is required for the extend_trial action",
+        )
+    if not await _table_columns(db, "subscriptions"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "The raw subscriptions table is not present; subscription rows are derived "
+                "from the tenants' Paddle state and are read-only here. Make billing changes "
+                "in the Paddle dashboard (they are mirrored back via the Paddle webhook)."
+            ),
+        )
 
+    try:
         if action_req.action == "cancel":
             await db.execute(
                 text("""
@@ -1053,15 +1349,13 @@ async def perform_subscription_action(
 
         elif action_req.action == "extend_trial" and action_req.extend_days:
             await db.execute(
-                text(
-                    """
+                text("""
                 UPDATE subscriptions
-                SET current_period_end = current_period_end + interval ':days days',
+                SET current_period_end = current_period_end + make_interval(days => :days),
                     updated_at = NOW()
                 WHERE id = :id
-            """.replace(":days", str(action_req.extend_days))
-                ),
-                {"id": subscription_id},
+            """),
+                {"id": subscription_id, "days": int(action_req.extend_days)},
             )
 
         elif action_req.action == "resume":
@@ -1089,6 +1383,7 @@ async def perform_subscription_action(
         return APIResponse(success=True, message=f"Subscription {action_req.action} successful")
     except Exception as e:
         logger.error(f"Subscription action failed: {e}")
+        await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1130,8 +1425,6 @@ async def get_tenant_usage(
 
     # Get connector count (from platform_connectors)
     try:
-        from sqlalchemy import text
-
         connector_result = await db.execute(
             text("""
             SELECT COUNT(*) FROM platform_connectors WHERE tenant_id = :tenant_id AND status = 'connected'
@@ -1244,9 +1537,11 @@ async def get_superadmin_dashboard(
     tenants = result.scalars().all()
 
     total_tenants = len(tenants)
-    active_tenants = len([t for t in tenants if getattr(t, "status", "active") == "active"])
-    trial_tenants = len([t for t in tenants if t.plan == "trial"])
-    total_mrr = sum((getattr(t, "mrr_cents", 0) or 0) for t in tenants) / 100
+    active_tenants = len([t for t in tenants if _tenant_subscription_status(t) == "active"])
+    trial_tenants = len(
+        [t for t in tenants if t.plan == "trial" or _tenant_subscription_status(t) == "trialing"]
+    )
+    total_mrr = sum(_tenant_mrr(t) for t in tenants)
 
     # Get user count
     user_result = await db.execute(select(func.count(User.id)).where(User.is_deleted == False))

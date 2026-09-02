@@ -20,12 +20,16 @@ module.exports = {
   ],
   ignorePatterns: [
     'dist',
+    'coverage',
     'node_modules',
     '.eslintrc.cjs',
     'vite.config.ts',
     'tailwind.config.js',
     'postcss.config.js',
     '*.d.ts',
+    // Playwright files are outside tsconfig.json's "include" (src only)
+    'e2e',
+    'playwright.config.ts',
   ],
   parser: '@typescript-eslint/parser',
   parserOptions: {

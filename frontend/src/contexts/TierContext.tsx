@@ -250,7 +250,7 @@ export function UpgradePrompt({ feature: _feature, requiredTier, className = '' 
       <div className="text-orange-400 text-lg font-semibold mb-2">Upgrade Required</div>
       <p className="text-gray-400 mb-4">This feature requires {requiredTier || 'a higher'} tier.</p>
       <a
-        href="/settings/billing"
+        href="/dashboard/settings?tab=billing"
         className="inline-block px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
       >
         Upgrade Now

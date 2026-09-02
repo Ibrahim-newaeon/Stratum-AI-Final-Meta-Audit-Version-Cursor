@@ -123,8 +123,6 @@ class TenantEnforcementSettings(Base, TimestampMixin):
         cascade="all, delete-orphan",
     )
 
-    __table_args__ = (Index("ix_tenant_enforcement_settings_tenant_id", "tenant_id"),)
-
     def to_dict(self) -> dict:
         """Convert to dictionary for API responses."""
         return {
@@ -202,7 +200,6 @@ class TenantEnforcementRule(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "rule_id", name="uq_tenant_rule_id"),
-        Index("ix_tenant_enforcement_rules_tenant_id", "tenant_id"),
         Index("ix_tenant_enforcement_rules_settings_id", "settings_id"),
     )
 
@@ -289,7 +286,6 @@ class EnforcementAuditLog(Base):
     override_reason = Column(Text, nullable=True)
 
     __table_args__ = (
-        Index("ix_enforcement_audit_logs_tenant_id", "tenant_id"),
         Index("ix_enforcement_audit_logs_timestamp", "timestamp"),
         Index("ix_enforcement_audit_logs_action_type", "action_type"),
     )
@@ -349,8 +345,5 @@ class PendingConfirmationToken(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (
-        Index("ix_pending_confirmation_tokens_token", "token"),
-        Index("ix_pending_confirmation_tokens_tenant_id", "tenant_id"),
-        Index("ix_pending_confirmation_tokens_expires_at", "expires_at"),
-    )
+    # tenant_id and token are indexed at the column level (index=True)
+    __table_args__ = (Index("ix_pending_confirmation_tokens_expires_at", "expires_at"),)

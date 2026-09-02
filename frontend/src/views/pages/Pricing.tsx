@@ -1,6 +1,10 @@
 /**
  * Pricing Page
  * Displays pricing tiers for Stratum AI
+ *
+ * Marketing only: the plan CTAs are navigation-only (signup / contact). No
+ * payment provider is wired into public pages - subscription checkout happens
+ * after signup in Settings > Billing via the Paddle.js overlay.
  */
 
 import { Link } from 'react-router-dom';
@@ -194,7 +198,7 @@ export default function Pricing() {
               },
               {
                 q: 'What payment methods do you accept?',
-                a: 'We accept all major credit cards, ACH transfers, and wire transfers for annual Enterprise plans.',
+                a: 'Payments are processed securely by Paddle (our Merchant of Record): major credit/debit cards, PayPal, Apple Pay and Google Pay, with invoicing available for annual Enterprise plans.',
               },
             ].map((faq) => (
               <div

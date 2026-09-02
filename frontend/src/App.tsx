@@ -43,6 +43,7 @@ const Competitors = lazy(() => import('./views/Competitors'));
 const Predictions = lazy(() => import('./views/Predictions'));
 const WhatsApp = lazy(() => import('./views/whatsapp/WhatsAppManager'));
 const Settings = lazy(() => import('./views/Settings'));
+const BillingSuccess = lazy(() => import('./views/billing/BillingSuccess'));
 const Tenants = lazy(() => import('./views/Tenants'));
 const MLTraining = lazy(() => import('./views/MLTraining'));
 const CAPISetup = lazy(() => import('./views/CAPISetup'));
@@ -752,6 +753,15 @@ function App() {
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <Settings />
+                          </Suspense>
+                        }
+                      />
+                      {/* Paddle checkout successUrl (/dashboard/billing/success) */}
+                      <Route
+                        path="billing/success"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <BillingSuccess />
                           </Suspense>
                         }
                       />

@@ -7,7 +7,9 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+// Same-origin by default: Vite proxies /api in development and nginx proxies it in
+// production, so builds work on any host without baking in an API origin.
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 // Create axios instance with default config
 export const apiClient: AxiosInstance = axios.create({
@@ -108,8 +110,16 @@ apiClient.interceptors.response.use(
           const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
             refresh_token: refreshToken,
           });
-          const { access_token } = response.data;
+          // The API wraps tokens in the APIResponse envelope ({ success, data: {...} })
+          const payload = response.data?.data ?? response.data;
+          const { access_token, refresh_token: rotatedRefreshToken } = payload ?? {};
+          if (!access_token) {
+            throw new Error('Token refresh returned no access token');
+          }
           setAccessToken(access_token);
+          if (rotatedRefreshToken) {
+            localStorage.setItem('refresh_token', rotatedRefreshToken);
+          }
 
           if (originalRequest.headers) {
             originalRequest.headers.Authorization = `Bearer ${access_token}`;

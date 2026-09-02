@@ -5,6 +5,8 @@ on:
     branches: ["main"]
     paths:
       - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -30,11 +32,21 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      # If your docs are already static files (HTML/CSS/JS) inside /docs
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # docs/ is Markdown; render it with MkDocs (Material) so Pages gets a real site
+      - name: Build docs site
+        run: |
+          pip install "mkdocs-material>=9.5,<10"
+          mkdocs build --strict
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: docs
+          path: site
 
       - name: Deploy to GitHub Pages
         id: deployment

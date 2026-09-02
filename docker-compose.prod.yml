@@ -67,10 +67,20 @@ services:
       - LOG_LEVEL=WARNING
       - LOG_FORMAT=json
       - SENTRY_DSN=${SENTRY_DSN:-}
+      # Paddle Billing (optional). Set PADDLE_ENVIRONMENT=production together with
+      # production keys; the app refuses to boot in production with an API key still
+      # pointed at the sandbox.
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./ml_service/models:/app/ml_service/models:ro
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+      sh -c "python scripts_create_schema.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     deploy:
       resources:
         limits:
@@ -98,6 +108,14 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
       - LOG_LEVEL=WARNING
       - SENTRY_DSN=${SENTRY_DSN:-}
+      # Paddle Billing (optional)
+      - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
+      - PADDLE_API_KEY=${PADDLE_API_KEY:-}
+      - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
+      - PADDLE_WEBHOOK_SECRET=${PADDLE_WEBHOOK_SECRET:-}
+      - PADDLE_STARTER_PRICE_ID=${PADDLE_STARTER_PRICE_ID:-}
+      - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
+      - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./ml_service/models:/app/ml_service/models:ro
     command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=2
@@ -152,7 +170,7 @@ services:
       - NODE_ENV=production
     volumes: []
     ports:
-      - "80:80"
+      - "80:8080"
     command: ["nginx", "-g", "daemon off;"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]

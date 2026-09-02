@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
@@ -28,6 +29,8 @@ import { useCurrentUser, useUpdatePreferences } from '@/api/auth';
 import { useToast } from '@/components/ui/use-toast';
 import GA4Integration from '@/components/settings/GA4Integration';
 import GTMIntegration from '@/components/settings/GTMIntegration';
+import PaddleBilling from '@/components/settings/PaddleBilling';
+import { useBillingSubscription } from '@/api/billing';
 
 type SettingsTab =
   | 'profile'
@@ -40,9 +43,34 @@ type SettingsTab =
   | 'gdpr'
   | 'trust-engine';
 
+const SETTINGS_TABS: SettingsTab[] = [
+  'profile',
+  'organization',
+  'notifications',
+  'security',
+  'integrations',
+  'preferences',
+  'billing',
+  'gdpr',
+  'trust-engine',
+];
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return value !== null && (SETTINGS_TABS as string[]).includes(value);
+}
+
 export function Settings() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  // Deep link support: /dashboard/settings?tab=billing opens the Billing tab.
+  // Tab clicks keep using internal state (the URL is not rewritten).
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    isSettingsTab(tabParam) ? tabParam : 'profile'
+  );
+  useEffect(() => {
+    if (isSettingsTab(tabParam)) setActiveTab(tabParam);
+  }, [tabParam]);
   const [showApiKey, setShowApiKey] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
@@ -782,6 +810,8 @@ function SecuritySettings({
 
 function IntegrationSettings() {
   const { t } = useTranslation();
+  // Paddle Billing is "connected" once the tenant has a Paddle customer record
+  const { data: billingSubscription } = useBillingSubscription();
   const [webhooks, setWebhooks] = useState([
     {
       id: '1',
@@ -807,11 +837,8 @@ function IntegrationSettings() {
           />
         </svg>
       ),
-      stripe: (
-        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-          <path d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z" />
-        </svg>
-      ),
+      // Paddle Billing (neutral icon, no third-party wordmark)
+      paddle: <CreditCard className="w-6 h-6" aria-hidden="true" />,
       wordpress: (
         <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
           <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm-1.46 14.58L7.93 5.51c.46-.02.88-.07.88-.07.41-.05.36-.66-.05-.64 0 0-1.24.1-2.04.1-.14 0-.31 0-.48-.01C7.58 2.91 9.66 1.8 12 1.8c1.73 0 3.31.66 4.5 1.74-.03 0-.06-.01-.09-.01-.72 0-1.23.63-1.23 1.3 0 .6.35 1.11.72 1.72.28.48.6 1.1.6 2 0 .62-.24 1.34-.56 2.34l-.73 2.44-2.65-7.89c.44-.02.84-.07.84-.07.4-.05.35-.64-.05-.62 0 0-1.2.09-1.98.09-.07 0-.15 0-.22 0l2.87 8.58-1.96 5.86-3.82-11.34zM12 22.2c-1.22 0-2.39-.22-3.47-.62l3.68-10.69 3.77 10.33c.02.06.05.12.08.17-1.26.52-2.64.81-4.06.81zm8.4-5.14c.33-1.35.53-2.9.53-4.62 0-1.81-.33-3.38-.86-4.72l-4.7 13.62c3.03-1.46 5.03-4.57 5.03-8.28zm-17.9-4.62c0 3.27 1.61 6.16 4.07 7.93L2.92 9.45c-.28 1.03-.42 2.12-.42 3.25v.74z" />
@@ -867,11 +894,11 @@ function IntegrationSettings() {
       description: 'Sync orders and product catalog',
     },
     {
-      id: 'stripe',
-      name: 'Stripe',
-      connected: false,
-      color: 'text-purple-500',
-      description: 'Track payments and subscriptions',
+      id: 'paddle',
+      name: 'Paddle Billing',
+      connected: !!billingSubscription?.has_customer,
+      color: 'text-amber-500',
+      description: t('settings.integrationPaddleDesc'),
     },
     {
       id: 'wordpress',
@@ -1225,73 +1252,12 @@ function PreferenceSettings() {
 function BillingSettings() {
   const { t } = useTranslation();
 
+  // Live subscription state, checkout, portal, cancel/resume and invoices are
+  // all handled by the Paddle Billing card (no static/mock billing data here).
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold">{t('settings.billingSettings')}</h2>
-
-      <div className="p-4 rounded-lg border bg-primary/5 border-primary/20">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium">Pro Plan</p>
-            <p className="text-sm text-muted-foreground">$99/month • Renews Dec 15, 2024</p>
-          </div>
-          <button className="px-4 py-2 rounded-lg border hover:bg-muted transition-colors text-sm">
-            {t('settings.changePlan')}
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="font-medium mb-3">{t('settings.paymentMethod')}</h3>
-        <div className="p-4 rounded-lg border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-8 rounded bg-muted flex items-center justify-center text-xs font-bold">
-                VISA
-              </div>
-              <div>
-                <p className="font-medium">•••• •••• •••• 4242</p>
-                <p className="text-sm text-muted-foreground">Expires 12/25</p>
-              </div>
-            </div>
-            <button className="text-sm text-primary hover:underline">{t('settings.update')}</button>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="font-medium mb-3">{t('settings.billingHistory')}</h3>
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="p-3 text-left text-sm font-medium">{t('settings.date')}</th>
-                <th className="p-3 text-left text-sm font-medium">{t('settings.description')}</th>
-                <th className="p-3 text-right text-sm font-medium">{t('settings.amount')}</th>
-                <th className="p-3 text-right text-sm font-medium" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {[
-                { date: 'Nov 15, 2024', desc: 'Pro Plan - Monthly', amount: '$99.00' },
-                { date: 'Oct 15, 2024', desc: 'Pro Plan - Monthly', amount: '$99.00' },
-                { date: 'Sep 15, 2024', desc: 'Pro Plan - Monthly', amount: '$99.00' },
-              ].map((invoice, i) => (
-                <tr key={i}>
-                  <td className="p-3 text-sm">{invoice.date}</td>
-                  <td className="p-3 text-sm">{invoice.desc}</td>
-                  <td className="p-3 text-sm text-right">{invoice.amount}</td>
-                  <td className="p-3 text-right">
-                    <button className="text-sm text-primary hover:underline">
-                      <Download className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <PaddleBilling />
     </div>
   );
 }

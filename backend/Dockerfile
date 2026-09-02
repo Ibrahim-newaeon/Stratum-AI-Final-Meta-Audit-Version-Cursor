@@ -1,7 +1,7 @@
 # =============================================================================
 # Stratum AI - Backend Dockerfile
 # =============================================================================
-FROM python:3.14-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -39,7 +39,8 @@ COPY --chown=appuser:appgroup . .
 
 # Create directories for file uploads and ML data
 RUN mkdir -p /app/ml_service/training_data /app/uploads /app/temp && \
-    chown -R appuser:appgroup /app/ml_service /app/uploads /app/temp
+    chown -R appuser:appgroup /app/ml_service /app/uploads /app/temp && \
+    chmod +x /app/docker-entrypoint.sh
 
 # Switch to non-root user
 USER appuser
@@ -49,7 +50,8 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-# Default command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command: create schema, optionally seed demo data, then serve
+# (see docker-entrypoint.sh; SEED_DEMO=true enables seeding)
+CMD ["/app/docker-entrypoint.sh"]

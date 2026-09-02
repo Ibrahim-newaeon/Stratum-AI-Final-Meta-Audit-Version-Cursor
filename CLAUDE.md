@@ -20,6 +20,7 @@ Signal Health Check → Trust Gate → Automation Decision
 - **Frontend**: React 18, TypeScript, Tailwind CSS
 - **Infra**: Docker, AWS (ECS, RDS, ElastiCache)
 - **Monitoring**: Prometheus, Grafana, Sentry
+- **Billing**: Paddle Billing (Merchant of Record) — thin httpx client, Paddle.js v2 overlay checkout, signed webhooks
 
 ## Project Structure
 ```
@@ -119,12 +120,72 @@ GTM_VERIFY_TIMEOUT_SECONDS=10
 GTM_DEFAULT_SERVER_CONTAINER_URL=
 ```
 
+## Billing (Paddle Billing)
+Tenant subscriptions are billed through **Paddle Billing** (Merchant of Record). Paddle hosts the checkout,
+collects payment, handles tax/invoices/dunning and reports back through signed webhooks; Stratum never
+stores card data. The integration is a **thin `httpx.AsyncClient`** (`backend/app/services/paddle_service.py`),
+no `paddle-python-sdk`, no `@paddle/*` npm package — Paddle.js v2 is loaded at runtime from
+`https://cdn.paddle.com/paddle/v2/paddle.js` and only inside the authenticated SPA (never in `frontend/public/*.html`).
+
+**Config keys** (`backend/app/core/config.py` Settings) and env names — all optional, sandbox by default:
+| Setting | Env |
+|---------|-----|
+| `paddle_api_key` | `PADDLE_API_KEY` (empty = billing disabled) |
+| `paddle_client_token` | `PADDLE_CLIENT_TOKEN` (served via `GET /api/v1/billing/config`, never a frontend env var) |
+| `paddle_webhook_secret` | `PADDLE_WEBHOOK_SECRET` |
+| `paddle_environment` | `PADDLE_ENVIRONMENT` (`sandbox` \| `production`, default `sandbox`) |
+| `paddle_starter_price_id` / `paddle_professional_price_id` / `paddle_enterprise_price_id` | `PADDLE_STARTER_PRICE_ID` / `PADDLE_PROFESSIONAL_PRICE_ID` / `PADDLE_ENTERPRISE_PRICE_ID` (`pri_...`) |
+
+Properties: `settings.paddle_enabled`, `settings.paddle_fully_configured`, `settings.paddle_api_base_url`
+(`https://sandbox-api.paddle.com` | `https://api.paddle.com`). The validator raises only in production
+(API key set while the environment is still `sandbox`, or a companion key missing). Frontend: optional
+`VITE_PADDLE_ENVIRONMENT` override only.
+
+**Tenant columns** (`backend/app/base_models.py`, table `tenants`): `paddle_customer_id`,
+`paddle_subscription_id`, `subscription_status` (`active|trialing|past_due|paused|canceled`),
+`current_period_end`; existing `plan` / `plan_expires_at` keep their semantics. Idempotency table
+`paddle_webhook_events` (`PaddleWebhookEvent`). Schema is `create_all`-based: existing deployments run
+`backend/scripts_migrate_paddle_columns.py` once (idempotent rename/add + webhook table). Never silently
+downgrade a tenant on an unknown price id; `canceled` -> `plan='free'`.
+
+**API** (`backend/app/api/v1/endpoints/billing.py`, `APIResponse` envelope, schemas in `schemas/billing.py`):
+`GET /api/v1/billing/config`, `GET /billing/subscription`, `POST /billing/checkout-session` (returns
+price id + client token + customer email + `custom_data{tenant_id,tier}`; the SPA opens the Paddle.js overlay),
+`POST /billing/portal-session`, `POST /billing/cancel`, `POST /billing/reactivate`, `POST /billing/upgrade`,
+`GET /billing/transactions`, `GET /billing/transactions/{id}/invoice`. Errors: not configured -> 503,
+Paddle error -> 502.
+
+**Webhook** (`backend/app/api/v1/endpoints/paddle_webhook.py`): public `POST /api/v1/webhooks/paddle`
+(in `TenantMiddleware.PUBLIC_ENDPOINTS`), `Paddle-Signature: ts=<unix>;h1=<hex>` verified as HMAC-SHA256
+over `<ts>:<raw body>` with a 300 s tolerance; 200 `{status: received|duplicate|ignored}`, 400 bad
+signature/JSON, 503 no secret, 500 after rollback so Paddle retries. Handles `subscription.*`,
+`transaction.completed|paid|payment_failed`, `customer.created|updated`; everything else is `ignored`.
+
+**Frontend**: `frontend/src/api/billing.ts` (hooks + types), `frontend/src/lib/paddle.ts` (loader),
+`frontend/src/components/settings/PaddleBilling.tsx` (Settings > Billing, `/dashboard/settings?tab=billing`),
+`frontend/src/views/billing/BillingSuccess.tsx` (`/dashboard/billing/success`). Pricing CTAs on the public
+landing pages are navigation only; checkout happens in Settings > Billing after signup.
+
+**CSP hosts** (identical in `backend/app/middleware/security.py` build_csp, `frontend/nginx.conf`, `nginx/beta.conf`):
+`script-src` + `https://cdn.paddle.com`; `connect-src` + `https://*.paddle.com`; `frame-src 'self' https://*.paddle.com`;
+nginx `Permissions-Policy: payment=(self "https://buy.paddle.com" "https://sandbox-buy.paddle.com")`.
+
+**No other payment provider.** The former provider's name (spelled S-T-R-I-P-E) must not appear anywhere in
+the project — code, tests, docs, env examples, compose files, HTML, comments. The only tolerated matches for
+a case-insensitive search of that name are the pre-existing row-banding utility props in
+`frontend/src/components/ui/data-table.tsx` and `frontend/src/components/ui/progress.tsx` (their name is that
+word plus a trailing "d"); do not rename them.
+
+Docs: `docs/integrations/billing-paddle.md`, `SERVER_DEPLOYMENT_GUIDE.md` (Step 8),
+`docs/05-operations/runbooks.md` ("Paddle Webhook Failures").
+
 ## Do NOT
 - Skip trust gate checks for "quick fixes"
 - Hardcode thresholds (use config)
 - Execute automations without audit logging
 - Merge without passing CI
 - Treat GA4/GTM as ad channels (no Google Ads, Customer Match, gclid, write scopes, Google OAuth); never put ga4/gtm in AdPlatform/SyncPlatform/Platform enums or TenantPlatformConnection
+- Add any payment provider other than Paddle Billing, add a Paddle SDK dependency, or load Paddle.js in public static HTML
 
 ## Git Workflow
 - Branch: `feature/STRAT-123-description`

@@ -1,6 +1,10 @@
 /**
  * AI Pricing Section - Tiered AI Feature Access
  * 2026 Design: Glass cards with gradient accents
+ *
+ * Marketing only: the CTAs are navigation-only (signup / contact). No payment
+ * provider is wired into public pages - subscription checkout happens after
+ * signup in Settings > Billing via the Paddle.js overlay.
  */
 
 import { motion, useInView } from 'framer-motion';

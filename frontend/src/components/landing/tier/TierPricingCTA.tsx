@@ -1,3 +1,11 @@
+/**
+ * Tier Landing Pricing CTA (marketing only)
+ *
+ * The buttons here only navigate (signup / contact). No payment provider is
+ * wired into public pages: subscription checkout happens after signup in
+ * Settings > Billing via the Paddle.js overlay.
+ */
+
 import { useNavigate } from 'react-router-dom';
 import { ArrowRightIcon, CheckIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/button';

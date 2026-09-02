@@ -87,8 +87,8 @@ const RELEASES: Release[] = [
     changes: [
       {
         type: 'feature',
-        title: 'Stripe Integration',
-        description: 'Subscription payments and billing portal',
+        title: 'Paddle Billing Integration',
+        description: 'Subscription checkout via Paddle.js overlay, customer portal and signed webhooks',
       },
       {
         type: 'feature',

@@ -1,3 +1,12 @@
+/**
+ * Landing Pricing Section (marketing only)
+ *
+ * The plan CTAs here are navigation-only (signup / contact). No payment
+ * provider is wired into public pages: subscription checkout happens after
+ * signup in Settings > Billing via the Paddle.js overlay
+ * (see src/components/settings/PaddleBilling.tsx).
+ */
+
 import { useNavigate } from 'react-router-dom';
 import { CheckIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/button';

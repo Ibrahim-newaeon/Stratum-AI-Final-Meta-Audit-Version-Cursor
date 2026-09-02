@@ -181,6 +181,70 @@ docker compose restart worker scheduler
 
 The API (`uvicorn --reload`) and the frontend (Vite) pick up the code changes automatically.
 
+### Step 8: Configure Paddle Billing (optional)
+
+Stratum bills tenant subscriptions through **Paddle Billing** (Merchant of Record): Paddle hosts the
+checkout (Paddle.js overlay inside Settings > Billing), collects payment, handles tax and invoices, and
+reports back through signed webhooks. Billing is optional — with `PADDLE_API_KEY` empty the Billing tab
+shows "Billing is not configured for this environment" and everything else keeps working. Use a **sandbox**
+account for development/staging and a separate production account for live billing (keys, price ids and
+notification destinations do not carry over between the two).
+
+```env
+# Paddle Billing (optional)
+PADDLE_ENVIRONMENT=sandbox          # sandbox | production (must be production when APP_ENV=production)
+PADDLE_API_KEY=
+PADDLE_CLIENT_TOKEN=
+PADDLE_WEBHOOK_SECRET=
+PADDLE_STARTER_PRICE_ID=
+PADDLE_PROFESSIONAL_PRICE_ID=
+PADDLE_ENTERPRISE_PRICE_ID=
+```
+
+In the Paddle dashboard (sandbox: `https://sandbox-vendors.paddle.com`, production: `https://vendors.paddle.com`):
+
+1. **API key** — Developer Tools > Authentication > API keys > *New API key*. Paste it into `PADDLE_API_KEY`.
+   The backend talks to `https://sandbox-api.paddle.com` or `https://api.paddle.com` (chosen from
+   `PADDLE_ENVIRONMENT`) with `Authorization: Bearer <key>` and `Paddle-Version: 1`.
+2. **Client-side token** — Developer Tools > Authentication > Client-side tokens. Paste it into
+   `PADDLE_CLIENT_TOKEN`. The SPA reads it from `GET /api/v1/billing/config` and passes it to
+   `Paddle.Initialize`; never put it in a frontend env file.
+3. **Recurring prices** — Catalog > Products: one product per tier (Starter, Professional, Enterprise) with
+   a recurring monthly price. Trials are configured on the price itself. Copy each `pri_...` id into
+   `PADDLE_STARTER_PRICE_ID`, `PADDLE_PROFESSIONAL_PRICE_ID` and `PADDLE_ENTERPRISE_PRICE_ID`.
+4. **Notification destination** — Developer Tools > Notifications > *New destination*: type **Webhook**,
+   URL `https://<api-host>/api/v1/webhooks/paddle`, subscribed to `subscription.*`, `transaction.*`,
+   `customer.*` and `adjustment.created`. Copy the destination's **secret key** into
+   `PADDLE_WEBHOOK_SECRET`. Stratum verifies the `Paddle-Signature: ts=<unix>;h1=<hex>` header as
+   HMAC-SHA256 over `<ts>:<raw body>` with a 5-minute timestamp tolerance, so keep the API host's clock
+   NTP-synced. Deliveries are idempotent (`paddle_webhook_events`), so replaying from Paddle >
+   Notifications > Logs is always safe.
+5. Restart the API (and worker) so the settings load, then confirm `GET /api/v1/billing/config` returns
+   `paddle_configured: true` and open Settings > Billing to run a sandbox checkout.
+
+**Going live:** set `PADDLE_ENVIRONMENT=production`, replace all six other values with the production
+account's, and create the notification destination again in the production dashboard. With
+`APP_ENV=production` the app refuses to start when an API key is set but `PADDLE_ENVIRONMENT` is still
+`sandbox` or a companion key is missing.
+
+**CSP:** `frontend/nginx.conf`, `nginx/beta.conf` and the API's `build_csp` already allow
+`https://cdn.paddle.com` (script) and `https://*.paddle.com` (connect + frame). If you front the app with
+another proxy, replicate those hosts or the checkout overlay will be blocked.
+
+**Upgrading an existing deployment:** the `tenants` table gained `paddle_customer_id`,
+`paddle_subscription_id`, `subscription_status` and `current_period_end`, and a `paddle_webhook_events`
+table was added. The schema is created from the SQLAlchemy models, so after pulling the new code run,
+once per environment, from `backend/`:
+
+```bash
+cd backend && python scripts_migrate_paddle_columns.py
+# Docker: docker compose exec api python scripts_migrate_paddle_columns.py
+```
+
+`scripts_migrate_paddle_columns.py` is idempotent: it renames the legacy billing customer-id column to
+its Paddle name when present, adds any missing columns and creates the webhook table (uses
+`DATABASE_URL_SYNC`). Fresh databases already have the right shape.
+
 ### Key Environment Variables Reference
 
 | Variable | Required | Description |
@@ -203,6 +267,13 @@ The API (`uvicorn --reload`) and the frontend (Vite) pick up the code changes au
 | `GA4_DEFAULT_CONVERSION_EVENT` | No | GA4 event counted as a conversion when a tenant sets none (default `purchase`) |
 | `GTM_VERIFY_TIMEOUT_SECONDS` | No | Timeout for verifying GTM web/server containers (default `10`) |
 | `GTM_DEFAULT_SERVER_CONTAINER_URL` | No | Optional default sGTM endpoint suggested to tenants (per-tenant value wins) |
+| `PADDLE_ENVIRONMENT` | No | `sandbox` (default) or `production`; selects `sandbox-api.paddle.com` vs `api.paddle.com` and the Paddle.js environment (must be `production` when `APP_ENV=production`) |
+| `PADDLE_API_KEY` | No | Paddle Billing server-side API key (Developer Tools > Authentication); empty disables billing |
+| `PADDLE_CLIENT_TOKEN` | No | Paddle client-side token for the Paddle.js overlay checkout, served via `GET /api/v1/billing/config` |
+| `PADDLE_WEBHOOK_SECRET` | No | Notification destination secret used to verify `Paddle-Signature` on `POST /api/v1/webhooks/paddle` |
+| `PADDLE_STARTER_PRICE_ID` | No | Recurring Paddle price id (`pri_...`) for the Starter tier |
+| `PADDLE_PROFESSIONAL_PRICE_ID` | No | Recurring Paddle price id (`pri_...`) for the Professional tier |
+| `PADDLE_ENTERPRISE_PRICE_ID` | No | Recurring Paddle price id (`pri_...`) for the Enterprise tier |
 
 ---
 
@@ -562,8 +633,8 @@ The production Nginx config (`frontend/nginx.conf`) includes:
 - `X-Content-Type-Options: nosniff`
 - `X-XSS-Protection: 1; mode=block`
 - `Referrer-Policy: strict-origin-when-cross-origin`
-- `Content-Security-Policy` (configured for Stripe, Sentry, fonts)
-- `Permissions-Policy` (camera, mic, geolocation disabled)
+- `Content-Security-Policy` — allow-lists the Paddle.js hosts (`https://cdn.paddle.com` in `script-src`, `https://*.paddle.com` in `connect-src` and `frame-src`, which also covers the `sandbox-*` hosts), Sentry, and the GTM/GA4 measurement hosts; the host list is identical to the API's `build_csp` (`backend/app/middleware/security.py`) and `nginx/beta.conf`
+- `Permissions-Policy` (camera, mic, geolocation disabled; `payment` limited to `self` and the Paddle checkout origins `https://buy.paddle.com` / `https://sandbox-buy.paddle.com`)
 
 ### Production Key Validation
 
@@ -571,7 +642,7 @@ The app **will not start** in production if:
 - Any secret key is less than 32 characters
 - Database password is weak (e.g., "changeme", "password")
 - Keys contain known weak patterns ("dev-secret", "test", "demo")
-- Stripe uses test keys instead of live keys (if configured)
+- Paddle Billing still pointed at the sandbox (`PADDLE_ENVIRONMENT=sandbox`) while `APP_ENV=production`, or `PADDLE_API_KEY` is set without its companion `PADDLE_CLIENT_TOKEN` / `PADDLE_WEBHOOK_SECRET` (billing is optional: leave `PADDLE_API_KEY` empty to disable it)
 
 ---
 
@@ -680,6 +751,10 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps 
 
 # Run migrations
 docker compose exec api alembic upgrade head
+
+# Upgrading from a release before Paddle Billing? Migrate the tenant billing columns once
+# (idempotent; run from backend/ without Docker: python scripts_migrate_paddle_columns.py)
+docker compose exec api python scripts_migrate_paddle_columns.py
 ```
 
 ---
@@ -775,6 +850,8 @@ docker compose logs api --tail=200
 - [ ] Verify health: `curl http://localhost:8000/health`
 - [ ] Run migrations: `docker compose exec api alembic upgrade head`
 - [ ] Create admin user: `docker compose exec api python -m app.scripts.create_admin`
+- [ ] Optional: configure Paddle Billing (sandbox keys, price ids, webhook destination) — Step 8
+- [ ] Upgrading an existing deployment: run `python scripts_migrate_paddle_columns.py` from `backend/` once
 - [ ] Access frontend: http://localhost:5173 (dev) or http://localhost (prod)
 - [ ] Access API docs: http://localhost:8000/docs
 

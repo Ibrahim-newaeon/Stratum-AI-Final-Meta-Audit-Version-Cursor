@@ -40,22 +40,24 @@ FROM nginx:alpine AS production
 
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx.conf is a template: the image's entrypoint renders ${API_UPSTREAM} into
+# /etc/nginx/conf.d/default.conf at startup (docker-compose: api:8000,
+# Railway: api.railway.internal:8000).
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+ENV API_UPSTREAM=api:8000
+# Makes the entrypoint export NGINX_LOCAL_RESOLVERS (from /etc/resolv.conf) for the template
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=true
 
-# Security: Run as non-root user
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
-    chown -R nginx:nginx /var/cache/nginx && \
-    chown -R nginx:nginx /var/log/nginx && \
-    touch /var/run/nginx.pid && \
-    chown nginx:nginx /var/run/nginx.pid
+# The official image's entrypoint renders the template into /etc/nginx/conf.d as
+# root and the master process then drops worker privileges to the `nginx` user
+# (see `user nginx;` in the base image's nginx.conf), so no USER switch here.
+RUN rm -f /etc/nginx/conf.d/default.conf
 
-USER nginx
-
-EXPOSE 80
+EXPOSE 8080
 
 # Healthcheck for container orchestration
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost/health || exit 1
+    CMD wget -q --spider http://localhost:8080/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
 

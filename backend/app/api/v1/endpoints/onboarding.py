@@ -107,6 +107,31 @@ async def get_onboarding_status(
     return _to_response(record)
 
 
+@router.get("/check")
+async def check_onboarding(
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """
+    Lightweight gate used by the frontend on every dashboard load.
+
+    Returns the APIResponse envelope with ``required`` (True while the wizard
+    is neither completed nor skipped) and the current step.
+    """
+    record = await _get_or_create_onboarding(db, current_user.tenant_id)
+    await db.commit()
+    finished = {OnboardingStatus.COMPLETED.value, OnboardingStatus.SKIPPED.value}
+    return {
+        "success": True,
+        "data": {
+            "required": record.status not in finished,
+            "current_step": record.current_step,
+        },
+        "message": None,
+        "errors": None,
+    }
+
+
 @router.post("/steps", response_model=OnboardingStatusResponse)
 async def complete_onboarding_step(
     payload: OnboardingStepUpdate,

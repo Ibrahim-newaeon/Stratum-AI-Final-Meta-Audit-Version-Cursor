@@ -1,5 +1,5 @@
 # =============================================================================
-# Stratum AI - CSP Allow-list Tests (Measurement & Verification)
+# Stratum AI - CSP Allow-list Tests (Measurement & Verification + Paddle Billing)
 # =============================================================================
 """
 Unit tests for the Content-Security-Policy allow-lists.
@@ -7,6 +7,10 @@ Unit tests for the Content-Security-Policy allow-lists.
 GA4 and GTM are measurement-only integrations (read-only GA4 baseline, GTM tag
 deployment). Their hosts must be allowed in ``script-src`` / ``connect-src`` /
 ``img-src`` in all three CSP definitions, while Google Fonts stays out.
+
+Paddle Billing (merchant of record) needs Paddle.js from ``cdn.paddle.com``
+(``script-src``) and the checkout / API hosts ``*.paddle.com`` in
+``connect-src`` and ``frame-src``. No other payment-gateway host may appear.
 
 Covers:
 - ``app.middleware.security`` (production + development policies, via build_csp
@@ -49,6 +53,24 @@ GA_IMG_HOSTS = [
 ]
 FORBIDDEN_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"]
 
+PADDLE_SCRIPT_HOST = "https://cdn.paddle.com"
+PADDLE_WILDCARD_HOST = "https://*.paddle.com"
+
+# Every third-party source allowed in script-src / connect-src / frame-src must
+# belong to one of these (host suffixes) - this is how we assert that no former
+# payment-gateway host survives in any policy.
+ALLOWED_HOST_SUFFIXES = (
+    "cdn.jsdelivr.net",
+    "googletagmanager.com",
+    "google-analytics.com",
+    "analytics.google.com",
+    "sentry.io",
+    "paddle.com",
+    "localhost:*",
+    "127.0.0.1:*",
+)
+SCHEME_SOURCES = {"ws:", "wss:", "https:", "http:", "data:", "blob:"}
+
 
 def _directives(csp: str) -> dict[str, list[str]]:
     """Parse a CSP string into {directive: [sources]}."""
@@ -79,6 +101,31 @@ def _assert_measurement_hosts(csp: str) -> None:
     assert "'none'" in directives["object-src"]
 
 
+def _assert_paddle_hosts(csp: str) -> None:
+    """Paddle.js + checkout/API hosts are allowed where Paddle needs them."""
+    directives = _directives(csp)
+
+    assert PADDLE_SCRIPT_HOST in directives["script-src"], csp
+    assert PADDLE_WILDCARD_HOST in directives["connect-src"], csp
+    assert "frame-src" in directives, f"frame-src missing: {csp}"
+    assert "'self'" in directives["frame-src"], csp
+    assert PADDLE_WILDCARD_HOST in directives["frame-src"], csp
+
+
+def _assert_only_allowed_third_parties(csp: str) -> None:
+    """No host outside the known allow-list (e.g. a former payment gateway) is present."""
+    directives = _directives(csp)
+    for directive in ("script-src", "connect-src", "frame-src"):
+        for source in directives.get(directive, []):
+            if source.startswith("'") or source in SCHEME_SOURCES:
+                continue
+            host = re.sub(r"^https?://", "", source)
+            assert any(
+                host == suffix or host.endswith(("." + suffix, suffix))
+                for suffix in ALLOWED_HOST_SUFFIXES
+            ), f"unexpected third-party source {source!r} in {directive}: {csp}"
+
+
 def _app_with_security_headers() -> Starlette:
     async def ok(_request):  # type: ignore[no-untyped-def]
         return PlainTextResponse("ok")
@@ -104,7 +151,7 @@ class TestBuildCsp:
         assert "'unsafe-eval'" not in directives["script-src"]
         # Existing allow-list entries are preserved.
         assert "https://cdn.jsdelivr.net" in directives["script-src"]
-        assert "https://api.stripe.com" in directives["connect-src"]
+        assert "https://*.sentry.io" in directives["connect-src"]
 
     def test_development_policy_allows_measurement_hosts(self) -> None:
         csp = build_csp(production=False)
@@ -112,6 +159,25 @@ class TestBuildCsp:
         directives = _directives(csp)
         assert "'unsafe-eval'" in directives["script-src"]
         assert "http://localhost:*" in directives["connect-src"]
+
+    def test_production_policy_allows_paddle_hosts(self) -> None:
+        csp = build_csp(production=True)
+        _assert_paddle_hosts(csp)
+        _assert_only_allowed_third_parties(csp)
+
+    def test_development_policy_allows_paddle_hosts(self) -> None:
+        csp = build_csp(production=False)
+        _assert_paddle_hosts(csp)
+        _assert_only_allowed_third_parties(csp)
+        assert _directives(csp)["frame-src"] == ["'self'", PADDLE_WILDCARD_HOST]
+
+    def test_paddle_hosts_identical_in_both_policies(self) -> None:
+        prod = _directives(build_csp(production=True))
+        dev = _directives(build_csp(production=False))
+        for directive in ("script-src", "connect-src", "frame-src"):
+            prod_paddle = {s for s in prod[directive] if "paddle.com" in s}
+            dev_paddle = {s for s in dev[directive] if "paddle.com" in s}
+            assert prod_paddle == dev_paddle, directive
 
     def test_no_ad_platform_hosts_are_allowed(self) -> None:
         """GA4/GTM are measurement-only; no Google Ads / TikTok / Snap hosts sneak in."""
@@ -139,6 +205,7 @@ class TestSecurityHeadersMiddleware:
         assert response.status_code == 200
         csp = response.headers["Content-Security-Policy"]
         _assert_measurement_hosts(csp)
+        _assert_paddle_hosts(csp)
         assert csp == build_csp(production=True)
         assert "Strict-Transport-Security" in response.headers
         assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -153,8 +220,21 @@ class TestSecurityHeadersMiddleware:
         assert response.status_code == 200
         csp = response.headers["Content-Security-Policy"]
         _assert_measurement_hosts(csp)
+        _assert_paddle_hosts(csp)
         assert csp == build_csp(production=False)
         assert "Strict-Transport-Security" not in response.headers
+
+    def test_permissions_policy_allows_payment_only_for_paddle_checkout(self) -> None:
+        client = TestClient(_app_with_security_headers())
+        response = client.get("/api/v1/ping")
+        policy = response.headers["Permissions-Policy"]
+        match = re.search(r"payment=\(([^)]*)\)", policy)
+        assert match, policy
+        allowed = match.group(1)
+        assert "self" in allowed
+        assert '"https://buy.paddle.com"' in allowed
+        assert '"https://sandbox-buy.paddle.com"' in allowed
+        assert "camera=()" in policy
 
 
 # =============================================================================
@@ -183,10 +263,19 @@ class TestEmbedWidgetCsp:
 class TestNginxCsp:
     """The frontend nginx CSP mirrors the backend allow-list."""
 
-    @pytest.mark.skipif(not NGINX_CONF.exists(), reason="frontend/nginx.conf not present")
-    def test_nginx_csp_allows_measurement_hosts(self) -> None:
+    @staticmethod
+    def _nginx_csp() -> str:
         text = NGINX_CONF.read_text(encoding="utf-8")
         match = re.search(r'add_header\s+Content-Security-Policy\s+"([^"]+)"', text)
         assert match, "Content-Security-Policy header not found in nginx.conf"
-        csp = match.group(1)
-        _assert_measurement_hosts(csp)
+        return match.group(1)
+
+    @pytest.mark.skipif(not NGINX_CONF.exists(), reason="frontend/nginx.conf not present")
+    def test_nginx_csp_allows_measurement_hosts(self) -> None:
+        _assert_measurement_hosts(self._nginx_csp())
+
+    @pytest.mark.skipif(not NGINX_CONF.exists(), reason="frontend/nginx.conf not present")
+    def test_nginx_csp_allows_paddle_hosts_only(self) -> None:
+        csp = self._nginx_csp()
+        _assert_paddle_hosts(csp)
+        _assert_only_allowed_third_parties(csp)
