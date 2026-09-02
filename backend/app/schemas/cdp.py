@@ -36,6 +36,17 @@ class EventIdentifierInput(CDPSchema):
     type: str = Field(..., max_length=50, description="Identifier type (email, phone, ...)")
     value: str = Field(..., max_length=1024, description="Raw identifier value")
 
+    @field_validator("type")
+    @classmethod
+    def _known_identifier_type(cls, v: str) -> str:
+        """Reject identifier types the identity graph does not understand."""
+        from app.models.cdp import IdentifierType
+
+        allowed = {t.value for t in IdentifierType}
+        if v not in allowed:
+            raise ValueError(f"unsupported identifier type '{v}'; expected one of {sorted(allowed)}")
+        return v
+
 
 class EventContextInput(CDPSchema):
     """Contextual metadata for an incoming event."""
@@ -46,7 +57,8 @@ class EventContextInput(CDPSchema):
     user_agent: Optional[str] = None
     page_url: Optional[str] = None
     referrer: Optional[str] = None
-    campaign: Optional[str] = None
+    # Either a campaign name or a UTM-style object ({"source": ..., "medium": ...})
+    campaign: Optional[dict[str, Any] | str] = None
     source: Optional[str] = None
     medium: Optional[str] = None
     locale: Optional[str] = None
