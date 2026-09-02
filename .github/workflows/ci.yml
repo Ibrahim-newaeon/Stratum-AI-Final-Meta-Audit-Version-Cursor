@@ -253,6 +253,10 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    # upload-sarif needs security-events:write (the default token is read-only on push)
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout code
@@ -330,10 +334,10 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/stratum_test
           DATABASE_URL_SYNC: postgresql://test:test@localhost:5432/stratum_test
           REDIS_URL: redis://localhost:6379/0
-          SECRET_KEY: test-secret-key-for-load-tests
-          JWT_SECRET_KEY: test-jwt-secret-for-load-tests
+          SECRET_KEY: ci-only-load-test-secret-key-not-for-production-0123456789
+          JWT_SECRET_KEY: ci-only-load-test-jwt-secret-key-not-for-production-0123456789
           PII_ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS0zMmJ5dGVz
-          APP_ENV: test
+          APP_ENV: development
         run: |
           # Run migrations
           alembic upgrade head
