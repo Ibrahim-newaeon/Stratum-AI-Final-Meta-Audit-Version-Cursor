@@ -3,11 +3,11 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Railway's private network is IPv6, so bind on "::" (dual-stack), not 0.0.0.0.
-# Schema is created from the SQLAlchemy models (the Alembic history is incomplete);
-# demo tenant/users and demo data are only seeded when SEED_DEMO=true.
-startCommand = "python scripts_create_schema.py && (if [ \"$SEED_DEMO\" = \"true\" ]; then python scripts_seed_demo.py && python scripts_seed_demo_data.py; fi) && uvicorn app.main:app --host :: --port ${PORT:-8000}"
+# No startCommand on purpose: the image's docker-entrypoint.sh creates the schema,
+# seeds demo data when SEED_DEMO=true, and serves via serve.py on a dual-stack
+# socket (IPv4 for Railway's public proxy, IPv6 for its private network).
+# The timeout covers first-boot schema creation and demo seeding.
 healthcheckPath = "/health"
-healthcheckTimeout = 120
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
