@@ -564,7 +564,7 @@ aws rds describe-db-instances \
 
 ## Related Documentation
 
-- [Monitoring](./monitoring.md) - Metrics and alerting
-- [Incidents](./incidents.md) - Incident management process
-- [Security](../06-appendix/security.md) - Security procedures
+- [Trust Engine](../architecture/trust-engine.md) - Signal health thresholds and gate decisions
+- [Backend overview](../02-backend/backend-overview.md) - Services, workers and data model
+- [Integration audit](../STRATUM_INTEGRATION_AUDIT.md) - Connector and signal-source status
 - [Paddle Billing](../integrations/billing-paddle.md) - Billing integration reference (webhook events, tenant sync rules, CSP hosts)

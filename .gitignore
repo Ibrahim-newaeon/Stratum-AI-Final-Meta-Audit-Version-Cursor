@@ -78,3 +78,6 @@ backend/.local_pgdata/
 frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
+
+# MkDocs build output
+/site/
