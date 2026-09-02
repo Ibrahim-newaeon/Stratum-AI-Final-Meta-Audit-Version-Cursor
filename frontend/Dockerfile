@@ -45,6 +45,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Railway: api.railway.internal:8000).
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 ENV API_UPSTREAM=api:8000
+# Makes the entrypoint export NGINX_LOCAL_RESOLVERS (from /etc/resolv.conf) for the template
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=true
 
 # The official image's entrypoint renders the template into /etc/nginx/conf.d as
 # root and the master process then drops worker privileges to the `nginx` user
