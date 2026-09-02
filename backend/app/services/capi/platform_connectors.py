@@ -369,8 +369,11 @@ class MetaCAPIConnector(BaseCAPIConnector):
     """
 
     PLATFORM_NAME = "meta"
-    API_VERSION = "v18.0"
+    API_VERSION = "v23.0"
     BASE_URL = "https://graph.facebook.com"
+    # Sent with the validation event so Meta routes it to Events Manager's
+    # "Test events" tab instead of recording it as real traffic.
+    TEST_EVENT_CODE = "STRATUM_CONNECTION_TEST"
 
     def __init__(self):
         super().__init__()
@@ -403,14 +406,16 @@ class MetaCAPIConnector(BaseCAPIConnector):
 
         try:
             async with httpx.AsyncClient() as client:
-                # Test with a simple pixel info request
+                # 1) Reading the pixel node needs ads_read/ads_management on the
+                #    pixel. Tokens generated in Events Manager for the Conversions
+                #    API often only carry event-sending permission, so a
+                #    "Missing Permission" here is not a failure by itself.
                 url = f"{self.BASE_URL}/{self.API_VERSION}/{self.pixel_id}"
                 response = await client.get(
                     url,
-                    params={"access_token": self.access_token},
+                    params={"access_token": self.access_token, "fields": "id,name"},
                     timeout=10.0,
                 )
-
                 if response.status_code == 200:
                     data = response.json()
                     self._connected = True
@@ -420,13 +425,60 @@ class MetaCAPIConnector(BaseCAPIConnector):
                         message="Successfully connected to Meta CAPI",
                         details={"pixel_name": data.get("name")},
                     )
-                else:
-                    error = response.json().get("error", {})
+
+                read_error = response.json().get("error", {})
+                if read_error.get("code") == 190:  # invalid/expired token: no point retrying
                     return ConnectionResult(
                         status=ConnectionStatus.ERROR,
                         platform=self.PLATFORM_NAME,
-                        message=error.get("message", "Connection failed"),
+                        message=read_error.get("message", "Invalid access token"),
                     )
+
+                # 2) Validate the way the token will actually be used: send one
+                #    event flagged with a test_event_code (Meta's recommended check).
+                events_url = f"{self.BASE_URL}/{self.API_VERSION}/{self.pixel_id}/events"
+                probe = await client.post(
+                    events_url,
+                    json={
+                        "data": [
+                            {
+                                "event_name": "PageView",
+                                "event_time": int(datetime.now(UTC).timestamp()),
+                                "action_source": "website",
+                                "event_source_url": "https://stratumai.app/connection-test",
+                                "user_data": {"client_user_agent": "StratumAI-ConnectionTest/1.0"},
+                            }
+                        ],
+                        "test_event_code": self.TEST_EVENT_CODE,
+                        "access_token": self.access_token,
+                    },
+                    timeout=15.0,
+                )
+                if probe.status_code == 200:
+                    self._connected = True
+                    return ConnectionResult(
+                        status=ConnectionStatus.CONNECTED,
+                        platform=self.PLATFORM_NAME,
+                        message=(
+                            "Connected to Meta CAPI (event-sending token; pixel details "
+                            "need ads_read on the pixel)"
+                        ),
+                        details={"test_event_code": self.TEST_EVENT_CODE},
+                    )
+
+                probe_error = probe.json().get("error", {})
+                message = probe_error.get("message") or read_error.get("message") or "Connection failed"
+                if "permission" in message.lower():
+                    message += (
+                        " — generate the token in Events Manager > Data sources > your pixel > "
+                        "Settings > Conversions API (or use a System User with the pixel assigned "
+                        "and the ads_management permission)."
+                    )
+                return ConnectionResult(
+                    status=ConnectionStatus.ERROR,
+                    platform=self.PLATFORM_NAME,
+                    message=message,
+                )
 
         except Exception as e:
             logger.error(f"Meta CAPI connection error: {e}")
