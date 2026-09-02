@@ -115,7 +115,7 @@ services:
     networks:
       - stratum_enterprise_network
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+      sh -c "python scripts_create_schema.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
 
   # ===========================================================================
   # Celery Worker (High Concurrency for Enterprise)
