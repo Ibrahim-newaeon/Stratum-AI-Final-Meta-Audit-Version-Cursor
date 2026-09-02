@@ -206,7 +206,7 @@ export default function Login() {
               ))}
             </div>
             <p className="text-sm" style={{ color: theme.textMuted }}>
-              Integrated with all major ad platforms
+              Built for Facebook, Instagram & WhatsApp
             </p>
           </div>
 
