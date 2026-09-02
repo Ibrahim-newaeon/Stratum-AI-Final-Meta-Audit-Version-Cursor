@@ -7,7 +7,9 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+// Same-origin by default: Vite proxies /api in development and nginx proxies it in
+// production, so builds work on any host without baking in an API origin.
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 // Create axios instance with default config
 export const apiClient: AxiosInstance = axios.create({
