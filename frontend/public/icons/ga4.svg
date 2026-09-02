@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Google Analytics 4, read-only measurement baseline">
+  <!-- Brand-neutral bar-chart mark, GA4 accent #E37400 -->
+  <rect x="6" y="28" width="9" height="14" rx="3" fill="#E37400" opacity="0.55"/>
+  <rect x="19.5" y="17" width="9" height="25" rx="3" fill="#E37400" opacity="0.8"/>
+  <rect x="33" y="6" width="9" height="36" rx="3" fill="#E37400"/>
+  <circle cx="10.5" cy="19" r="4" fill="#E37400"/>
+</svg>

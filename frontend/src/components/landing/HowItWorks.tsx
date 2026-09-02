@@ -30,7 +30,7 @@ export function HowItWorks() {
       number: '01',
       title: 'Connect Your Platforms',
       description:
-        'Connect your Facebook, Instagram, and WhatsApp ad accounts read-only in minutes. OAuth-secured, no code required.',
+        'Connect your Facebook, Instagram, and WhatsApp ad accounts read-only in minutes. OAuth-secured, no code required, and connect GA4 (read-only) for independent verification of every reported conversion.',
       icon: LinkIcon,
       color: theme.cyan,
       bgColor: 'rgba(20, 240, 198, 0.1)',

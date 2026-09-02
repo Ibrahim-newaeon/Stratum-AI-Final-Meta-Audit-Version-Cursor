@@ -14,6 +14,72 @@ from starlette.responses import Response
 
 from app.core.config import settings
 
+# =============================================================================
+# CSP allow-lists
+# =============================================================================
+
+# Measurement & Verification: GTM web container + GA4 collect endpoints (read-only measurement, not an ad platform)
+# Google Fonts (fonts.googleapis.com / fonts.gstatic.com) are intentionally NOT allowed.
+GTM_SCRIPT_HOSTS = "https://www.googletagmanager.com"
+GA_CONNECT_HOSTS = (
+    "https://www.google-analytics.com "
+    "https://analytics.google.com "
+    "https://*.google-analytics.com "
+    "https://*.analytics.google.com "
+    "https://*.googletagmanager.com"
+)
+GA_IMG_HOSTS = (
+    "https://www.google-analytics.com "
+    "https://*.google-analytics.com "
+    "https://*.googletagmanager.com"
+)
+
+
+def build_csp(production: bool) -> str:
+    """
+    Build the Content-Security-Policy header value.
+
+    Args:
+        production: True for the strict production policy, False for the
+            permissive development policy (hot reload, eval, localhost).
+
+    Returns:
+        The ``;``-joined CSP directive string.
+    """
+    if production:
+        directives = [
+            "default-src 'self'",
+            f"script-src 'self' https://cdn.jsdelivr.net {GTM_SCRIPT_HOSTS}",
+            "style-src 'self' 'unsafe-inline'",
+            "font-src 'self' data:",
+            f"img-src 'self' data: https: blob: {GA_IMG_HOSTS}",
+            (
+                "connect-src 'self' https://api.stripe.com https://*.sentry.io wss: ws: "
+                f"{GA_CONNECT_HOSTS}"
+            ),
+            "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'self'",
+            "upgrade-insecure-requests",
+        ]
+    else:
+        directives = [
+            "default-src 'self'",
+            f"script-src 'self' 'unsafe-inline' 'unsafe-eval' {GTM_SCRIPT_HOSTS}",
+            "style-src 'self' 'unsafe-inline'",
+            "font-src 'self' data:",
+            f"img-src 'self' data: https: blob: {GA_IMG_HOSTS}",
+            (
+                "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* "
+                f"{GA_CONNECT_HOSTS}"
+            ),
+            "frame-src 'self'",
+            "object-src 'none'",
+        ]
+    return "; ".join(directives)
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
@@ -80,36 +146,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
 
             # Content Security Policy for production
-            # Adjust these values based on your actual CDN/API domains
-            csp_directives = [
-                "default-src 'self'",
-                "script-src 'self' https://cdn.jsdelivr.net",
-                "style-src 'self' 'unsafe-inline'",
-                "font-src 'self' data:",
-                "img-src 'self' data: https: blob:",
-                "connect-src 'self' https://api.stripe.com https://*.sentry.io wss: ws:",
-                "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-                "object-src 'none'",
-                "base-uri 'self'",
-                "form-action 'self'",
-                "frame-ancestors 'self'",
-                "upgrade-insecure-requests",
-            ]
-            response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+            # Adjust these values based on your actual CDN/API domains (see build_csp)
+            response.headers["Content-Security-Policy"] = build_csp(production=True)
 
         else:
-            # Development CSP - more permissive for hot reload, etc.
-            csp_directives = [
-                "default-src 'self'",
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-                "style-src 'self' 'unsafe-inline'",
-                "font-src 'self' data:",
-                "img-src 'self' data: https: blob:",
-                "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*",
-                "frame-src 'self'",
-                "object-src 'none'",
-            ]
-            response.headers["Content-Security-Policy"] = "; ".join(csp_directives)
+            # Development CSP - more permissive for hot reload, etc. (see build_csp)
+            response.headers["Content-Security-Policy"] = build_csp(production=False)
 
         # =================================================================
         # API-Specific Headers

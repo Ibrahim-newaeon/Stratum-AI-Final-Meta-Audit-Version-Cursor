@@ -126,7 +126,7 @@ export default function SignalHub() {
       activeIncidents: 2,
     },
     {
-      platform: 'Analytics',
+      platform: 'GA4',
       status: 'healthy',
       freshness: 97,
       dataLoss: 95,
@@ -143,7 +143,7 @@ export default function SignalHub() {
       id: '1',
       platform: 'Meta',
       title: 'Conversion tracking variance',
-      description: 'Meta conversions 18% lower than web analytics attribution',
+      description: 'Meta conversions 18% lower than GA4 baseline',
       driver: 'variance',
       severity: 'high',
       openedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),

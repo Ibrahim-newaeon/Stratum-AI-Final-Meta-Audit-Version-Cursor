@@ -61,6 +61,9 @@ const PlatformRow: React.FC<{ row: PlatformHealthRow }> = ({ row }) => {
     facebook: '📘',
     instagram: '📸',
     whatsapp: '💬',
+    // Measurement & Verification (not ad platforms)
+    ga4: '📈',
+    gtm: '🏷️',
   };
 
   const getMetricStatus = (

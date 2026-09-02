@@ -14,7 +14,7 @@ from celery import shared_task
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import async_session_factory
+from app.db.session import AsyncSessionLocal as async_session_factory
 from app.models.trust_layer import FactSignalHealthDaily, SignalHealthStatus
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,10 @@ THRESHOLDS = {
     },
 }
 
-PLATFORMS = ["meta"]
+# Meta channels - matches fact_ga4_daily.meta_channel, the seeded
+# fact_signal_health_daily rows and the trust layer grouping. All three share
+# the single Meta platform connection (TenantPlatformConnection.platform='meta').
+PLATFORMS = ["facebook", "instagram", "whatsapp"]
 
 
 # =============================================================================
@@ -206,7 +209,9 @@ def signal_health_rollup(self, tenant_id: Optional[int] = None, target_date: Opt
                     # For now, we'll use a placeholder - in production, query dim_tenant
                     from app.models.tenant import Tenant
 
-                    result = await db.execute(select(Tenant.id).where(Tenant.is_active == True))
+                    result = await db.execute(
+                        select(Tenant.id).where(Tenant.is_deleted.is_(False))
+                    )
                     tenant_ids = [row[0] for row in result.all()]
 
                 records_created = 0
@@ -320,17 +325,19 @@ async def fetch_platform_metrics(
     3. Check data freshness from last sync timestamp
     4. Calculate API error rate from logs
 
-    For now, returns placeholder data if platform connection exists.
+    For now, returns metrics derived from the Meta platform connection state
+    (all Meta channels share the single ``platform='meta'`` connection).
     """
-    # Check if tenant has this platform connected
-    from app.models.campaign_builder import TenantPlatformConnection
+    # Check if tenant has the Meta platform connected
+    from app.base_models import AdPlatform
+    from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
 
     result = await db.execute(
         select(TenantPlatformConnection).where(
             and_(
                 TenantPlatformConnection.tenant_id == tenant_id,
-                TenantPlatformConnection.platform == platform,
-                TenantPlatformConnection.is_connected == True,
+                TenantPlatformConnection.platform == AdPlatform.META.value,
+                TenantPlatformConnection.status == ConnectionStatus.CONNECTED.value,
             )
         )
     )
@@ -339,19 +346,25 @@ async def fetch_platform_metrics(
     if not connection:
         return None
 
-    # Calculate freshness from last sync
+    # Calculate freshness from the last token refresh / sync
     freshness_minutes = None
-    if connection.last_sync_at:
-        delta = datetime.now(UTC) - connection.last_sync_at.replace(tzinfo=UTC)
+    if connection.last_refreshed_at:
+        last_refreshed = connection.last_refreshed_at
+        if last_refreshed.tzinfo is None:
+            last_refreshed = last_refreshed.replace(tzinfo=UTC)
+        delta = datetime.now(UTC) - last_refreshed
         freshness_minutes = int(delta.total_seconds() / 60)
+
+    # Connection is healthy when it has no recorded errors
+    is_healthy = (connection.error_count or 0) == 0 and not connection.last_error
 
     # In production, these would be calculated from actual data
     # For now, return metrics based on connection health
     return {
-        "emq_score": 85.0 if connection.is_healthy else 65.0,
-        "event_loss_pct": 3.5 if connection.is_healthy else 15.0,
+        "emq_score": 85.0 if is_healthy else 65.0,
+        "event_loss_pct": 3.5 if is_healthy else 15.0,
         "freshness_minutes": freshness_minutes or 30,
-        "api_error_rate": 0.5 if connection.is_healthy else 8.0,
+        "api_error_rate": 0.5 if is_healthy else 8.0,
     }
 
 

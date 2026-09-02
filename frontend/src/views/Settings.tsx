@@ -26,6 +26,8 @@ import { useTenantStore } from '@/stores/tenantStore';
 import { useExportData, useRequestDeletion } from '@/api/hooks';
 import { useCurrentUser, useUpdatePreferences } from '@/api/auth';
 import { useToast } from '@/components/ui/use-toast';
+import GA4Integration from '@/components/settings/GA4Integration';
+import GTMIntegration from '@/components/settings/GTMIntegration';
 
 type SettingsTab =
   | 'profile'
@@ -831,6 +833,20 @@ function IntegrationSettings() {
           />
         </svg>
       ),
+      // Measurement & Verification (not ad platforms)
+      ga4: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="#E37400">
+          <rect x="14" y="3" width="6" height="18" rx="3" />
+          <rect x="9" y="9" width="6" height="12" rx="3" opacity=".75" />
+          <circle cx="7" cy="18" r="3" opacity=".75" />
+        </svg>
+      ),
+      gtm: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="#4285F4">
+          <path d="M12 2.5 21.5 12 12 21.5 2.5 12 12 2.5Zm0 4.2L6.7 12l5.3 5.3 5.3-5.3L12 6.7Z" />
+          <circle cx="12" cy="12" r="2.2" opacity=".8" />
+        </svg>
+      ),
     };
     return icons[type] || <div className="w-6 h-6 rounded-full bg-muted" />;
   };
@@ -972,7 +988,7 @@ function IntegrationSettings() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-medium">Webhooks</h3>
+            <h3 className="font-medium">{t('settings.webhooks')}</h3>
             <p className="text-sm text-muted-foreground">
               Receive real-time notifications for platform events
             </p>
@@ -1084,9 +1100,9 @@ function IntegrationSettings() {
         )}
       </div>
 
-      {/* Ad Platforms */}
+      {/* Ad Platforms (Meta only) */}
       <div>
-        <h3 className="font-medium mb-3">Ad Platforms</h3>
+        <h3 className="font-medium mb-3">{t('settings.adPlatforms')}</h3>
         <div className="space-y-3">
           {adPlatforms.map((integration) => (
             <IntegrationCard key={integration.id} integration={integration} />
@@ -1094,9 +1110,24 @@ function IntegrationSettings() {
         </div>
       </div>
 
+      {/* Measurement & Verification (GA4 read-only baseline + GTM tag deployment) */}
+      {/* Deliberately separate from Ad Platforms: these are not ad channels. */}
+      <div>
+        <div className="mb-4">
+          <h3 className="font-medium">{t('settings.measurementVerification')}</h3>
+          <p className="text-sm text-muted-foreground">
+            {t('settings.measurementVerificationDesc')}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <GA4Integration />
+          <GTMIntegration />
+        </div>
+      </div>
+
       {/* Connected Services (E-commerce & Payments) */}
       <div>
-        <h3 className="font-medium mb-3">Connected Services</h3>
+        <h3 className="font-medium mb-3">{t('settings.connectedServices')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {commerceIntegrations.map((integration) => (
             <div

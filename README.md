@@ -20,7 +20,7 @@ Interactive documentation including:
 
 ## Overview
 
-Stratum AI is an AI-powered revenue operating system for ad teams. It optimizes Facebook, Instagram and WhatsApp campaigns with Trust-Gated Autopilot — every AI decision is auditable, explainable and reversible, with one-click human override. Built-in predictive models cover ROAS, LTV, churn, conversion and creative fatigue. SOC 2 Type II, GDPR and CCPA compliant. Connect any ad account read-only. Automation executes **only when signal health passes safety thresholds**.
+Stratum AI is an AI-powered revenue operating system for ad teams. It optimizes Facebook, Instagram and WhatsApp campaigns with Trust-Gated Autopilot — every AI decision is auditable, explainable and reversible, with one-click human override. Built-in predictive models cover ROAS, LTV, churn, conversion and creative fatigue. SOC 2 Type II, GDPR and CCPA compliant. Connect any ad account read-only. Automation executes **only when signal health passes safety thresholds**. Under Measurement & Verification, Google Analytics 4 provides an independent, read-only revenue and conversion baseline (GA4 Data API + service account) and Google Tag Manager handles web and server-side tag deployment for Meta Pixel/CAPI; Stratum acts only on Meta channels and never treats GA4 or GTM as an ad platform.
 
 ```
 Signal Health Check → Trust Gate → Automation Decision
@@ -34,11 +34,12 @@ Signal Health Check → Trust Gate → Automation Decision
 
 | Feature | Description |
 |---------|-------------|
-| **Trust Engine** | Signal health monitoring with 5-component weighted scoring (now includes CDP EMQ) |
+| **Trust Engine** | Signal health monitoring with 5-component weighted scoring (includes CDP EMQ and Platform vs GA4 variance) |
 | **Autopilot** | Configurable enforcement (Advisory/Soft-Block/Hard-Block) |
 | **Campaign Builder** | Multi-step wizard with approval workflow |
 | **CDP (NEW)** | First-party data platform with identity resolution & consent management |
 | **Meta Platform** | Facebook, Instagram, and WhatsApp integrations (Meta Marketing API) |
+| **Measurement & Verification** | Google Analytics 4 read-only baseline (Data API + service account) and Google Tag Manager web/server-side tagging for Meta Pixel/CAPI, independent verification, not an ad channel |
 | **CRM Integration** | HubSpot bidirectional sync with identity matching |
 | **Attribution** | 6 models including Markov Chain & Shapley Value |
 | **Pacing** | Budget forecasting with EWMA predictions |

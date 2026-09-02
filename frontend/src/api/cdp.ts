@@ -96,9 +96,24 @@ export interface ProfileSearchParams {
 // Sources
 // -----------------------------------------------------------------------------
 
+/**
+ * Known CDP source types. 'sgtm' is the server-side Google Tag Manager
+ * container (Measurement & Verification tag deployment), not an ad platform.
+ */
+export type CDPSourceType = 'website' | 'server' | 'sgtm' | 'import' | 'crm';
+
+export const CDP_SOURCE_TYPE_LABELS: Record<CDPSourceType, string> = {
+  website: 'Website',
+  server: 'Server',
+  sgtm: 'Server-side GTM',
+  import: 'Import',
+  crm: 'CRM',
+};
+
 export interface CDPSource {
   id: string;
   name: string;
+  /** One of CDPSourceType; kept as string for backward compatibility with callers */
   source_type: string;
   write_key?: string;
   is_active: boolean;

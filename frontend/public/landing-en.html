@@ -1372,6 +1372,25 @@
                 0 10px 20px rgba(0, 0, 0, 0.3);
         }
 
+        /* Measurement & Verification (read-only GA4 baseline, GTM tag deployment) */
+        .integration-logo[data-brand="ga4"]:hover {
+            border-color: #E37400;
+            box-shadow:
+                0 0 20px rgba(227, 116, 0, 0.6),
+                0 0 40px rgba(227, 116, 0, 0.4),
+                0 0 60px rgba(227, 116, 0, 0.2),
+                0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .integration-logo[data-brand="gtm"]:hover {
+            border-color: #4285F4;
+            box-shadow:
+                0 0 20px rgba(66, 133, 244, 0.6),
+                0 0 40px rgba(66, 133, 244, 0.4),
+                0 0 60px rgba(66, 133, 244, 0.2),
+                0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
         /* ROI Calculator */
         .roi-section {
             padding: 8rem 2rem;
@@ -3331,7 +3350,7 @@
             <div class="value-card" style="--delay: 0.3s;">
                 <div class="value-icon cyan">📊</div>
                 <h3>Signal Health & Event Quality</h3>
-                <p>A unified Signal Health score that combines <strong>Meta EMQ</strong> with cross‑platform diagnostics (coverage, freshness, latency). Fix gaps before they cost conversions.</p>
+                <p>A unified Signal Health score that combines <strong>Meta EMQ</strong> with cross‑platform diagnostics (coverage, freshness, latency). Fix gaps before they cost conversions. Verified against an independent Google Analytics 4 baseline.</p>
                 <div class="value-metric">
                     <span class="value-metric-number">+45%</span>
                     <span class="value-metric-label">better signal quality</span>
@@ -3540,7 +3559,8 @@
                                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                         <div class="mockup-card">
-                                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.75rem;">Platform vs Analytics Variance</div>
+                                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem;">Platform vs GA4 Variance</div>
+                                            <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.75rem;">Baseline: Google Analytics 4 (read-only)</div>
                                             <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                                                 <div>
                                                     <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.25rem;"><span>Meta</span><span>+9%</span></div>
@@ -3596,7 +3616,7 @@
                                             <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
                                                 <div style="display: flex; justify-content: space-between;"><span>Meta</span><span style="color: var(--accent-green);">✅ 23m</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>Instagram</span><span style="color: var(--accent-green);">✅ 41m</span></div>
-                                                <div style="display: flex; justify-content: space-between;"><span>Analytics</span><span style="color: var(--accent-orange);">⚠️ 6h</span></div>
+                                                <div style="display: flex; justify-content: space-between;"><span>GA4 (Measurement)</span><span style="color: var(--accent-orange);">⚠️ 6h</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>WhatsApp</span><span style="color: var(--accent-pink);">❌ auth</span></div>
                                             </div>
                                         </div>
@@ -3621,7 +3641,7 @@
                                     <div class="mockup-card">
                                         <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.75rem;">Signal Timeline</div>
                                         <div class="mockup-alert success" style="margin-bottom: 0.5rem;"><span><strong>12:40</strong> • Meta event delivery OK</span><span style="color: var(--accent-green);">Recovered</span></div>
-                                        <div class="mockup-alert warn" style="margin-bottom: 0.5rem;"><span><strong>09:10</strong> • Analytics freshness degraded</span><span style="color: var(--accent-orange);">Warn</span></div>
+                                        <div class="mockup-alert warn" style="margin-bottom: 0.5rem;"><span><strong>09:10</strong> • GA4 baseline freshness degraded</span><span style="color: var(--accent-orange);">Warn</span></div>
                                         <div class="mockup-alert" style="background: rgba(236,72,153,0.1); border: 1px solid rgba(236,72,153,0.22);"><span><strong>03:20</strong> • WhatsApp auth expired</span><span style="color: var(--accent-pink);">Broken</span></div>
                                     </div>
                                 </div>
@@ -3672,7 +3692,7 @@
                                             <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
                                                 <div style="display: flex; justify-content: space-between;"><span>Meta</span><span style="color: var(--accent-green);">✅ OK</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>Instagram</span><span style="color: var(--accent-green);">✅ OK</span></div>
-                                                <div style="display: flex; justify-content: space-between;"><span>Analytics</span><span style="color: var(--accent-orange);">⚠️ Limited</span></div>
+                                                <div style="display: flex; justify-content: space-between;"><span>GA4 (Measurement)</span><span style="color: var(--accent-orange);">⚠️ Limited</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>WhatsApp</span><span style="color: var(--accent-pink);">❌ Reconnect</span></div>
                                             </div>
                                         </div>
@@ -3753,13 +3773,13 @@
                     <!-- Attribution Story -->
                     <div class="feature-story" data-story="attribution">
                         <div class="journey-step"><span>Step 3</span> Know Your True Credit Assignment</div>
-                        <h3 class="feature-story-title">End the Platform vs Analytics War</h3>
+                        <h3 class="feature-story-title">End the Platform vs GA4 War</h3>
                         <p class="feature-story-desc">
-                            Sarah's CMO asks why Meta reports 120 conversions but web analytics shows 95. With Stratum AI, she shows the <strong>variance analysis</strong>:
+                            Sarah's CMO asks why Meta reports 120 conversions but Google Analytics 4 shows 95. With Stratum AI, she shows the <strong>variance analysis</strong>:
                             Facebook is +9% (acceptable), but Instagram is +18% (investigate). She picks the Markov Chain model to fairly distribute credit across the funnel.
                         </p>
                         <ul class="feature-benefits">
-                            <li>Platform vs analytics variance with confidence bands</li>
+                            <li>Platform vs GA4 variance with confidence bands (independent, read-only baseline)</li>
                             <li>Multi-touch models: Markov Chain, Shapley, and custom</li>
                             <li>Funnel contribution: TOF → MOF → BOF breakdown</li>
                         </ul>
@@ -3983,6 +4003,7 @@
             <h2 class="section-title">Connect Everything. Control Everything.</h2>
             <p class="section-description">
                 Native integrations across the Meta ecosystem — Facebook, Instagram, and WhatsApp. OAuth-based, secure sync with health checks and clear error states.
+                Under Measurement & Verification, Google Analytics 4 provides an independent, read-only revenue and conversion baseline and Google Tag Manager handles tag deployment (web + server-side) for Meta Pixel and Conversions API. Measurement only, never an ad channel.
             </p>
         </div>
 
@@ -3993,12 +4014,16 @@
                 <div class="integration-logo" data-brand="facebook"><img src="./icons/facebook.svg" alt="Facebook" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="instagram"><img src="./icons/instagram.svg" alt="Instagram" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="whatsapp"><img src="./icons/whatsapp.svg" alt="WhatsApp" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="ga4" title="Google Analytics 4, read-only measurement baseline"><img src="./icons/ga4.svg" alt="Google Analytics 4, read-only measurement baseline" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="gtm" title="Google Tag Manager, tag deployment (web + server-side)"><img src="./icons/gtm.svg" alt="Google Tag Manager, tag deployment (web + server-side)" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="webhook"><img src="./icons/webhook.svg" alt="Webhook" style="height: 40px; width: auto;"></div>
                 <!-- Duplicate set for seamless loop -->
                 <div class="integration-logo" data-brand="meta"><img src="./icons/meta.svg" alt="Meta" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="facebook"><img src="./icons/facebook.svg" alt="Facebook" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="instagram"><img src="./icons/instagram.svg" alt="Instagram" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="whatsapp"><img src="./icons/whatsapp.svg" alt="WhatsApp" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="ga4" title="Google Analytics 4, read-only measurement baseline"><img src="./icons/ga4.svg" alt="Google Analytics 4, read-only measurement baseline" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="gtm" title="Google Tag Manager, tag deployment (web + server-side)"><img src="./icons/gtm.svg" alt="Google Tag Manager, tag deployment (web + server-side)" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="webhook"><img src="./icons/webhook.svg" alt="Webhook" style="height: 40px; width: auto;"></div>
             </div>
         </div>
@@ -4008,6 +4033,7 @@
                 <div style="font-size: 1.5rem;">ℹ️</div>
                 <div style="color: var(--text-secondary);">
                     <strong>Note:</strong> “EMQ” is Meta-specific. Alongside it, Stratum AI tracks signal health using measurable diagnostics (coverage, freshness, latency, delivery errors).
+                    Google Analytics 4 is used strictly as an independent, read-only baseline (GA4 Data API, analytics.readonly scope) to verify platform-reported revenue and conversions; it is never treated as an ad channel.
                     Conversions API (CAPI) support requires correct permissions and production connector hardening.
                 </div>
             </div>

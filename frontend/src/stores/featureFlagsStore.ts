@@ -29,6 +29,9 @@ export interface FeatureFlags {
   // Platform
   superadmin_profitability: boolean;
 
+  // Measurement & Verification (GA4 read-only baseline; enabled on all tiers)
+  ga4_measurement: boolean;
+
   // Limits
   max_campaigns: number;
   max_users: number;
@@ -80,6 +83,7 @@ export const defaultFeatures: FeatureFlags = {
   campaign_builder: false,
   autopilot_level: 0,
   superadmin_profitability: false,
+  ga4_measurement: true,
   max_campaigns: 20,
   max_users: 5,
   data_retention_days: 90,

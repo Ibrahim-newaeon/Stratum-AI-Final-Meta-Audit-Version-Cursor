@@ -173,7 +173,7 @@ export default function TenantNarrative() {
     {
       id: '1',
       title: 'Fix Instagram conversion tracking',
-      description: 'Instagram reporting 22% lower conversions than web analytics. Primary driver of EMQ drop.',
+      description: 'Instagram reporting 22% lower conversions than GA4. Primary driver of EMQ drop.',
       priority: 'critical',
       owner: 'Data Team',
       estimatedImpact: 12,
@@ -223,7 +223,7 @@ export default function TenantNarrative() {
       id: '1',
       type: 'incident_opened',
       title: 'Instagram conversion tracking degraded',
-      description: '22% variance from web analytics detected',
+      description: '22% variance from GA4 detected',
       timestamp: new Date(Date.now() - 18 * 60 * 60 * 1000),
       platform: 'Instagram',
       severity: 'high',

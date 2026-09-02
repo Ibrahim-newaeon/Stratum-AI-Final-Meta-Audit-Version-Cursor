@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # =============================================================================
 # Shared base
@@ -233,13 +233,42 @@ class ProfileMergeHistoryResponse(CDPSchema):
 # Sources
 # =============================================================================
 
+# Allowed source types. Mirrors ``app.models.cdp.SourceType`` values (kept as
+# plain strings here so schemas stay free of SQLAlchemy imports).
+SOURCE_TYPE_VALUES: tuple[str, ...] = ("website", "server", "sgtm", "import", "crm")
+
+# Human-readable labels (frontend mirror: CDP_SOURCE_TYPE_LABELS in src/api/cdp.ts).
+SOURCE_TYPE_LABELS: dict[str, str] = {
+    "website": "Website (JavaScript SDK)",
+    "server": "Server-side API",
+    "sgtm": "Server-side GTM",
+    "import": "CSV / bulk import",
+    "crm": "CRM sync",
+}
+
 
 class SourceCreate(CDPSchema):
     """Request to create a data source."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    source_type: str = Field(..., min_length=1, max_length=100)
+    source_type: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="One of: " + ", ".join(SOURCE_TYPE_VALUES),
+    )
     config: Optional[dict[str, Any]] = None
+
+    @field_validator("source_type")
+    @classmethod
+    def _validate_source_type(cls, value: str) -> str:
+        """Accept only known ``SourceType`` values (case-insensitive, normalized)."""
+        normalized = (value or "").strip().lower()
+        if normalized not in SOURCE_TYPE_VALUES:
+            raise ValueError(
+                f"source_type must be one of: {', '.join(SOURCE_TYPE_VALUES)}"
+            )
+        return normalized
 
 
 class SourceResponse(CDPSchema):

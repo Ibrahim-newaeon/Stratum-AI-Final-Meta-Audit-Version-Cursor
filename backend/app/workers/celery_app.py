@@ -137,6 +137,10 @@ celery_app = Celery(
         "app.workers.tasks.scores",
         "app.workers.tasks.cdp",
         "app.workers.tasks.cms",
+        # Measurement & Verification (GA4 read-only baseline) + Trust Layer rollups
+        "app.workers.tasks.measurement",
+        "app.tasks.attribution_variance_rollup",
+        "app.tasks.signal_health_rollup",
     ],
 )
 
@@ -168,6 +172,11 @@ celery_app.conf.update(
         # Sync tasks
         "app.workers.tasks.sync.sync_campaign_data": {"queue": "sync"},
         "app.workers.tasks.sync.sync_all_campaigns": {"queue": "sync"},
+        # Measurement & Verification (GA4 read-only baseline pull)
+        "app.workers.tasks.measurement.*": {"queue": "sync"},
+        # Trust Layer rollups
+        "tasks.signal_health_rollup": {"queue": "sync"},
+        "tasks.attribution_variance_rollup": {"queue": "sync"},
         # Rules tasks
         "app.workers.tasks.rules.evaluate_rules": {"queue": "rules"},
         "app.workers.tasks.rules.evaluate_all_rules": {"queue": "rules"},
@@ -205,6 +214,26 @@ celery_app.conf.beat_schedule = {
     "sync-all-campaigns": {
         "task": "app.workers.tasks.sync.sync_all_campaigns",
         "schedule": crontab(minute=0),
+        "options": {"queue": "sync"},
+    },
+    # ==========================================================================
+    # Measurement & Verification (GA4 read-only baseline) + Trust Layer rollups
+    # ==========================================================================
+    # Order matters: signal health (02:00) -> GA4 pull (02:30) -> attribution
+    # variance (03:00) so the variance rollup compares against fresh GA4 rows.
+    "trust-signal-health-rollup": {
+        "task": "tasks.signal_health_rollup",
+        "schedule": crontab(minute=0, hour=2),
+        "options": {"queue": "sync"},
+    },
+    "measurement-ga4-daily-pull": {
+        "task": "app.workers.tasks.measurement.pull_ga4_daily_baseline",
+        "schedule": crontab(minute=30, hour=2),
+        "options": {"queue": "sync"},
+    },
+    "trust-attribution-variance-rollup": {
+        "task": "tasks.attribution_variance_rollup",
+        "schedule": crontab(minute=0, hour=3),
         "options": {"queue": "sync"},
     },
     # ==========================================================================

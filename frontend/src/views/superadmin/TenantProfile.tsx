@@ -336,7 +336,7 @@ export default function TenantProfile() {
     {
       id: '1',
       title: 'Fix Instagram conversion variance',
-      description: 'Instagram reporting 22% lower conversions than web analytics',
+      description: 'Instagram reporting 22% lower conversions than GA4',
       priority: 'critical',
       owner: 'Data Team',
       estimatedImpact: 12,

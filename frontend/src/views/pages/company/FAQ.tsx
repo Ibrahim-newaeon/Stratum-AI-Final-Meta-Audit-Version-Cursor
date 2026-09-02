@@ -126,6 +126,13 @@ const fallbackFaqs: FAQItem[] = [
       'Yes! Our Slack integration sends real-time Trust Gate alerts, daily performance summaries, and anomaly notifications to your chosen channels. Configure it in Settings → Integrations.',
     category: 'integrations',
   },
+  {
+    id: '12b',
+    question: 'Do you integrate with Google Analytics 4 or Google Tag Manager?',
+    answer:
+      'Yes, strictly for measurement and verification. Google Analytics 4 is connected read-only through the GA4 Data API using a Viewer service account, and serves as an independent baseline for attribution variance, EMQ and the Trust Gate. Google Tag Manager is used for tag deployment (web container plus server-side tagging) of the Meta Pixel, Conversions API and the Stratum snippet. Neither is an ad channel: Stratum AI never reads or acts on non-Meta ad campaigns. Configure both under Settings → Integrations → Measurement & Verification.',
+    category: 'integrations',
+  },
   // Data & Privacy
   {
     id: '13',

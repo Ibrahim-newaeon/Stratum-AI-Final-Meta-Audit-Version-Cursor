@@ -12,6 +12,23 @@ const theme = {
   border: 'rgba(255, 255, 255, 0.08)',
 };
 
+// Measurement & Verification tools. These are NOT ad platforms: GA4 is a read-only
+// baseline and GTM deploys tags. Kept out of the ad-platform grid on purpose.
+const measurementTools = [
+  {
+    name: 'Google Analytics 4',
+    role: 'Read-only baseline via Data API',
+    badge: 'GA4',
+    brandHex: '#E37400',
+  },
+  {
+    name: 'Google Tag Manager',
+    role: 'Web + server-side tagging',
+    badge: 'GTM',
+    brandHex: '#4285F4',
+  },
+];
+
 export function Platforms() {
   const platforms = [
     {
@@ -124,6 +141,63 @@ export function Platforms() {
               </span>
             </div>
           ))}
+        </div>
+
+        {/* Measurement & Verification strip (not ad channels) */}
+        <div className="mt-10 max-w-5xl mx-auto">
+          <div
+            className="rounded-2xl px-6 py-5"
+            style={{
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: `1px dashed ${theme.border}`,
+            }}
+          >
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span
+                  className="text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full"
+                  style={{
+                    background: theme.goldLight,
+                    color: theme.gold,
+                    border: '1px solid rgba(226, 179, 71, 0.3)',
+                  }}
+                >
+                  Measurement &amp; Verification
+                </span>
+                <span className="text-xs" style={{ color: theme.textMuted }}>
+                  Measurement only, not an ad channel
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {measurementTools.map((tool) => (
+                  <div
+                    key={tool.name}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${theme.border}`,
+                    }}
+                  >
+                    <span
+                      className="w-9 h-9 rounded-lg flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                      style={{
+                        background: `${tool.brandHex}26`,
+                        border: `1px solid ${tool.brandHex}66`,
+                      }}
+                    >
+                      {tool.badge}
+                    </span>
+                    <div className="leading-tight">
+                      <div className="text-sm font-medium text-white">{tool.name}</div>
+                      <div className="text-xs" style={{ color: theme.textMuted }}>
+                        {tool.role}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Stats Section */}

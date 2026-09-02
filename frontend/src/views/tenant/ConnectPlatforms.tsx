@@ -225,6 +225,11 @@ export default function ConnectPlatforms() {
             <a href="/dashboard/capi-setup" className="text-primary hover:underline">
               CAPI Setup
             </a>
+            . Independent measurement lives under{' '}
+            <a href="/dashboard/settings" className="text-primary hover:underline">
+              Settings → Measurement &amp; Verification (GA4 read-only, GTM tag deployment)
+            </a>
+            .
           </span>
         </p>
       </div>

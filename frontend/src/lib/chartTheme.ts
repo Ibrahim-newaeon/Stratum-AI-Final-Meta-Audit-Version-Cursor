@@ -197,6 +197,9 @@ export function getPlatformChartColor(platform: string): string {
     instagram: '#E4405F',
     'instagram ads': '#E4405F',
     whatsapp: '#25D366',
+    // Measurement & Verification (not ad platforms)
+    ga4: '#E37400',
+    gtm: '#4285F4',
   };
   return platformMap[platform.toLowerCase()] || chartTheme.seriesColors[0];
 }

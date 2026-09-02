@@ -32,6 +32,10 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/auth/register",
     "/api/v1/auth/refresh",
     "/api/v1/auth/forgot-password",
+    # Key-only CDP ingest for server-side GTM containers (Measurement & Verification).
+    # Authenticates with X-Source-Key; the endpoint derives the tenant from the
+    # CDP source itself and never reads request.state.tenant_id.
+    "/api/v1/cdp/ingest",
 }
 
 

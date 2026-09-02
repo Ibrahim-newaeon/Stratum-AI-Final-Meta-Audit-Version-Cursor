@@ -1,7 +1,7 @@
 /**
  * Stratum AI - Attribution Variance Panel Component
  *
- * Displays attribution variance between ad platforms and web analytics.
+ * Displays attribution variance between Meta and GA4 (independent, read-only baseline).
  * Helps identify discrepancies in revenue and conversion tracking.
  */
 
@@ -97,6 +97,9 @@ const PlatformVarianceRowComponent: React.FC<{ row: PlatformVarianceRow }> = ({ 
     facebook: '📘',
     instagram: '📸',
     whatsapp: '💬',
+    // Measurement & Verification (not ad platforms)
+    ga4: '📈',
+    gtm: '🏷️',
   };
 
   const formatCurrency = (value: number) => {
@@ -289,7 +292,7 @@ export const AttributionVariancePanel: React.FC<AttributionVariancePanelProps> =
                   </span>
                   <span className="text-sm text-gray-500">
                     Platform {data.overall_revenue_variance_pct >= 0 ? 'over' : 'under'}-reports vs
-                    Analytics
+                    GA4
                   </span>
                 </div>
               </div>
@@ -310,7 +313,7 @@ export const AttributionVariancePanel: React.FC<AttributionVariancePanelProps> =
                   </span>
                   <span className="text-sm text-gray-500">
                     Platform {data.overall_conversion_variance_pct >= 0 ? 'over' : 'under'}-reports
-                    vs Analytics
+                    vs GA4
                   </span>
                 </div>
               </div>
@@ -327,7 +330,7 @@ export const AttributionVariancePanel: React.FC<AttributionVariancePanelProps> =
                       Platform
                     </th>
                     <th className="py-3 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Analytics
+                      GA4 (verified)
                     </th>
                     <th className="py-3 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Platform
@@ -407,7 +410,8 @@ export const AttributionVariancePanel: React.FC<AttributionVariancePanelProps> =
                 No attribution variance data available for this date.
               </div>
               <div className="text-sm text-gray-500 mt-1">
-                Ensure your web analytics source is connected and data has synced.
+                Connect Google Analytics 4 under Settings &gt; Integrations &gt; Measurement &amp;
+                Verification and wait for the first sync.
               </div>
             </div>
           )}
@@ -427,10 +431,10 @@ export const AttributionVariancePanel: React.FC<AttributionVariancePanelProps> =
                 />
               </svg>
               <div>
-                <strong>About Attribution Variance:</strong> Variance between platform-reported and
-                web analytics data is normal due to different attribution windows and tracking methods.
-                Variance under 15% is typically acceptable. Higher variance may indicate tracking
-                issues or attribution window mismatches.
+                <strong>About Attribution Variance:</strong> Variance between Meta-reported and GA4
+                (independent, read-only) data is normal due to different attribution windows and
+                tracking methods. Variance under 15% is typically acceptable. Higher variance may
+                indicate tracking issues or attribution window mismatches.
               </div>
             </div>
           </div>

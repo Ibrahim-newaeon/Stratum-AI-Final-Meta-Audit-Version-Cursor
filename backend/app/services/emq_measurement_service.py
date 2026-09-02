@@ -151,11 +151,21 @@ def record_conversion(conversion: ConversionEvent):
     }
 
 
-def record_ga4_data(data: GA4ConversionData):
-    """Record web analytics data for attribution comparison."""
-    global _ga4_data
+def record_ga4_data(data: GA4ConversionData) -> None:
+    """
+    Record GA4 (read-only baseline) conversion data for attribution comparison.
+
+    Upsert semantics: an existing entry for the same platform and calendar
+    date is replaced so repeated syncs do not double count.
+    """
     if data.platform not in _ga4_data:
         _ga4_data[data.platform] = []
+    day = data.date.date() if isinstance(data.date, datetime) else data.date
+    _ga4_data[data.platform] = [
+        d
+        for d in _ga4_data[data.platform]
+        if (d.date.date() if isinstance(d.date, datetime) else d.date) != day
+    ]
     _ga4_data[data.platform].append(data)
     # Keep only last 30 days
     cutoff = datetime.now(UTC) - timedelta(days=30)
@@ -336,6 +346,14 @@ class RealEMQService:
     def __init__(self):
         self._cache: dict[str, tuple[datetime, EmqCalculationResult]] = {}
         self._cache_ttl_seconds = 300  # 5 minute cache
+
+    def record_ga4_data(self, data: GA4ConversionData) -> None:
+        """
+        Feed a GA4 baseline data point (from ``fact_ga4_daily`` ingestion) into
+        the attribution-accuracy driver and invalidate cached EMQ results.
+        """
+        record_ga4_data(data)
+        self._cache.clear()
 
     def measure_emq(
         self,

@@ -430,7 +430,7 @@ class AttributionVarianceService:
         # Generate cards
         cards = [
             {
-                "title": "Total Analytics Revenue",
+                "title": "Total GA4 Revenue",
                 "value": f"${total_ga4_revenue:,.2f}",
                 "status": "neutral",
             },
@@ -496,7 +496,7 @@ class AttributionVarianceService:
                     {
                         "type": "warning",
                         "title": "High Attribution Variance",
-                        "message": f"Platform reports {revenue_variance:.0f}% more revenue than web analytics. This may affect ROAS accuracy.",
+                        "message": f"Platform reports {revenue_variance:.0f}% more revenue than GA4. This may affect ROAS accuracy.",
                         "actions": ["Review attribution windows", "Check cross-device tracking"],
                     }
                 )
@@ -505,7 +505,7 @@ class AttributionVarianceService:
                     {
                         "type": "warning",
                         "title": "High Attribution Variance",
-                        "message": f"Web analytics reports {abs(revenue_variance):.0f}% more revenue than platform. Check organic attribution.",
+                        "message": f"GA4 reports {abs(revenue_variance):.0f}% more revenue than platform. Check organic attribution.",
                         "actions": ["Review UTM parameters", "Check direct traffic attribution"],
                     }
                 )
@@ -514,7 +514,7 @@ class AttributionVarianceService:
                 {
                     "type": "info",
                     "title": "Attribution Variance Detected",
-                    "message": "Moderate difference between platform and web analytics attribution.",
+                    "message": "Moderate difference between Meta-reported and GA4 attribution.",
                     "actions": ["Monitor trends", "Review tracking setup"],
                 }
             )
@@ -535,7 +535,10 @@ class AttributionVarianceService:
                     "type": "info",
                     "title": "No Attribution Data",
                     "message": "Attribution variance data is not yet available.",
-                    "actions": ["Ensure your web analytics source is connected", "Wait for data sync"],
+                    "actions": [
+                        "Connect Google Analytics 4 under Settings > Integrations > Measurement & Verification",
+                        "Wait for data sync",
+                    ],
                 }
             ],
         }

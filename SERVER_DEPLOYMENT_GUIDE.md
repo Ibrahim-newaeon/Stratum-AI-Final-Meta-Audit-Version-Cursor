@@ -144,6 +144,43 @@ META_ACCESS_TOKEN=
 # ... (see .env.example for full list)
 ```
 
+### Step 7: Configure Measurement & Verification (optional, read-only)
+
+Google Analytics 4 is used strictly as an **independent, read-only revenue/conversion baseline**
+(GA4 Data API + per-tenant service account, scope `https://www.googleapis.com/auth/analytics.readonly`).
+Google Tag Manager is used strictly for **tag deployment** (web container for Meta Pixel + the Stratum
+snippet, server-side tagging endpoint for Meta CAPI + the CDP `sgtm` source). Neither is an ad platform.
+
+Only the GLOBAL toggles live in `.env`. GA4 property IDs, service-account keys and GTM container IDs are
+configured per tenant in the app under **Settings > Integrations > Measurement & Verification**.
+
+```env
+# Measurement & Verification (read-only, NOT an ad platform)
+GA4_SYNC_ENABLED=true
+GA4_LOOKBACK_DAYS=3
+GA4_BACKFILL_DAYS=30
+GA4_REQUEST_TIMEOUT_SECONDS=30
+GA4_DEFAULT_CONVERSION_EVENT=purchase
+GTM_VERIFY_TIMEOUT_SECONDS=10
+GTM_DEFAULT_SERVER_CONTAINER_URL=
+```
+
+Then, once per environment, create the measurement tables (idempotent, safe to re-run; no Alembic migration
+is involved):
+
+```bash
+cd backend && .venv/bin/python scripts_create_measurement_tables.py
+```
+
+Finally restart the Celery worker **and** beat so the new task module and beat entries are loaded:
+
+```bash
+docker compose restart worker scheduler
+# or, without Docker: restart the `celery ... worker` and `celery ... beat` processes
+```
+
+The API (`uvicorn --reload`) and the frontend (Vite) pick up the code changes automatically.
+
 ### Key Environment Variables Reference
 
 | Variable | Required | Description |
@@ -159,6 +196,13 @@ META_ACCESS_TOKEN=
 | `SUBSCRIPTION_TIER` | No | `starter`, `professional`, `enterprise` |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FORMAT` | No | `json` (prod) or `console` (dev) |
+| `GA4_SYNC_ENABLED` | No | `true` to run the daily GA4 read-only baseline pull (default `true`) |
+| `GA4_LOOKBACK_DAYS` | No | Days re-pulled on each daily GA4 sync (default `3`) |
+| `GA4_BACKFILL_DAYS` | No | Days pulled on a manual backfill sync (default `30`) |
+| `GA4_REQUEST_TIMEOUT_SECONDS` | No | GA4 Data API request timeout in seconds (default `30`) |
+| `GA4_DEFAULT_CONVERSION_EVENT` | No | GA4 event counted as a conversion when a tenant sets none (default `purchase`) |
+| `GTM_VERIFY_TIMEOUT_SECONDS` | No | Timeout for verifying GTM web/server containers (default `10`) |
+| `GTM_DEFAULT_SERVER_CONTAINER_URL` | No | Optional default sGTM endpoint suggested to tenants (per-tenant value wins) |
 
 ---
 
@@ -447,6 +491,9 @@ max_connections=50
 | Competitor data refresh | Every 6 hours |
 | Usage rollup | Daily at 01:00 |
 | Cost allocation | Daily at 02:00 |
+| Signal health rollup | 02:00 UTC |
+| GA4 daily baseline pull | 02:30 UTC |
+| Attribution variance rollup (Meta vs GA4) | 03:00 UTC |
 | Creative fatigue scores | Daily at 03:00 |
 | Daily scores | Daily at 04:00 |
 | Daily forecasts | Daily at 06:00 |

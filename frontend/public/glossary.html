@@ -797,6 +797,30 @@
             <h3 class="text-lg font-semibold text-white mb-2">JSON Web Token</h3>
             <p class="text-sm text-gray-400 mb-3">Compact token for transmitting claims. Used for stateless auth.</p>
           </div>
+
+          <!-- GTM -->
+          <div class="term-card p-6 rounded-2xl glass cat-technical" data-term="gtm">
+            <div class="flex items-start justify-between mb-4">
+              <div class="px-3 py-1.5 rounded-xl bg-teal-500/20 border border-teal-500/30">
+                <span class="text-sm font-bold text-teal-400">GTM</span>
+              </div>
+              <span class="text-[10px] text-gray-500 uppercase">Technical</span>
+            </div>
+            <h3 class="text-lg font-semibold text-white mb-2">Google Tag Manager</h3>
+            <p class="text-sm text-gray-400 mb-3">Web container (GTM-XXXXXXX) that deploys the Meta Pixel and the Stratum tracking snippet. Tag deployment only, under Measurement &amp; Verification. Never an ad channel.</p>
+          </div>
+
+          <!-- sGTM -->
+          <div class="term-card p-6 rounded-2xl glass cat-technical" data-term="sgtm">
+            <div class="flex items-start justify-between mb-4">
+              <div class="px-3 py-1.5 rounded-xl bg-teal-500/20 border border-teal-500/30">
+                <span class="text-sm font-bold text-teal-400">sGTM</span>
+              </div>
+              <span class="text-[10px] text-gray-500 uppercase">Technical</span>
+            </div>
+            <h3 class="text-lg font-semibold text-white mb-2">Server-Side Tagging</h3>
+            <p class="text-sm text-gray-400 mb-3">Server-side GTM container on your own endpoint (e.g. tags.yourdomain.com). Runs the Meta Conversions API tag and forwards events to the Stratum CDP "sgtm" source via POST /api/v1/cdp/ingest.</p>
+          </div>
         </div>
       </section>
 
@@ -999,6 +1023,24 @@
               <div class="benchmark benchmark-bad"><span class="benchmark-icon"></span>&lt;5</div>
               <div class="benchmark benchmark-good"><span class="benchmark-icon"></span>6-8</div>
               <div class="benchmark benchmark-excellent"><span class="benchmark-icon"></span>&gt;8</div>
+            </div>
+          </div>
+
+          <!-- GA4 Baseline -->
+          <div class="term-card p-6 rounded-2xl glass cat-stratum" data-term="ga4baseline">
+            <div class="flex items-start justify-between mb-4">
+              <div class="px-3 py-1.5 rounded-xl bg-yellow-500/20 border border-yellow-500/30">
+                <span class="text-sm font-bold text-yellow-400">GA4 Baseline</span>
+              </div>
+              <span class="text-[10px] text-gray-500 uppercase">Stratum</span>
+            </div>
+            <h3 class="text-lg font-semibold text-white mb-2">Independent Measurement Baseline</h3>
+            <p class="text-sm text-gray-400 mb-3">Read-only Google Analytics 4 revenue and conversions (Data API, analytics.readonly scope) used to verify platform-reported numbers. Feeds attribution variance, EMQ attribution accuracy and the Trust Gate. Measurement &amp; Verification only, never an ad channel.</p>
+            <div class="formula">Variance = (Platform - GA4) / GA4 × 100</div>
+            <div class="benchmarks">
+              <div class="benchmark benchmark-excellent"><span class="benchmark-icon"></span>&lt;15% healthy</div>
+              <div class="benchmark benchmark-good"><span class="benchmark-icon"></span>15-30% moderate</div>
+              <div class="benchmark benchmark-bad"><span class="benchmark-icon"></span>&gt;30% high</div>
             </div>
           </div>
 

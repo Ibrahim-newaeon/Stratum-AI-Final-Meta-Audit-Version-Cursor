@@ -193,6 +193,22 @@ export {
   useRetryWriteback,
 } from './crm';
 
+// Measurement & Verification hooks (GA4 read-only baseline + GTM tag deployment)
+export {
+  useMeasurementStatus,
+  useGA4Config,
+  useSaveGA4Config,
+  useTestGA4Connection,
+  useSyncGA4,
+  useGA4Baseline,
+  useDisconnectGA4,
+  useGTMConfig,
+  useSaveGTMConfig,
+  useVerifyGTM,
+  useGTMSnippets,
+  useDisconnectGTM,
+} from './measurement';
+
 // Pacing & Forecasting hooks
 export {
   useTargets,

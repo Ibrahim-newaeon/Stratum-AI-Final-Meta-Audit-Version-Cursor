@@ -342,7 +342,12 @@ async def get_system_health(
             },
             "platforms": {
                 "meta": {"status": "healthy", "success_rate": 99.8, "rate_limit_remaining": 85},
-                "snap": {"status": "risk", "success_rate": 95.2, "rate_limit_remaining": 45},
+            },
+            # Measurement & Verification integrations (not ad platforms):
+            # GA4 = read-only baseline (GA4 Data API), GTM = tag deployment.
+            "measurement_apis": {
+                "ga4": {"status": "ok", "access": "read_only"},
+                "gtm": {"status": "ok", "role": "tag_deployment"},
             },
             "resources": {
                 "cpu_percent": 35,

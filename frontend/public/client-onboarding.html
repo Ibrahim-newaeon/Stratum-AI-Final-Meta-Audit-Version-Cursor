@@ -86,6 +86,7 @@
         .section-client::before { background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple)); }
         .section-meta::before { background: linear-gradient(90deg, #1877f2, #42b72a); }
         .section-whatsapp::before { background: #25D366; }
+        .section-measurement::before { background: linear-gradient(90deg, #E37400, #4285F4); }
         .section-infra::before { background: linear-gradient(90deg, #336791, #e535ab); }
 
         .section-header {
@@ -108,6 +109,7 @@
         .icon-client { background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); }
         .icon-meta { background: linear-gradient(135deg, #1877f2, #42b72a); }
         .icon-whatsapp { background: #25D366; }
+        .icon-measurement { background: linear-gradient(135deg, #E37400, #4285F4); }
         .icon-infra { background: linear-gradient(135deg, #336791, #e535ab); }
 
         .section-title {
@@ -322,6 +324,17 @@
             margin: 20px 0;
         }
 
+        .info-box {
+            margin-top: 20px;
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid #E37400;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 20px 15px;
@@ -350,7 +363,7 @@
     <div class="container">
         <header>
             <div class="logo">⬡ Stratum AI</div>
-            <p class="subtitle">Client Onboarding - Platform Credentials Form</p>
+            <p class="subtitle">Client Onboarding - Platform & Measurement Credentials Form</p>
         </header>
 
         <form id="onboardingForm" class="form-grid">
@@ -676,6 +689,65 @@
                 </div>
             </section>
 
+            <!-- Measurement & Verification (GA4 read-only baseline + GTM tag deployment) -->
+            <section class="section section-measurement">
+                <div class="section-header">
+                    <div class="section-icon icon-measurement">📐</div>
+                    <div>
+                        <h2 class="section-title">Measurement & Verification</h2>
+                        <p class="section-subtitle">Google Analytics 4 (read-only baseline) & Google Tag Manager (tag deployment), independent verification, not an ad channel</p>
+                    </div>
+                </div>
+                <div class="fields-grid">
+                    <div class="field">
+                        <label>GA4 Property ID</label>
+                        <input type="text" name="ga4_property_id" placeholder="e.g., 123456789">
+                        <span class="field-hint">Numeric property ID from GA4 Admin &gt; Property Settings. Required to enable the read-only baseline</span>
+                    </div>
+                    <div class="field">
+                        <label>GA4 Measurement ID <span class="optional">(optional)</span></label>
+                        <input type="text" name="ga4_measurement_id" placeholder="G-XXXXXXXXXX">
+                        <span class="field-hint">Web data stream ID (G-...). Only used to label the GA4 tag inside GTM</span>
+                    </div>
+                    <div class="field">
+                        <label>GA4 Conversion Events</label>
+                        <input type="text" name="ga4_conversion_events" placeholder="purchase" value="purchase">
+                        <span class="field-hint">Comma-separated GA4 event names counted as conversions. Default: purchase</span>
+                    </div>
+                    <div class="field field-full">
+                        <label>GA4 Service Account JSON</label>
+                        <textarea name="ga4_service_account_json" rows="5" autocomplete="off" spellcheck="false" placeholder='{"type": "service_account", "project_id": "...", "client_email": "stratum-ga4-reader@...iam.gserviceaccount.com", "private_key": "..."}'></textarea>
+                        <span class="field-hint">Grant the service account the Viewer role on the GA4 property. Scope: https://www.googleapis.com/auth/analytics.readonly. Stratum only reads reports. This key is not persisted in the browser and is masked in the generated config; paste it into Settings &gt; Integrations &gt; Measurement &amp; Verification.</span>
+                    </div>
+                </div>
+                <div class="divider"></div>
+                <div class="fields-grid">
+                    <div class="field">
+                        <label>GTM Web Container ID</label>
+                        <input type="text" name="gtm_web_container_id" placeholder="GTM-XXXXXXX">
+                        <span class="field-hint">Web container that deploys the Meta Pixel and the Stratum tracking snippet</span>
+                    </div>
+                    <div class="field">
+                        <label>GTM Server Container URL</label>
+                        <input type="url" name="gtm_server_container_url" placeholder="https://tags.yourdomain.com">
+                        <span class="field-hint">Server-side tagging endpoint (sGTM) for Meta Conversions API and the CDP "sgtm" source. HTTPS, no trailing slash</span>
+                    </div>
+                    <div class="field">
+                        <label>GTM Server Container ID <span class="optional">(optional)</span></label>
+                        <input type="text" name="gtm_server_container_id" placeholder="GTM-XXXXXXX">
+                        <span class="field-hint">Server container ID, if different from the web container</span>
+                    </div>
+                    <div class="field">
+                        <label>GTM Preview Header <span class="optional">(optional)</span></label>
+                        <input type="text" name="gtm_preview_header" placeholder="X-Gtm-Server-Preview value" autocomplete="off">
+                        <span class="field-hint">Only for sGTM preview/debug sessions. Not persisted in the browser, masked in the generated config</span>
+                    </div>
+                </div>
+                <div class="info-box">
+                    <strong>Measurement only.</strong> Stratum AI never connects Google Ads, never reads gclid, and never writes to GA4 or GTM.
+                </div>
+            </section>
+
             <!-- Database & Infrastructure -->
             <section class="section section-infra">
                 <div class="section-header">
@@ -898,6 +970,27 @@
                         template_language: formData.get('whatsapp_template_language') || 'en'
                     }
                 },
+                // Measurement & Verification: GA4 is a read-only baseline, GTM is tag deployment only.
+                // Neither is an ad platform; secrets are masked and never persisted in the browser.
+                measurement: {
+                    ga4: {
+                        enabled: !!(formData.get('ga4_property_id') && formData.get('ga4_service_account_json')),
+                        access: 'read_only',
+                        scope: 'https://www.googleapis.com/auth/analytics.readonly',
+                        property_id: (formData.get('ga4_property_id') || '').trim(),
+                        measurement_id: (formData.get('ga4_measurement_id') || '').trim(),
+                        conversion_event_names: parseListField(formData.get('ga4_conversion_events'), ['purchase']),
+                        service_account_json: formData.get('ga4_service_account_json') ? '[CONFIGURED]' : ''
+                    },
+                    gtm: {
+                        enabled: !!(formData.get('gtm_web_container_id') || formData.get('gtm_server_container_url')),
+                        role: 'tag_deployment',
+                        web_container_id: (formData.get('gtm_web_container_id') || '').trim().toUpperCase(),
+                        server_container_url: (formData.get('gtm_server_container_url') || '').trim().replace(/\/+$/, ''),
+                        server_container_id: (formData.get('gtm_server_container_id') || '').trim().toUpperCase(),
+                        preview_header: formData.get('gtm_preview_header') ? '[CONFIGURED]' : ''
+                    }
+                },
                 infrastructure: {
                     database: {
                         host: formData.get('postgres_host') || '',
@@ -957,6 +1050,15 @@
                 .replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
         }
 
+        // Parse a comma/newline separated text field into a de-duplicated list (falls back to defaults).
+        function parseListField(value, defaults) {
+            const items = (value || '')
+                .split(/[,\n]/)
+                .map(item => item.trim())
+                .filter(Boolean);
+            return items.length ? Array.from(new Set(items)) : defaults.slice();
+        }
+
         function copyToClipboard() {
             const output = document.getElementById('outputContent').textContent;
             if (!output) {
@@ -983,12 +1085,17 @@
             }
         }
 
+        // Secrets that must never be persisted in the browser. They are masked as
+        // '[CONFIGURED]' in the generated output and have to be re-entered per session.
+        const NON_PERSISTED_FIELDS = new Set(['ga4_service_account_json', 'gtm_preview_header']);
+
         // Auto-save to localStorage
         function saveToLocalStorage() {
             const form = document.getElementById('onboardingForm');
             const formData = new FormData(form);
             const data = {};
             formData.forEach((value, key) => {
+                if (NON_PERSISTED_FIELDS.has(key)) return;
                 data[key] = value;
             });
             localStorage.setItem('stratum_onboarding_draft', JSON.stringify(data));
@@ -999,6 +1106,7 @@
             if (saved) {
                 const data = JSON.parse(saved);
                 Object.keys(data).forEach(key => {
+                    if (NON_PERSISTED_FIELDS.has(key)) return;
                     const field = document.querySelector(`[name="${key}"]`);
                     if (field) {
                         if (field.type === 'checkbox') {

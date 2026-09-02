@@ -62,6 +62,12 @@ class Feature(str, enum.Enum):
     # Changelog (Available to all tiers)
     CHANGELOG_ACCESS = "changelog_access"
 
+    # Measurement & Verification (Available to all tiers)
+    # GA4 = read-only independent revenue/conversion baseline (GA4 Data API)
+    # GTM = tag deployment (web container + server-side tagging) - not ad platforms
+    GA4_MEASUREMENT = "ga4_measurement"
+    GTM_TAGGING = "gtm_tagging"
+
     # === PROFESSIONAL FEATURES ===
     # Ad Account Management
     AD_ACCOUNTS_EXTENDED = "ad_accounts_extended"  # Up to 15 accounts
@@ -137,6 +143,9 @@ TIER_FEATURES: dict[SubscriptionTier, set[Feature]] = {
         Feature.API_KEYS,
         # Changelog (all tiers)
         Feature.CHANGELOG_ACCESS,
+        # Measurement & Verification (all tiers)
+        Feature.GA4_MEASUREMENT,
+        Feature.GTM_TAGGING,
         # Embed Widgets (with full branding)
         Feature.EMBED_WIDGETS_BASIC,
     },
@@ -156,6 +165,8 @@ TIER_FEATURES: dict[SubscriptionTier, set[Feature]] = {
         Feature.WEBHOOKS,
         Feature.API_KEYS,
         Feature.CHANGELOG_ACCESS,
+        Feature.GA4_MEASUREMENT,
+        Feature.GTM_TAGGING,
         # Professional features
         Feature.AD_ACCOUNTS_EXTENDED,
         Feature.FUNNEL_BUILDER,
@@ -186,6 +197,8 @@ TIER_FEATURES: dict[SubscriptionTier, set[Feature]] = {
         Feature.WEBHOOKS,
         Feature.API_KEYS,
         Feature.CHANGELOG_ACCESS,
+        Feature.GA4_MEASUREMENT,
+        Feature.GTM_TAGGING,
         Feature.AD_ACCOUNTS_EXTENDED,
         Feature.FUNNEL_BUILDER,
         Feature.COMPUTED_TRAITS,

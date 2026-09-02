@@ -42,7 +42,7 @@ def _batched(iterable: list, n: int) -> Iterator[list]:
         yield batch
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from sqlalchemy import String, delete, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -318,22 +318,32 @@ class ProfileCache:
 _profile_cache = ProfileCache(ttl_seconds=60)
 
 
-async def check_event_rate_limit(
-    current_user=Depends(get_current_user),
-):
-    """Rate limit for event ingestion."""
-    key = f"{current_user.tenant_id}:events"
+def _enforce_event_rate_limit(tenant_id: int) -> None:
+    """
+    Apply the per-tenant event ingestion rate limit.
+
+    Shared by the JWT-authenticated ``/cdp/events`` route and the key-only
+    ``/cdp/ingest`` route (server-side GTM), so both paths share one budget.
+    """
+    key = f"{tenant_id}:events"
     if not _event_limiter.is_allowed(key):
         logger.warning(
             "cdp_rate_limit_exceeded",
             operation="events",
-            tenant_id=current_user.tenant_id,
+            tenant_id=tenant_id,
         )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded for event ingestion. Max 100 requests/minute.",
             headers={"Retry-After": "60"},
         )
+
+
+async def check_event_rate_limit(
+    current_user=Depends(get_current_user),
+):
+    """Rate limit for event ingestion."""
+    _enforce_event_rate_limit(current_user.tenant_id)
 
 
 async def check_profile_rate_limit(
@@ -594,6 +604,45 @@ async def validate_source_key(
     return source
 
 
+async def resolve_source_by_key(
+    db: AsyncSession,
+    source_key: Optional[str],
+) -> CDPSource:
+    """
+    Resolve an active CDP source from its ``source_key`` alone (no user JWT).
+
+    Used by the key-only ``/cdp/ingest`` route (server-side GTM containers).
+    The tenant is derived from the source, never from the caller.
+    Raises HTTP 401 when the key is missing, unknown, or inactive.
+    """
+    if not source_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-Source-Key header",
+        )
+
+    result = await db.execute(
+        select(CDPSource).where(
+            CDPSource.source_key == source_key,
+            CDPSource.is_active.is_(True),
+        )
+    )
+    source = result.scalar_one_or_none()
+
+    if not source:
+        logger.warning(
+            "cdp_invalid_source_key",
+            source_key_prefix=source_key[:8] + "...",
+            auth="source_key_only",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or inactive source key",
+        )
+
+    return source
+
+
 @router.post(
     "/events",
     response_model=EventBatchResponse,
@@ -608,7 +657,7 @@ async def ingest_events(
     db: AsyncSession = Depends(get_async_session),
     current_user=Depends(get_current_user),
     _rate_limit=Depends(check_event_rate_limit),
-):
+) -> EventBatchResponse:
     """
     Ingest events into CDP.
 
@@ -621,13 +670,69 @@ async def ingest_events(
     - Calculates EMQ score
     """
     tenant_id = current_user.tenant_id
-    results = []
-    accepted = 0
-    rejected = 0
-    duplicates = 0
 
     # Validate source authentication
     source = await validate_source_key(db, tenant_id, source_key)
+
+    return await _process_event_batch(db, tenant_id, source, batch)
+
+
+@router.post(
+    "/ingest",
+    response_model=EventBatchResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Server-side ingest (source key only)",
+    description=(
+        "Key-only event ingestion for server-side sources such as a server-side "
+        "Google Tag Manager container (CDP source type 'sgtm'). Authenticates with the "
+        "X-Source-Key header; the tenant is derived from the source. Same payload and "
+        "processing as POST /cdp/events."
+    ),
+)
+async def ingest_events_by_source_key(
+    batch: EventBatchInput,
+    x_source_key: str = Header(
+        ...,
+        alias="X-Source-Key",
+        description="CDP source key (cdp_sources.source_key) of an active source",
+    ),
+    db: AsyncSession = Depends(get_async_session),
+) -> EventBatchResponse:
+    """
+    Ingest events using only a CDP source key (no user JWT).
+
+    - Looks up an active CDPSource by ``X-Source-Key`` (401 when missing/inactive)
+    - Derives the tenant from the source
+    - Applies the same per-tenant event rate limit as ``/cdp/events``
+    - Reuses the shared event processing path
+    """
+    source = await resolve_source_by_key(db, x_source_key)
+    tenant_id = source.tenant_id
+
+    _enforce_event_rate_limit(tenant_id)
+
+    return await _process_event_batch(db, tenant_id, source, batch)
+
+
+async def _process_event_batch(
+    db: AsyncSession,
+    tenant_id: int,
+    source: Optional[CDPSource],
+    batch: EventBatchInput,
+) -> EventBatchResponse:
+    """
+    Shared event processing path for ``/cdp/events`` and ``/cdp/ingest``.
+
+    - Deduplicates on idempotency_key (24h window)
+    - Finds or creates the profile and links identifiers
+    - Calculates the EMQ score and stores the event with ``source_id``
+    - Updates source / profile counters and consent
+    - Processes in chunks and commits once at the end
+    """
+    results: list[EventIngestResult] = []
+    accepted = 0
+    rejected = 0
+    duplicates = 0
     source_id = source.id if source else None
 
     logger.info(

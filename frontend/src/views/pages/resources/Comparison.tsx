@@ -17,7 +17,9 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 
-type ComparisonValue = 'yes' | 'no' | 'partial' | string;
+// `string & NonNullable<unknown>` keeps literal autocomplete for the known values while
+// still accepting free-form text (e.g. "4 platforms") without a redundant-union lint error.
+type ComparisonValue = 'yes' | 'no' | 'partial' | (string & NonNullable<unknown>);
 
 interface Competitor {
   id: string;
@@ -64,6 +66,12 @@ const features: FeatureRow[] = [
   },
   {
     feature: 'Auto-pause on Degradation',
+    category: 'Trust Engine',
+    stratum: 'yes',
+    competitors: { segment: 'no', braze: 'no', mparticle: 'no', amplitude: 'no' },
+  },
+  {
+    feature: 'Independent GA4 verification of ad-reported revenue',
     category: 'Trust Engine',
     stratum: 'yes',
     competitors: { segment: 'no', braze: 'no', mparticle: 'no', amplitude: 'no' },

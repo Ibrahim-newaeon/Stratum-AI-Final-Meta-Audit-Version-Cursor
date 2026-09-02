@@ -626,6 +626,28 @@
                 </svg>
               </div>
               <div>
+                <div class="font-medium">Google Analytics 4 property</div>
+                <div class="text-sm text-gray-500">Read-only service account, Measurement & Verification</div>
+              </div>
+            </li>
+            <li class="checklist-item">
+              <div class="check-icon">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+              </div>
+              <div>
+                <div class="font-medium">Google Tag Manager containers</div>
+                <div class="text-sm text-gray-500">Web + server-side tagging (tag deployment only)</div>
+              </div>
+            </li>
+            <li class="checklist-item">
+              <div class="check-icon">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+              </div>
+              <div>
                 <div class="font-medium">Stripe Account</div>
                 <div class="text-sm text-gray-500">Optional: Payment tracking</div>
               </div>
@@ -712,7 +734,13 @@ JWT_SECRET=<span class="string">"your-jwt-secret-key"</span>
 
 <span class="comment"># API Keys</span>
 STRATUM_API_KEY_LIVE=<span class="string">"strat_live_..."</span>
-STRATUM_API_KEY_TEST=<span class="string">"strat_test_..."</span></code></pre>
+STRATUM_API_KEY_TEST=<span class="string">"strat_test_..."</span>
+
+<span class="comment"># Measurement & Verification (read-only; per-tenant GA4 property / service account / GTM containers are configured in Settings > Integrations)</span>
+GA4_SYNC_ENABLED=<span class="string">true</span>
+GA4_LOOKBACK_DAYS=<span class="string">3</span>
+GA4_BACKFILL_DAYS=<span class="string">30</span>
+GTM_DEFAULT_SERVER_CONTAINER_URL=</code></pre>
                 </div>
               </div>
             </div>
@@ -946,7 +974,7 @@ trust_engine:
                 <h3 class="text-xl font-bold">Platform Integrations</h3>
                 <span class="badge badge-green">Recommended</span>
               </div>
-              <p class="text-gray-400 mb-6">Connect external platforms for audience sync and data enrichment.</p>
+              <p class="text-gray-400 mb-6">Connect Meta for activation, and add GA4 + GTM under Measurement & Verification for independent, read-only verification and tag deployment.</p>
 
               <div class="grid md:grid-cols-3 gap-4">
                 <!-- Meta -->
@@ -978,6 +1006,28 @@ trust_engine:
                   </div>
                   <div class="font-medium">WhatsApp</div>
                   <div class="text-xs text-gray-500">Business Cloud API</div>
+                </div>
+                <!-- Google Analytics 4 (Measurement & Verification, read-only) -->
+                <div class="glass-strong rounded-lg p-4 text-center">
+                  <div class="w-12 h-12 mx-auto mb-3 rounded-xl bg-orange-500 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <rect x="3" y="13" width="4" height="8" rx="1"/>
+                      <rect x="10" y="8" width="4" height="13" rx="1"/>
+                      <rect x="17" y="3" width="4" height="18" rx="1"/>
+                    </svg>
+                  </div>
+                  <div class="font-medium">Google Analytics 4</div>
+                  <div class="text-xs text-gray-500">Read-only measurement baseline (Data API)</div>
+                </div>
+                <!-- Google Tag Manager (Measurement & Verification, tag deployment) -->
+                <div class="glass-strong rounded-lg p-4 text-center">
+                  <div class="w-12 h-12 mx-auto mb-3 rounded-xl bg-blue-500 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2l10 10-10 10L2 12 12 2zm0 4.2L6.2 12l5.8 5.8 5.8-5.8L12 6.2zm0 3.3a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/>
+                    </svg>
+                  </div>
+                  <div class="font-medium">Google Tag Manager</div>
+                  <div class="text-xs text-gray-500">Web + server-side tagging</div>
                 </div>
                 <!-- Shopify -->
                 <div class="glass-strong rounded-lg p-4 text-center">
@@ -1014,6 +1064,7 @@ trust_engine:
               <div class="mt-6 p-4 rounded-lg border border-teal-500/30 bg-teal-500/5">
                 <p class="text-sm text-teal-400">
                   <strong>Pro Tip:</strong> Connect your Meta ad account read-only to unlock one-click audience sync across Facebook, Instagram, and WhatsApp.
+                  Then add Google Analytics 4 (read-only Data API baseline) and Google Tag Manager (web + server-side tagging for Meta Pixel/CAPI) under Measurement & Verification so platform-reported revenue is verified against an independent baseline. GA4 and GTM are measurement integrations only, never ad channels.
                 </p>
               </div>
             </div>
@@ -1130,7 +1181,7 @@ trust_engine:
                 <div class="glass-strong rounded-lg p-4 text-center">
                   <div class="text-2xl mb-2">🎯</div>
                   <div class="font-medium">Audience Sync</div>
-                  <div class="text-xs text-gray-500">Auto-push to ad platforms</div>
+                  <div class="text-xs text-gray-500">Auto-push to Meta Custom Audiences</div>
                 </div>
                 <div class="glass-strong rounded-lg p-4 text-center">
                   <div class="text-2xl mb-2">⚡</div>
@@ -1308,6 +1359,12 @@ trust_engine:
               <svg class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
               </svg>
+              Verify platform-reported numbers against the GA4 read-only baseline
+            </li>
+            <li class="flex items-start gap-2">
+              <svg class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+              </svg>
               Rotate API keys quarterly for security
             </li>
           </ul>
@@ -1362,6 +1419,10 @@ trust_engine:
             <div class="flex justify-between">
               <span class="text-gray-400">Audience Sync</span>
               <span class="text-teal-400">/audience-sync</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Measurement</span>
+              <span class="text-teal-400">/api/v1/integrations/measurement/status</span>
             </div>
           </div>
         </div>

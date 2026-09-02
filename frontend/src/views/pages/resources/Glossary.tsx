@@ -103,6 +103,17 @@ const glossaryData: GlossaryCategory[] = [
           { value: 'Below 80', description: 'Poor quality, attribution accuracy impacted' },
         ],
       },
+      {
+        term: 'Attribution Variance',
+        definition:
+          'Divergence between Meta-reported revenue/conversions and the independent, read-only Google Analytics 4 baseline. GA4 is used strictly for measurement and verification, never as an ad channel.',
+        values: [
+          { value: '<15% HEALTHY', description: 'Meta and GA4 agree closely, autopilot may proceed' },
+          { value: '15-30% MODERATE', description: 'Noticeable divergence, review before scaling' },
+          { value: '>30% HIGH', description: 'Large divergence, Trust Gate holds automation' },
+        ],
+        example: 'Attribution Variance = (Platform - GA4) / GA4 x 100 = ($12,000 - $10,000) / $10,000 x 100 = 20% (moderate)',
+      },
     ],
   },
   {
@@ -251,6 +262,11 @@ const glossaryData: GlossaryCategory[] = [
         term: 'Conversions API',
         definition:
           'Server-to-server connection sending conversion events directly to ad platforms, bypassing browser limitations.',
+      },
+      {
+        term: 'Server-side Tagging (sGTM)',
+        definition:
+          'A Google Tag Manager server container that receives events from the browser and forwards them to Meta Conversions API and the Stratum CDP "sgtm" source. Tag deployment only: it complements the GTM web container that installs the Meta Pixel and Stratum snippet, and is not an ad channel.',
       },
       {
         term: 'PII Hashing',

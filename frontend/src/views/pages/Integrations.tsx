@@ -8,6 +8,7 @@ import { PageLayout } from '@/components/landing/PageLayout';
 
 const categoryColors: Record<string, string> = {
   'Ad Platforms': '#f97316',
+  'Measurement & Verification': '#E37400',
   'Analytics & Attribution': '#06b6d4',
   'CRM & Sales': '#a855f7',
   'E-commerce': '#34c759',
@@ -19,6 +20,21 @@ const integrations = {
     { name: 'Facebook Ads', description: 'Facebook Feed, Stories & Reels advertising', logo: 'F' },
     { name: 'Instagram Ads', description: 'Instagram Feed, Stories & Reels advertising', logo: 'I' },
     { name: 'WhatsApp Business', description: 'Click-to-WhatsApp ads & messaging', logo: 'W' },
+  ],
+  // Measurement only: GA4 is a read-only baseline and GTM deploys tags. Neither is an ad channel.
+  'Measurement & Verification': [
+    {
+      name: 'Google Analytics 4',
+      description:
+        'Read-only revenue & conversion baseline (GA4 Data API, service account) used for attribution variance, EMQ and the Trust Gate. Measurement only, never an ad channel.',
+      logo: 'GA4',
+    },
+    {
+      name: 'Google Tag Manager',
+      description:
+        'Web + server-side tagging (sGTM) to deploy Meta Pixel, Conversions API and the Stratum snippet.',
+      logo: 'GTM',
+    },
   ],
   'Analytics & Attribution': [
     { name: 'Mixpanel', description: 'Product analytics', logo: 'MP' },
@@ -68,8 +84,8 @@ export default function Integrations() {
             className="text-lg md:text-xl max-w-2xl mx-auto mb-10"
             style={{ color: 'rgba(255, 255, 255, 0.7)' }}
           >
-            Stratum AI integrates with 50+ platforms to unify your marketing data and automate
-            across channels.
+            Stratum AI integrates with 50+ platforms to unify your marketing data and act on Meta
+            channels, verified independently.
           </p>
           <Link
             to="/signup"

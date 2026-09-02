@@ -4,7 +4,7 @@
 **Audit Date:** 2026-01-10 (Updated)
 **Previous Audit:** 2026-01-07
 **Auditor Role:** Senior Tracking/Infrastructure Architect
-**Scope:** Browser, Server-Side Tagging, Backend Direct, Dedupe, EMQ Coverage, Meta Platform Integration (Facebook, Instagram, WhatsApp)
+**Scope:** Browser (GTM web container), Server-Side Tagging (sGTM), GA4 Read-Only Baseline, Backend Direct, Dedupe, EMQ Coverage, Meta Platform Integration (Facebook, Instagram, WhatsApp)
 
 ---
 
@@ -111,42 +111,68 @@ All 11 files passed Python syntax validation:
 
 ## Part 1: System-by-System Inspection Checklist
 
-### 1.1 Browser Tag Container (Browser Events)
+### 1.1 Browser Tag Container (Google Tag Manager Web Container)
 
 | Check | Configuration Proof | Log Evidence | Health Metrics |
 |-------|---------------------|--------------|----------------|
-| **dataLayer initialization** | `window.dataLayer = window.dataLayer \|\| []` in `<head>` | Console: `dataLayer.push()` calls | Events/page load |
-| **Tag container loaded** | Container snippet present in `<head>` | Network: container script request | Load time <500ms |
-| **Pixel snippets** | `fbq('init', 'PIXEL_ID')` (Meta Pixel) | Network: `facebook.com/tr` | Fire rate >99% |
+| **GTM web container ID** | `tenant_gtm_integrations.web_container_id` (`GTM-XXXXXXX`, validated by `gtm_service.validate_container_id`) | `GET /api/v1/integrations/measurement/gtm` → `web_container_id` | Configured tenants |
+| **dataLayer initialization** | `window.dataLayer = window.dataLayer \|\| []` in `<head>` (GTM head snippet from `GET /api/v1/integrations/measurement/gtm/snippets`) | Console: `dataLayer.push()` calls | Events/page load |
+| **Tag container loaded** | `https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXXX` in `<head>`, `<noscript>` iframe in `<body>` | Network: `googletagmanager.com/gtm.js` request (CSP script-src allow-listed) | Load time <500ms |
+| **Meta Pixel tag** | `fbq('init', 'PIXEL_ID')` deployed by the GTM web container (`deploy_meta_pixel`) | Network: `facebook.com/tr` | Fire rate >99% |
+| **Stratum snippet tag** | Custom HTML tag with the Stratum tracking snippet (`deploy_stratum_snippet`) | Network: `POST /api/v1/cdp/ingest` | Events/day |
 | **Consent mode** | Consent defaults set before any tag fires | Console: consent state changes | Compliant regions |
+| **Container verification** | `POST /api/v1/integrations/measurement/gtm/verify` → `web_container_ok` | `last_verified_at`, `last_verify_success` | Verified <24h |
 
-**Stratum Finding:** ⚠️ **NOT IN CODEBASE** - Client-side tracking must be implemented in separate frontend deployment.
+**Stratum Finding:** ✅ **IMPLEMENTED (tag deployment only)** - The GTM web container is configured per tenant under Settings > Integrations > Measurement & Verification and used strictly to deploy the Meta Pixel and the Stratum snippet. GTM is not an ad platform; no Google credentials are stored for it.
 
 **What to Look For in DevTools:**
 ```javascript
 // Console commands to verify
 console.log(window.dataLayer);          // Should show event array
 console.log(typeof fbq);                // Should be 'function' (Meta Pixel)
+console.log(typeof google_tag_manager); // Should be 'object' when the GTM web container is loaded
 ```
 
 ---
 
-### 1.2 Server-Side Tagging Container
+### 1.2 Server-Side Tagging Container (sGTM)
 
 | Check | Configuration Proof | Log Evidence | Health Metrics |
 |-------|---------------------|--------------|----------------|
-| **Container host** | Managed container host or self-hosted runtime | Server-tagging headers in response | Uptime >99.9% |
-| **Transport URL** | `tags.yourdomain.com` in browser container config | Network: collect endpoint requests | Latency <200ms |
-| **Server clients** | Meta CAPI client in server container | Container logs: client execution | Success rate >99% |
-| **Vendor tags** | Meta CAPI tag | Vendor API response codes | Delivery rate >98% |
+| **Container host** | Tenant-owned sGTM endpoint (`tenant_gtm_integrations.server_container_url`, https only, no trailing slash) | Server-tagging headers in response | Uptime >99.9% |
+| **Transport URL** | `sgtm_config.transport_url` (= `server_container_url`) set in the GTM web container's GA4/Meta clients | Network: `tags.yourdomain.com/g/collect` requests | Latency <200ms |
+| **Server clients** | Meta CAPI client in server container (`sgtm_config.meta_capi_client`) | Container logs: client execution | Success rate >99% |
+| **Vendor tags** | Meta Conversions API tag (`deploy_meta_capi`) | Vendor API response codes | Delivery rate >98% |
+| **Stratum forwarding** | sGTM posts to `POST /api/v1/cdp/ingest` with `X-Source-Key` of the CDP `sgtm` source | `INFO: CDP ingest` with `source_type=sgtm` | Events/day, 401 rate |
+| **Endpoint verification** | `POST /api/v1/integrations/measurement/gtm/verify` → `server_container_ok` | `last_verified_at`, `last_verify_success` | Verified <24h |
 
-**Stratum Finding:** ⚠️ **NOT IMPLEMENTED** - No server-side tagging routing layer. Direct CAPI implementation instead.
+**Stratum Finding:** ✅ **IMPLEMENTED (per-tenant configuration)** - `web_container_id` / `server_container_url` (and optional `server_container_id`, encrypted `preview_header`) are stored in `tenant_gtm_integrations`. Saving a GTM configuration creates/links a CDP source with `source_type='sgtm'` (label "Server-side GTM"); the server container posts event batches to `POST /api/v1/cdp/ingest` with header `X-Source-Key: <cdp_sources.source_key>` (HTTP 201, 401 when the key is unknown/inactive, tenant derived from the source). The Meta CAPI client/tag lives in the server container. Direct backend CAPI (1.3) remains available in parallel.
 
-**Expected Environment Variables (if a server-side tagging layer existed):**
+**Environment Variables:** none per tenant. Only the global toggles `GTM_VERIFY_TIMEOUT_SECONDS` and `GTM_DEFAULT_SERVER_CONTAINER_URL` exist; container IDs and preview headers are never environment variables.
+
+---
+
+### 1.2b Google Analytics 4 Read-Only Baseline (Measurement & Verification)
+
+| Check | Configuration Proof | Log Evidence | Health Metrics |
+|-------|---------------------|--------------|----------------|
+| **Tenant configuration** | `tenant_ga4_integrations` (`property_id`, `measurement_id`, encrypted service-account JSON + fingerprint, `conversion_event_names`, `status`) | `GET /api/v1/integrations/measurement/ga4` | Configured tenants |
+| **Read-only scope** | `GA4_READONLY_SCOPE = https://www.googleapis.com/auth/analytics.readonly` in `app.services.measurement.ga4_client` | `POST /api/v1/integrations/measurement/ga4/test-connection` | `last_verify_success` |
+| **Daily pull** | Beat `measurement-ga4-daily-pull` → `app.workers.tasks.measurement.pull_ga4_daily_baseline` (02:30 UTC, queue `sync`, `GA4_LOOKBACK_DAYS`) | `INFO: GA4 sync tenant=… rows_upserted=…` | `last_sync_at`, `last_sync_rows` |
+| **Fact table** | `fact_ga4_daily` (date x property x utm_source/medium/campaign; sessions, conversions, revenue, total_revenue, `is_meta_traffic`, `meta_channel`) | Upsert on `uq_fact_ga4_daily_dim` | Days with data |
+| **Attribution variance** | Beat `trust-attribution-variance-rollup` → `tasks.attribution_variance_rollup` (03:00 UTC) → `fact_attribution_variance_daily` | Variance rows per `facebook`/`instagram`/`whatsapp` | Variance bands 5/15/30% |
+| **Manual sync / backfill** | `POST /api/v1/integrations/measurement/ga4/sync` (`lookback_days`, `backfill` → `GA4_BACKFILL_DAYS`) | `GA4SyncResponse.rows_upserted` | Backfill success |
+| **Baseline read** | `GET /api/v1/integrations/measurement/ga4/baseline?start_date&end_date&meta_only` | Daily points in response | Freshness <30h |
+
+**Stratum Finding:** ✅ **IMPLEMENTED (pending table creation via `backend/scripts_create_measurement_tables.py`)** - GA4 is an independent, read-only revenue/conversion baseline used for attribution variance, the EMQ attribution-accuracy driver, signal health and the trust gate. **No Google Ads, no Customer Match, no gclid**, no write scopes, no Google OAuth or sign-in. Secrets are encrypted with `app.services.encryption.encrypt_token`, never returned by any endpoint, never logged and never written to `CDPSource.config`.
+
+**Environment Variables (global toggles only; property IDs and service accounts are per tenant in the DB):**
 ```bash
-SERVER_TAGGING_CONTAINER_URL=https://tags.yourdomain.com
-SERVER_TAGGING_CONTAINER_ID=...
-SERVER_TAGGING_PREVIEW_HEADER=...
+GA4_SYNC_ENABLED=true
+GA4_LOOKBACK_DAYS=3
+GA4_BACKFILL_DAYS=30
+GA4_REQUEST_TIMEOUT_SECONDS=30
+GA4_DEFAULT_CONVERSION_EVENT=purchase
 ```
 
 ---
@@ -218,6 +244,8 @@ GET  /api/v1/audit/offline-conversions/batches
 | **Conversion latency table** | `conversion_latencies` + `conversion_latency_stats` | Latency aggregation jobs | P95 latency |
 | **Offline batches table** | `offline_conversion_batches` + `offline_conversions` | Upload completion logs | Success rate |
 | **Signal health table** | `fact_signal_health_daily` | Daily snapshot job | Coverage % |
+| **GA4 baseline table** | `fact_ga4_daily` (created by `backend/scripts_create_measurement_tables.py`) | `pull_ga4_daily_baseline` 02:30 UTC | Days with data |
+| **Attribution variance table** | `fact_attribution_variance_daily` | `tasks.attribution_variance_rollup` 03:00 UTC | Variance % per channel |
 | **Scheduled jobs** | Celery beat schedule in `celery_app.py:61-145` | Task execution logs | Job success rate |
 
 **Stratum Implementation Status:** ✅ **IMPLEMENTED**
@@ -229,6 +257,12 @@ emq_measurements              -- EMQ scores per platform/pixel/date
 conversion_latencies          -- Individual latency records
 conversion_latency_stats      -- Aggregated latency by period
 fact_signal_health_daily      -- Daily signal health snapshots
+
+-- Measurement & Verification (read-only GA4 baseline)
+tenant_ga4_integrations       -- Per-tenant GA4 property + encrypted service account
+tenant_gtm_integrations       -- Per-tenant GTM web/server containers (tag deployment)
+fact_ga4_daily                -- Daily GA4 sessions/conversions/revenue by source/medium/campaign
+fact_attribution_variance_daily -- Platform vs GA4 variance per Meta channel/day
 
 -- Offline Conversion Tables
 offline_conversion_batches    -- Batch upload tracking
@@ -255,6 +289,9 @@ customer_ltv_predictions      -- LTV prediction records
 | `calculate-fatigue-scores` | 3 AM UTC | default |
 | `process-audit-logs` | Every minute | default |
 | `check-pipeline-health` | Every 30 min | default |
+| `trust-signal-health-rollup` | 02:00 UTC | sync |
+| `measurement-ga4-daily-pull` | 02:30 UTC | sync |
+| `trust-attribution-variance-rollup` | 03:00 UTC | sync |
 
 ---
 
@@ -368,13 +405,25 @@ curl -X POST "http://localhost:8000/api/v1/capi/events/stream" \
 | Pixel event recording | `emq_measurement_service.py:134` | ✅ Ready |
 | Frontend tracking hooks | `frontend/src/api/emqV2.ts` | ✅ Exists |
 
-### B. Server-Side Tagging Forwarding
+### B. Server-Side Tagging (sGTM) Forwarding
 | Evidence | Location | Status |
 |----------|----------|--------|
-| Server-side tagging container config | Not found | ❌ Not Implemented |
-| Server-side clients | Not found | ❌ Not Implemented |
-| Collect endpoint | Not found | ❌ Not Implemented |
-| Transport URL config | Not found | ❌ Not Implemented |
+| Server-side tagging container config | `tenant_gtm_integrations` (`app/models/measurement.py`), `PUT /api/v1/integrations/measurement/gtm` | ✅ Implemented (pending table creation via `backend/scripts_create_measurement_tables.py`) |
+| Server-side clients | Meta CAPI client/tag in the tenant's server container (`gtm_service.build_snippets` → `sgtm_config`) | ✅ Documented / tenant-deployed |
+| Collect endpoint | `POST /api/v1/cdp/ingest` with `X-Source-Key` (CDP `sgtm` source) | ✅ Implemented |
+| Transport URL config | `server_container_url` → `sgtm_config.transport_url` (`GET /api/v1/integrations/measurement/gtm/snippets`) | ✅ Implemented |
+| Container verification | `POST /api/v1/integrations/measurement/gtm/verify` (`gtm_service.verify_containers`) | ✅ Implemented |
+
+### B2. GA4 Read-Only Baseline
+| Evidence | Location | Status |
+|----------|----------|--------|
+| Tenant GA4 config + encrypted service account | `tenant_ga4_integrations` (`app/models/measurement.py`), `PUT /api/v1/integrations/measurement/ga4` | ✅ Implemented (pending table creation via `backend/scripts_create_measurement_tables.py`) |
+| Read-only Data API client | `app/services/measurement/ga4_client.py` (`GA4DataClient`, scope `analytics.readonly`) | ✅ Implemented |
+| Daily ingestion + upsert | `app/services/measurement/ga4_ingestion.py` → `fact_ga4_daily` | ✅ Implemented |
+| Beat task | `app/workers/tasks/measurement.py` (`pull_ga4_daily_baseline`, 02:30 UTC) | ✅ Implemented |
+| Attribution variance rollup | `tasks.attribution_variance_rollup` (03:00 UTC) → `fact_attribution_variance_daily` | ✅ Implemented |
+| Frontend settings cards | `frontend/src/components/settings/GA4Integration.tsx`, `GTMIntegration.tsx`, `frontend/src/api/measurement.ts` | ✅ Implemented |
+| Google Ads / Customer Match / gclid | Not present by design | ✅ Excluded (measurement only) |
 
 ### C. Backend Direct (CAPI)
 | Evidence | Location | Status |
@@ -631,8 +680,9 @@ ORDER BY platform;
 
 | System | Implemented? | Evidence | Gaps | Fix Plan |
 |--------|--------------|----------|------|----------|
-| **Browser Events** | ⚠️ Partial | Frontend hooks exist, pixel ingestion ready | No client-side pixel in repo | Deploy pixel SDK separately |
-| **Server-Side Tagging Forwarding** | ❌ No | None | Not implemented | Consider for enterprise clients |
+| **Browser Events (GTM web container)** | ✅ Yes | `tenant_gtm_integrations.web_container_id`, head/body/Stratum snippets from `/integrations/measurement/gtm/snippets`, Meta Pixel + Stratum snippet deployed via GTM | Tables pending creation via `backend/scripts_create_measurement_tables.py` | Run the script once, verify container in Settings |
+| **Server-Side Tagging (sGTM) Forwarding** | ✅ Yes | `server_container_url` per tenant, Meta CAPI tag in server container, CDP `sgtm` source → `POST /api/v1/cdp/ingest` (`X-Source-Key`) | Tables pending creation via `backend/scripts_create_measurement_tables.py`; sGTM container itself is tenant-hosted | Run the script once, deploy the server container, verify endpoint |
+| **GA4 Read-Only Baseline** | ✅ Yes | `tenant_ga4_integrations`, `GA4DataClient` (analytics.readonly), `fact_ga4_daily`, daily beat 02:30 UTC, variance rollup 03:00 UTC | Tables pending creation via `backend/scripts_create_measurement_tables.py`; restart worker + beat | Run the script once, restart Celery, test connection + backfill sync |
 | **Backend Direct** | ✅ Yes | Meta platform connector (Facebook, Instagram, WhatsApp), retry logic, circuit breaker | None | Production ready |
 | **Event Dedupe** | ⚠️ Partial | EventDeduplicator class, 24hr TTL | In-memory only, no persistence | Add Redis + DB persistence |
 | **EMQ Snapshots** | ✅ Yes | Full EMQ calculation, DB tables, anomaly detection | In-memory delivery logs | Add DB delivery log table |
@@ -650,8 +700,9 @@ ORDER BY platform;
 | No DLQ | Lost events on failure | P0 | Medium | Implement Redis/DB DLQ |
 | In-memory dedupe | Duplicates across restarts | P0 | Low | Use Redis for shared state |
 | No delivery audit | Cannot investigate failures | P1 | Medium | Log all CAPI calls to DB |
-| No server-side tagging layer | Missing server-side tag routing | P2 | High | Optional for enterprise |
-| Browser pixel external | Setup required per client | P2 | Variable | Provide pixel SDK docs |
+| Measurement tables not yet created | GA4 baseline / GTM config endpoints fail until tables exist | P1 | Low | Implemented (pending table creation via `backend/scripts_create_measurement_tables.py`), then restart worker + beat |
+| sGTM container is tenant-hosted | Server-side tag routing depends on the client's container | P2 | Variable | Implemented (pending table creation via `backend/scripts_create_measurement_tables.py`); copy `sgtm_config` from the snippets endpoint into the server container |
+| Browser pixel via GTM web container | Setup required per client (paste GTM snippets) | P2 | Low | Implemented (pending table creation via `backend/scripts_create_measurement_tables.py`); snippets served by `/integrations/measurement/gtm/snippets` |
 
 ### Grep/Search Terms for Debugging
 
@@ -671,6 +722,9 @@ grep -r "record_pixel_event\|stream_event" --include="*.py"
 # EMQ
 grep -r "emq_score\|EMQMeasurement" --include="*.py"
 grep -r "calculate_real_emq" --include="*.py"
+
+# Measurement & Verification (GA4 read-only baseline, GTM tag deployment)
+grep -r "fact_ga4_daily\|GA4DataClient\|integrations/measurement" --include="*.py"
 ```
 
 ### Expected Artifacts Checklist
@@ -732,9 +786,11 @@ grep -r "calculate_real_emq" --include="*.py"
 
 **Audit Conclusion:** Stratum has a **production-ready CAPI infrastructure** for the Meta platform (Facebook, Instagram, WhatsApp) with retry logic and EMQ measurement. The Meta platform integration is now **complete** with autopilot engine, WhatsApp support, Celery workers, unified conversions API, webhook server, and full-funnel events tracking.
 
+**Measurement & Verification (2026-09):** Google Analytics 4 is integrated as a **read-only, independent revenue/conversion baseline** (GA4 Data API, service account, `analytics.readonly`) feeding `fact_ga4_daily`, attribution variance, EMQ and the trust gate; Google Tag Manager is integrated for **tag deployment only** (web container for Meta Pixel + Stratum snippet, sGTM endpoint for Meta CAPI + the CDP `sgtm` source). Neither is an ad platform. Implemented, pending table creation via `backend/scripts_create_measurement_tables.py` and a Celery worker/beat restart.
+
 **Remaining Gaps:**
 - Event persistence (in-memory only) - Add Redis/DB persistence
 - Deduplication durability - Use Redis for distributed state
-- Server-side tagging layer - Optional for enterprise clients
+- Measurement tables - Run `backend/scripts_create_measurement_tables.py` once per environment (idempotent), then restart worker + beat
 
 **Recommendation:** Prioritize Redis integration for distributed deduplication and add database persistence for delivery logs before scaling to >10K events/day. The newly integrated autopilot and events modules are production-ready and can be deployed immediately.

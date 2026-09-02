@@ -196,7 +196,7 @@
         <!-- Subheadline -->
         <p class="text-lg sm:text-xl text-gray-400 max-w-3xl mx-auto mb-10 leading-relaxed animate-fade-up delay-200" style="opacity:0">
           Trust-Gated Autopilot executes revenue operations <span class="text-white font-medium">only when AI confirms data quality meets safety thresholds</span>.
-          Predict ROAS, prevent churn, and sync audiences across 4 platforms—automatically.
+          Predict ROAS, prevent churn, and sync audiences to Facebook, Instagram &amp; WhatsApp—automatically.
         </p>
 
         <!-- CTA Buttons -->
@@ -231,8 +231,8 @@
             <div class="text-xs text-gray-500">Latency</div>
           </div>
           <div class="group p-6 rounded-2xl glass card-hover">
-            <div class="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent mb-1">4</div>
-            <div class="text-sm text-gray-400">Ad Platforms</div>
+            <div class="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent mb-1">3</div>
+            <div class="text-sm text-gray-400">Meta Channels</div>
             <div class="text-xs text-gray-500">Synced</div>
           </div>
         </div>
@@ -554,6 +554,8 @@
             <div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-blue-500"></div><span>Facebook Ads API</span></div>
             <div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-pink-500"></div><span>Instagram Ads API</span></div>
             <div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-green-500"></div><span>WhatsApp Business API</span></div>
+            <div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-orange-500"></div><span>GA4 read-only baseline (Measurement & Verification)</span></div>
+            <div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-blue-500"></div><span>GTM / sGTM tag stream (Measurement & Verification)</span></div>
           </div>
         </div>
 
@@ -609,7 +611,7 @@
             <span class="text-sm font-medium text-white">EMQ Score</span>
             <span class="text-xs font-bold text-amber-400">40%</span>
           </div>
-          <p class="text-xs text-gray-500">Event Match Quality from ad platforms</p>
+          <p class="text-xs text-gray-500">Event Match Quality from Meta Pixel &amp; Conversions API</p>
         </div>
         <div class="p-5 rounded-xl glass">
           <div class="flex items-center justify-between mb-2">
@@ -623,7 +625,7 @@
             <span class="text-sm font-medium text-white">Variance</span>
             <span class="text-xs font-bold text-amber-400">20%</span>
           </div>
-          <p class="text-xs text-gray-500">Metric consistency over time</p>
+          <p class="text-xs text-gray-500">Platform vs GA4 baseline consistency (independent verification)</p>
         </div>
         <div class="p-5 rounded-xl glass">
           <div class="flex items-center justify-between mb-2">
@@ -769,7 +771,7 @@
           <div class="col-span-6 flex items-center gap-2">
             <svg id="cdp-arrow" class="w-4 h-4 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             <span class="text-sm font-semibold text-white">CDP & Data</span>
-            <span class="text-xs text-gray-500">(5 features)</span>
+            <span class="text-xs text-gray-500">(6 features)</span>
           </div>
         </button>
         <div id="cdp-features" class="overflow-hidden hidden">
@@ -805,11 +807,19 @@
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-yellow-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"/></svg></div></div>
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-yellow-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"/></svg></div></div>
           </div>
-          <div class="grid grid-cols-6 gap-4 p-4 items-center feature-row">
+          <div class="grid grid-cols-6 gap-4 p-4 items-center border-b border-white/[0.03] feature-row">
             <div class="text-sm text-gray-300">Anomaly Detection</div>
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div></div>
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div></div>
+            <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
+            <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
+          </div>
+          <div class="grid grid-cols-6 gap-4 p-4 items-center feature-row">
+            <div class="text-sm text-gray-300 tooltip">Independent Measurement Baseline (GA4, read-only)<span class="tooltip-content">Platform-reported revenue and conversions verified against a read-only Google Analytics 4 baseline (Measurement & Verification, never an ad channel)</span></div>
+            <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-amber-500/20 ring-2 ring-amber-500/40 flex items-center justify-center"><svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg></div></div>
+            <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
+            <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
             <div class="flex justify-center"><div class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center"><svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div></div>
           </div>
@@ -895,7 +905,7 @@
             <div class="mt-6 pt-6 border-t border-white/[0.05] grid grid-cols-2 gap-4">
               <div><div class="text-lg font-semibold text-white">50K</div><div class="text-xs text-gray-500">Profiles</div></div>
               <div><div class="text-lg font-semibold text-white">500K/mo</div><div class="text-xs text-gray-500">Events</div></div>
-              <div><div class="text-lg font-semibold text-white">2</div><div class="text-xs text-gray-500">Platforms</div></div>
+              <div><div class="text-lg font-semibold text-white">2</div><div class="text-xs text-gray-500">Meta Ad Accounts</div></div>
               <div><div class="text-lg font-semibold text-white">3</div><div class="text-xs text-gray-500">Users</div></div>
             </div>
           </div>
@@ -927,7 +937,7 @@
             <div class="mt-6 pt-6 border-t border-white/[0.05] grid grid-cols-2 gap-4">
               <div><div class="text-lg font-semibold text-white">500K</div><div class="text-xs text-gray-500">Profiles</div></div>
               <div><div class="text-lg font-semibold text-white">5M/mo</div><div class="text-xs text-gray-500">Events</div></div>
-              <div><div class="text-lg font-semibold text-white">4</div><div class="text-xs text-gray-500">Platforms</div></div>
+              <div><div class="text-lg font-semibold text-white">10</div><div class="text-xs text-gray-500">Meta Ad Accounts</div></div>
               <div><div class="text-lg font-semibold text-white">10</div><div class="text-xs text-gray-500">Users</div></div>
             </div>
           </div>
@@ -950,7 +960,7 @@
             <div class="mt-6 pt-6 border-t border-white/[0.05] grid grid-cols-2 gap-4">
               <div><div class="text-lg font-semibold text-white">Unlimited</div><div class="text-xs text-gray-500">Profiles</div></div>
               <div><div class="text-lg font-semibold text-white">Unlimited</div><div class="text-xs text-gray-500">Events</div></div>
-              <div><div class="text-lg font-semibold text-white">All</div><div class="text-xs text-gray-500">Platforms</div></div>
+              <div><div class="text-lg font-semibold text-white">Unlimited</div><div class="text-xs text-gray-500">Meta Ad Accounts</div></div>
               <div><div class="text-lg font-semibold text-white">Unlimited</div><div class="text-xs text-gray-500">Users</div></div>
             </div>
           </div>
@@ -1097,8 +1107,8 @@
 
       <!-- Integration Logos -->
       <div class="text-center">
-        <p class="text-sm text-gray-500 mb-8">Integrates with the platforms you already use</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+        <p class="text-sm text-gray-500 mb-8">Acts on Meta. Verifies with Google Analytics 4 & Google Tag Manager.</p>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 max-w-5xl mx-auto">
           <!-- Meta -->
           <div class="flex flex-col items-center justify-center p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-white/10 transition-all">
             <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-3 text-gray-400">
@@ -1128,6 +1138,28 @@
             </div>
             <span class="text-sm font-medium text-white mb-1">WhatsApp</span>
             <span class="text-xs text-gray-500 text-center">Business Cloud API</span>
+          </div>
+          <!-- Google Analytics 4 (Measurement & Verification, read-only baseline) -->
+          <div class="flex flex-col items-center justify-center p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-white/10 transition-all">
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-3 text-orange-400">
+              <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="3" y="13" width="4" height="8" rx="1"/>
+                <rect x="10" y="8" width="4" height="13" rx="1"/>
+                <rect x="17" y="3" width="4" height="18" rx="1"/>
+              </svg>
+            </div>
+            <span class="text-sm font-medium text-white mb-1">Google Analytics 4</span>
+            <span class="text-xs text-gray-500 text-center">Read-only baseline (Measurement & Verification)</span>
+          </div>
+          <!-- Google Tag Manager (Measurement & Verification, tag deployment) -->
+          <div class="flex flex-col items-center justify-center p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-white/10 transition-all">
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-3 text-blue-400">
+              <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l10 10-10 10L2 12 12 2zm0 4.2L6.2 12l5.8 5.8 5.8-5.8L12 6.2zm0 3.3a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/>
+              </svg>
+            </div>
+            <span class="text-sm font-medium text-white mb-1">Google Tag Manager</span>
+            <span class="text-xs text-gray-500 text-center">Web + server-side tag deployment</span>
           </div>
         </div>
       </div>

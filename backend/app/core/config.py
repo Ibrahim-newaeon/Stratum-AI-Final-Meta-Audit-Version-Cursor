@@ -105,6 +105,35 @@ class Settings(BaseSettings):
     meta_api_version: str = Field(default="v19.0", description="Meta Graph API version")
 
     # -------------------------------------------------------------------------
+    # Measurement & Verification (GA4 read-only + GTM tag deployment)
+    # -------------------------------------------------------------------------
+    # GA4 and GTM are measurement-only integrations (never ad channels).
+    # Property IDs, service-account JSON and container IDs live per tenant in
+    # the database; only these global toggles are configured via environment.
+    ga4_sync_enabled: bool = Field(
+        default=True, description="Enable the nightly read-only GA4 baseline pull"
+    )
+    ga4_lookback_days: int = Field(
+        default=3, description="Days re-pulled on every incremental GA4 sync"
+    )
+    ga4_backfill_days: int = Field(
+        default=30, description="Days pulled on first sync / explicit backfill"
+    )
+    ga4_request_timeout_seconds: float = Field(
+        default=30.0, description="Per-request timeout for the GA4 Data API"
+    )
+    ga4_default_conversion_event: str = Field(
+        default="purchase", description="GA4 event counted as a conversion by default"
+    )
+    gtm_verify_timeout_seconds: float = Field(
+        default=10.0, description="HTTP timeout when verifying GTM containers"
+    )
+    gtm_default_server_container_url: Optional[str] = Field(
+        default=None,
+        description="Optional default server-side tagging endpoint suggested to tenants",
+    )
+
+    # -------------------------------------------------------------------------
     # WhatsApp Business API Configuration
     # -------------------------------------------------------------------------
     whatsapp_phone_number_id: Optional[str] = Field(

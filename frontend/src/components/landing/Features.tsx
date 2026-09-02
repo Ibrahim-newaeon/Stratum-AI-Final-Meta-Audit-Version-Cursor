@@ -44,7 +44,9 @@ const theme = {
   borderHover: 'rgba(255, 255, 255, 0.15)',
 };
 
-// Fallback data when CMS content is not available
+// Fallback data when CMS content is not available.
+// NOTE: CMS content (useFeatureLayers) overrides this fallback when it returns any layers,
+// so copy changes here only show when the CMS has no feature-layer posts.
 const fallbackLayers: FeatureLayer[] = [
   {
     id: 'trust',
@@ -67,7 +69,7 @@ const fallbackLayers: FeatureLayer[] = [
         id: '2',
         iconName: 'ExclamationTriangleIcon',
         title: 'Attribution Variance',
-        description: 'Platform vs analytics reconciliation with alerts',
+        description: 'Meta vs GA4 reconciliation, independent read-only verification with alerts',
         displayOrder: 1,
       },
       {
@@ -76,6 +78,13 @@ const fallbackLayers: FeatureLayer[] = [
         title: 'Freshness Monitoring',
         description: 'Know when your data is stale or delayed',
         displayOrder: 2,
+      },
+      {
+        id: '3b',
+        iconName: 'CheckBadgeIcon',
+        title: 'Independent Verification (GA4 read-only + GTM/sGTM)',
+        description: 'Measurement only: a read-only GA4 baseline and GTM tag deployment, never an ad channel',
+        displayOrder: 3,
       },
     ],
   },

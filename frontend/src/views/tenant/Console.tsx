@@ -104,7 +104,7 @@ export default function Console() {
       id: '5',
       type: 'fix',
       title: 'Review conversion tracking',
-      description: 'Meta pixel showing 18% variance from web analytics - verify implementation.',
+      description: 'Meta pixel showing 18% variance from GA4 - verify implementation.',
       platform: 'Meta',
       confidence: 78,
       estimatedImpact: { metric: 'EMQ', value: 8, unit: 'pts' },

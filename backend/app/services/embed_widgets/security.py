@@ -47,14 +47,28 @@ class EmbedSecurityService:
         frame_ancestors = self._domains_to_csp(allowed_domains)
 
         # Base CSP directives
+        # Measurement & Verification: GTM web container + GA4 collect endpoints (read-only measurement, not an ad platform)
+        # Google Fonts (fonts.googleapis.com / fonts.gstatic.com) are intentionally NOT allowed.
         csp_parts = [
             "default-src 'self'",
             f"frame-ancestors {frame_ancestors}",
-            "script-src 'self' 'unsafe-inline'",  # Needed for inline widget scripts
+            # Needed for inline widget scripts + GTM web container
+            "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com",
             "style-src 'self' 'unsafe-inline'",  # Needed for inline styles
-            "img-src 'self' data: https:",  # Allow images from HTTPS
+            # Allow images from HTTPS + GA4/GTM pixel beacons
+            (
+                "img-src 'self' data: https: "
+                "https://www.google-analytics.com https://*.google-analytics.com "
+                "https://*.googletagmanager.com"
+            ),
             "font-src 'self' data:",
-            "connect-src 'self'",  # API calls to self only
+            # API calls to self + GA4 collect endpoints (measurement only)
+            (
+                "connect-src 'self' "
+                "https://www.google-analytics.com https://analytics.google.com "
+                "https://*.google-analytics.com https://*.analytics.google.com "
+                "https://*.googletagmanager.com"
+            ),
             "object-src 'none'",  # No plugins
             "base-uri 'self'",
             "form-action 'none'",  # No form submissions

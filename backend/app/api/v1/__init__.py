@@ -38,6 +38,8 @@ from app.api.v1.endpoints import (
     integrations,
     knowledge_graph,
     landing_cms,
+    # Measurement & Verification (GA4 read-only baseline + GTM tag deployment)
+    measurement,
     meta_capi,
     mfa,
     ml_training,
@@ -289,6 +291,14 @@ api_router.include_router(
 api_router.include_router(
     emq_v2.router,
     tags=["EMQ v2"],
+)
+
+# Measurement & Verification (GA4 read-only baseline, GTM tag deployment)
+# Registered BEFORE integrations.router so the literal /integrations/measurement
+# paths win over any /integrations/{provider} parameter routes.
+api_router.include_router(
+    measurement.router,
+    tags=["Measurement & Verification"],
 )
 
 # Integrations (HubSpot, CRM, Attribution)

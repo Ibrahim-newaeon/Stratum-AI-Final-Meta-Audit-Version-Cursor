@@ -1386,6 +1386,25 @@
                 0 10px 20px rgba(0, 0, 0, 0.3);
         }
 
+        /* القياس والتحقق (جوجل أناليتكس 4 للقراءة فقط، جوجل تاج مانجر لنشر الوسوم) */
+        .integration-logo[data-brand="ga4"]:hover {
+            border-color: #E37400;
+            box-shadow:
+                0 0 20px rgba(227, 116, 0, 0.6),
+                0 0 40px rgba(227, 116, 0, 0.4),
+                0 0 60px rgba(227, 116, 0, 0.2),
+                0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .integration-logo[data-brand="gtm"]:hover {
+            border-color: #4285F4;
+            box-shadow:
+                0 0 20px rgba(66, 133, 244, 0.6),
+                0 0 40px rgba(66, 133, 244, 0.4),
+                0 0 60px rgba(66, 133, 244, 0.2),
+                0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
         /* ROI Calculator */
         .roi-section {
             padding: 8rem 2rem;
@@ -3360,7 +3379,7 @@
             <div class="value-card" style="--delay: 0.3s;">
                 <div class="value-icon cyan">📊</div>
                 <h3>صحة الإشارة وجودة الأحداث</h3>
-                <p>درجة صحة إشارة موحدة تجمع بين <strong>Meta EMQ</strong> مع تشخيصات عبر المنصات (التغطية، الحداثة، التأخير). أصلح الفجوات قبل أن تكلفك التحويلات.</p>
+                <p>درجة صحة إشارة موحدة تجمع بين <strong>Meta EMQ</strong> مع تشخيصات عبر المنصات (التغطية، الحداثة، التأخير). أصلح الفجوات قبل أن تكلفك التحويلات. يتم التحقق منها مقابل خط أساس مستقل من جوجل أناليتكس 4 (للقراءة فقط).</p>
                 <div class="value-metric">
                     <span class="value-metric-number ltr-text">+45%</span>
                     <span class="value-metric-label">جودة إشارة أفضل</span>
@@ -3557,7 +3576,7 @@
                                             <thead><tr><th>Campaign</th><th>Spend</th><th>ROAS</th><th>Signal</th></tr></thead>
                                             <tbody>
                                                 <tr><td>Meta • Prospecting</td><td>$42.1K</td><td>3.4x</td><td style="color: var(--accent-green);">Good</td></tr>
-                                                <tr><td>Snap • Retargeting</td><td>$9.8K</td><td>2.1x</td><td style="color: var(--accent-orange);">Warn</td></tr>
+                                                <tr><td>Instagram • Retargeting</td><td>$9.8K</td><td>2.1x</td><td style="color: var(--accent-orange);">Warn</td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -3569,7 +3588,8 @@
                                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                         <div class="mockup-card">
-                                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.75rem;">Platform vs Analytics Variance</div>
+                                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem;">Platform vs GA4 Variance</div>
+                                            <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.75rem;">Baseline: Google Analytics 4 (read-only)</div>
                                             <div style="display: flex; flex-direction: column; gap: 0.75rem;">
                                                 <div>
                                                     <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.25rem;"><span>Meta</span><span>+9%</span></div>
@@ -3625,7 +3645,7 @@
                                             <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
                                                 <div style="display: flex; justify-content: space-between;"><span>Meta</span><span style="color: var(--accent-green);">✅ 23m</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>Instagram</span><span style="color: var(--accent-green);">✅ 41m</span></div>
-                                                <div style="display: flex; justify-content: space-between;"><span>Analytics</span><span style="color: var(--accent-orange);">⚠️ 6h</span></div>
+                                                <div style="display: flex; justify-content: space-between;"><span>GA4 (Measurement)</span><span style="color: var(--accent-orange);">⚠️ 6h</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>WhatsApp</span><span style="color: var(--accent-pink);">❌ auth</span></div>
                                             </div>
                                         </div>
@@ -3650,7 +3670,7 @@
                                     <div class="mockup-card">
                                         <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.75rem;">Signal Timeline</div>
                                         <div class="mockup-alert success" style="margin-bottom: 0.5rem;"><span><strong>12:40</strong> • Meta event delivery OK</span><span style="color: var(--accent-green);">Recovered</span></div>
-                                        <div class="mockup-alert warn" style="margin-bottom: 0.5rem;"><span><strong>09:10</strong> • Analytics freshness degraded</span><span style="color: var(--accent-orange);">Warn</span></div>
+                                        <div class="mockup-alert warn" style="margin-bottom: 0.5rem;"><span><strong>09:10</strong> • GA4 baseline freshness degraded</span><span style="color: var(--accent-orange);">Warn</span></div>
                                         <div class="mockup-alert" style="background: rgba(236,72,153,0.1); border: 1px solid rgba(236,72,153,0.22);"><span><strong>03:20</strong> • WhatsApp auth expired</span><span style="color: var(--accent-pink);">Broken</span></div>
                                     </div>
                                 </div>
@@ -3701,7 +3721,7 @@
                                             <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
                                                 <div style="display: flex; justify-content: space-between;"><span>Meta</span><span style="color: var(--accent-green);">✅ OK</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>Instagram</span><span style="color: var(--accent-green);">✅ OK</span></div>
-                                                <div style="display: flex; justify-content: space-between;"><span>Analytics</span><span style="color: var(--accent-orange);">⚠️ Limited</span></div>
+                                                <div style="display: flex; justify-content: space-between;"><span>GA4 (Measurement)</span><span style="color: var(--accent-orange);">⚠️ Limited</span></div>
                                                 <div style="display: flex; justify-content: space-between;"><span>WhatsApp</span><span style="color: var(--accent-pink);">❌ Reconnect</span></div>
                                             </div>
                                         </div>
@@ -3782,13 +3802,13 @@
                     <!-- Attribution Story -->
                     <div class="feature-story" data-story="attribution">
                         <div class="journey-step"><span>الخطوة ٣</span> اعرف توزيع الفضل الحقيقي</div>
-                        <h3 class="feature-story-title">أنهِ حرب المنصة ضد التحليلات</h3>
+                        <h3 class="feature-story-title">أنهِ حرب المنصة ضد جوجل أناليتكس 4</h3>
                         <p class="feature-story-desc">
-                            يسأل مدير التسويق سارة لماذا Meta تُبلغ عن ١٢٠ تحويلاً بينما التحليلات تُظهر ٩٥. مع Stratum AI، تُظهر له <strong>تحليل التباين</strong>:
+                            يسأل مدير التسويق سارة لماذا Meta تُبلغ عن ١٢٠ تحويلاً بينما جوجل أناليتكس 4 يُظهر ٩٥. مع Stratum AI، تُظهر له <strong>تحليل التباين</strong>:
                             فيسبوك +٩% (مقبول)، لكن إنستغرام +١٨% (يحتاج تحقيق). تختار نموذج سلسلة ماركوف لتوزيع الفضل بعدالة عبر القمع.
                         </p>
                         <ul class="feature-benefits">
-                            <li>تباين المنصة مقابل التحليلات مع نطاقات الثقة</li>
+                            <li>تباين المنصة مقابل جوجل أناليتكس 4 مع نطاقات الثقة (خط أساس مستقل، للقراءة فقط)</li>
                             <li>نماذج متعددة النقاط: سلسلة ماركوف، شابلي، ومخصص</li>
                             <li>مساهمة القمع: أعلى ← وسط ← أسفل القمع</li>
                         </ul>
@@ -4012,6 +4032,7 @@
             <h2 class="section-title">اربط كل شيء. تحكّم بكل شيء.</h2>
             <p class="section-description">
                 تكاملات أصلية عبر منظومة Meta — فيسبوك وإنستغرام وواتساب. مزامنة آمنة قائمة على OAuth مع فحوصات الصحة وحالات الأخطاء الواضحة.
+                وضمن القياس والتحقق، يوفر جوجل أناليتكس 4 خط أساس مستقلاً للقراءة فقط للإيرادات والتحويلات، بينما يتولى جوجل تاج مانجر نشر الوسوم (الويب والوسم من جانب الخادم) لـ Meta Pixel وConversions API. تحقق مستقل للقياس فقط، وليس قناة إعلانية.
             </p>
         </div>
 
@@ -4022,12 +4043,16 @@
                 <div class="integration-logo" data-brand="facebook"><img src="./icons/facebook.svg" alt="Facebook" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="instagram"><img src="./icons/instagram.svg" alt="Instagram" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="whatsapp"><img src="./icons/whatsapp.svg" alt="WhatsApp" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="ga4" title="جوجل أناليتكس 4، خط أساس للقياس للقراءة فقط"><img src="./icons/ga4.svg" alt="جوجل أناليتكس 4، خط أساس للقياس للقراءة فقط" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="gtm" title="جوجل تاج مانجر، نشر الوسوم (الويب والوسم من جانب الخادم)"><img src="./icons/gtm.svg" alt="جوجل تاج مانجر، نشر الوسوم (الويب والوسم من جانب الخادم)" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="webhook"><img src="./icons/webhook.svg" alt="Webhook" style="height: 40px; width: auto;"></div>
                 <!-- Duplicate set for seamless loop -->
                 <div class="integration-logo" data-brand="meta"><img src="./icons/meta.svg" alt="Meta" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="facebook"><img src="./icons/facebook.svg" alt="Facebook" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="instagram"><img src="./icons/instagram.svg" alt="Instagram" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="whatsapp"><img src="./icons/whatsapp.svg" alt="WhatsApp" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="ga4" title="جوجل أناليتكس 4، خط أساس للقياس للقراءة فقط"><img src="./icons/ga4.svg" alt="جوجل أناليتكس 4، خط أساس للقياس للقراءة فقط" style="height: 40px; width: auto;"></div>
+                <div class="integration-logo" data-brand="gtm" title="جوجل تاج مانجر، نشر الوسوم (الويب والوسم من جانب الخادم)"><img src="./icons/gtm.svg" alt="جوجل تاج مانجر، نشر الوسوم (الويب والوسم من جانب الخادم)" style="height: 40px; width: auto;"></div>
                 <div class="integration-logo" data-brand="webhook"><img src="./icons/webhook.svg" alt="Webhook" style="height: 40px; width: auto;"></div>
             </div>
         </div>
@@ -4037,6 +4062,7 @@
                 <div style="font-size: 1.5rem;">ℹ️</div>
                 <div style="color: var(--text-secondary);">
                     <strong>ملاحظة:</strong> "EMQ" خاص بـ Meta. وإلى جانبه، يتتبع Stratum AI صحة الإشارة باستخدام تشخيصات قابلة للقياس (التغطية، الحداثة، التأخير، أخطاء التسليم).
+                    يُستخدم جوجل أناليتكس 4 حصرًا كخط أساس مستقل للقراءة فقط (GA4 Data API، نطاق analytics.readonly) للتحقق من الإيرادات والتحويلات التي تُبلغ عنها المنصة، ولا يُعامل أبدًا كقناة إعلانية.
                     دعم Conversions API (CAPI) يتطلب صلاحيات صحيحة وتقوية الموصل للإنتاج.
                 </div>
             </div>

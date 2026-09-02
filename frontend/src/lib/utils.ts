@@ -49,6 +49,9 @@ export function getPlatformColor(platform: string): string {
     instagram: '#E4405F',
     'instagram ads': '#E4405F',
     whatsapp: '#25D366',
+    // Measurement & Verification (not ad platforms)
+    ga4: '#E37400',
+    gtm: '#4285F4',
     // Other platforms
     linkedin: '#0A66C2',
     twitter: '#1DA1F2',

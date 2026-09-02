@@ -67,11 +67,64 @@ DEGRADED_THRESHOLD = 40     # Yellow - alert + hold
 # Never auto-execute when signal_health < 70
 ```
 
+## Measurement Integrations (read-only)
+Stratum AI **acts only on Meta channels** (Facebook, Instagram, WhatsApp). Google Analytics 4 and
+Google Tag Manager are restored strictly as **"Measurement & Verification"** integrations
+(Arabic: القياس والتحقق). They are never ad platforms, channels or activation targets.
+
+**GA4 = read-only independent revenue/conversion baseline**
+- GA4 Data API with a per-tenant service account (scope `https://www.googleapis.com/auth/analytics.readonly`)
+- Daily rows land in `fact_ga4_daily` (date x utm_source/medium/campaign, sessions/conversions/revenue,
+  Meta-traffic classification) and feed:
+  - attribution variance (`fact_attribution_variance_daily`, Platform vs GA4)
+  - EMQ "attribution accuracy" driver
+  - Signal Health and the Trust Gate
+- Positioning everywhere: "independent verification", "read-only baseline", never "Google Ads"
+
+**GTM = tag deployment only**
+- Web container (`GTM-XXXXXXX`): Meta Pixel + Stratum tracking snippet
+- Server-side tagging endpoint (sGTM, `https://tags.yourdomain.com`): Meta Conversions API tag +
+  the CDP `sgtm` source, which posts to `POST /api/v1/cdp/ingest` with header `X-Source-Key`
+  (`cdp_sources.source_key`; source_type `sgtm`, label "Server-side GTM")
+
+**Tables** (created ONLY by `backend/scripts_create_measurement_tables.py`, idempotent, no Alembic migration):
+`tenant_ga4_integrations`, `tenant_gtm_integrations`, `fact_ga4_daily`. Service-account JSON and the GTM
+preview header are encrypted with `app.services.encryption.encrypt_token` and never returned, logged or
+written to `CDPSource.config`.
+
+**Endpoints**: `/api/v1/integrations/measurement/*` (tag "Measurement & Verification", `APIResponse` envelope):
+`GET status`, `GET|PUT|DELETE ga4`, `POST ga4/test-connection`, `POST ga4/sync`, `GET ga4/baseline`,
+`GET|PUT|DELETE gtm`, `POST gtm/verify`, `GET gtm/snippets`, `DELETE` (both).
+
+**Celery**: `app.workers.tasks.measurement.pull_ga4_daily_baseline` (beat `measurement-ga4-daily-pull`, 02:30 UTC),
+`app.workers.tasks.measurement.sync_ga4_tenant`, plus `trust-signal-health-rollup` (02:00 UTC) and
+`trust-attribution-variance-rollup` (03:00 UTC); queue `sync`.
+
+**Key files**
+- `backend/app/models/measurement.py` (TenantGA4Integration, TenantGTMIntegration, FactGA4Daily, MeasurementStatus)
+- `backend/app/services/measurement/` (`ga4_client.py`, `ga4_ingestion.py`, `gtm_service.py`)
+- `backend/app/workers/tasks/measurement.py`
+- `backend/app/api/v1/endpoints/measurement.py`, `backend/app/schemas/measurement.py`
+- `frontend/src/api/measurement.ts`, `frontend/src/components/settings/GA4Integration.tsx`, `GTMIntegration.tsx`
+- Operator docs: `docs/integrations/README.md`, `SERVER_DEPLOYMENT_GUIDE.md` (Step 7)
+
+**Global env (the ONLY GA4_*/GTM_* variables; property IDs, service accounts and container IDs are per tenant in the DB)**
+```
+GA4_SYNC_ENABLED=true
+GA4_LOOKBACK_DAYS=3
+GA4_BACKFILL_DAYS=30
+GA4_REQUEST_TIMEOUT_SECONDS=30
+GA4_DEFAULT_CONVERSION_EVENT=purchase
+GTM_VERIFY_TIMEOUT_SECONDS=10
+GTM_DEFAULT_SERVER_CONTAINER_URL=
+```
+
 ## Do NOT
 - Skip trust gate checks for "quick fixes"
 - Hardcode thresholds (use config)
 - Execute automations without audit logging
 - Merge without passing CI
+- Treat GA4/GTM as ad channels (no Google Ads, Customer Match, gclid, write scopes, Google OAuth); never put ga4/gtm in AdPlatform/SyncPlatform/Platform enums or TenantPlatformConnection
 
 ## Git Workflow
 - Branch: `feature/STRAT-123-description`
@@ -219,6 +272,7 @@ Comparison Table:
 | Identity graph viz       | ✅ | ❌ | ❌ |
 | RFM analysis             | ✅ Built-in | ❌ | ❌ |
 | Trust-gated actions      | ✅ Unique | ❌ | ❌ |
+| Independent GA4 verification baseline | ✅ Read-only | ❌ | ❌ |
 | Predictive models (ROAS, LTV, churn, conversion, creative fatigue) | ✅ Built-in | ❌ | ❌ |
 | Manual CSV export        | ✅ | ✅ | ✅ |
 | Anomaly detection        | ✅ | ❌ | ✅ |

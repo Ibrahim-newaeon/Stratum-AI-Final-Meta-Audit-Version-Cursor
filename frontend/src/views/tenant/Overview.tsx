@@ -117,7 +117,7 @@ export default function TenantOverview() {
     {
       id: '1',
       title: 'Fix Meta pixel data loss',
-      description: 'Meta is reporting 15% lower conversions than web analytics. Verify pixel implementation.',
+      description: 'Meta is reporting 15% lower conversions than GA4. Verify pixel implementation.',
       priority: 'critical',
       owner: null,
       estimatedImpact: 8,
@@ -155,7 +155,7 @@ export default function TenantOverview() {
       id: '1',
       type: 'incident_opened',
       title: 'Meta conversion tracking degraded',
-      description: 'Conversion attribution showing 20% variance from web analytics',
+      description: 'Conversion attribution showing 20% variance from GA4',
       timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
       platform: 'Meta',
       severity: 'high',

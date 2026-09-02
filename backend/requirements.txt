@@ -88,3 +88,9 @@ objgraph>=3.6.0,<4.0.0
 # Utilities
 python-dotenv>=1.0.0,<2.0.0
 tenacity>=8.2.0,<10.0.0
+
+# Measurement & Verification (GA4 Data API, read-only)
+# Google Analytics 4 is used ONLY as an independent, read-only revenue/conversion
+# baseline (scope: analytics.readonly). It is not an ad platform integration.
+google-analytics-data>=0.18,<1.0
+google-auth>=2.29,<3.0

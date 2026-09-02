@@ -13,6 +13,7 @@ Feature Flags:
 - campaign_builder: Execution layer campaign builder
 - autopilot_level: Execution layer automation level (0-2)
 - superadmin_profitability: Platform owner profitability views
+- ga4_measurement: Google Analytics 4 read-only measurement baseline (all tiers)
 """
 
 from enum import Enum
@@ -56,6 +57,8 @@ DEFAULT_FEATURES_BY_PLAN: dict[str, dict[str, Any]] = {
         "max_campaigns": 5,
         "max_users": 2,
         "data_retention_days": 30,
+        # Measurement & Verification (all tiers; GA4 read-only baseline)
+        "ga4_measurement": True,
     },
     PlanTier.STARTER: {
         "signal_health": True,
@@ -69,6 +72,8 @@ DEFAULT_FEATURES_BY_PLAN: dict[str, dict[str, Any]] = {
         "max_campaigns": 20,
         "max_users": 5,
         "data_retention_days": 90,
+        # Measurement & Verification (all tiers; GA4 read-only baseline)
+        "ga4_measurement": True,
         # CDP Enhancements
         "rfm_analysis": True,
         "funnel_builder": False,
@@ -103,6 +108,8 @@ DEFAULT_FEATURES_BY_PLAN: dict[str, dict[str, Any]] = {
         "max_campaigns": 100,
         "max_users": 20,
         "data_retention_days": 365,
+        # Measurement & Verification (all tiers; GA4 read-only baseline)
+        "ga4_measurement": True,
         # CDP Enhancements
         "rfm_analysis": True,
         "funnel_builder": True,
@@ -137,6 +144,8 @@ DEFAULT_FEATURES_BY_PLAN: dict[str, dict[str, Any]] = {
         "max_campaigns": -1,  # Unlimited
         "max_users": -1,  # Unlimited
         "data_retention_days": -1,  # Unlimited
+        # Measurement & Verification (all tiers; GA4 read-only baseline)
+        "ga4_measurement": True,
         # CDP Enhancements
         "rfm_analysis": True,
         "funnel_builder": True,
@@ -172,6 +181,8 @@ DEFAULT_FEATURES_BY_PLAN: dict[str, dict[str, Any]] = {
         "max_campaigns": -1,
         "max_users": -1,
         "data_retention_days": -1,
+        # Measurement & Verification (all tiers; GA4 read-only baseline)
+        "ga4_measurement": True,
         # CDP Enhancements
         "rfm_analysis": True,
         "funnel_builder": True,
@@ -248,6 +259,12 @@ class FeatureFlags(BaseModel):
     crm_pipedrive: bool = Field(default=False, description="Pipedrive CRM integration")
     linkedin_leadgen: bool = Field(default=False, description="LinkedIn Lead Gen integration")
 
+    # Measurement & Verification (read-only GA4 baseline; not an ad platform)
+    ga4_measurement: bool = Field(
+        default=True,
+        description="Google Analytics 4 read-only measurement baseline (independent verification)",
+    )
+
     # Dashboard
     dashboard_export: bool = Field(default=False, description="Dashboard export functionality")
     dashboard_customization: bool = Field(default=False, description="Dashboard customization")
@@ -288,6 +305,8 @@ class FeatureFlagsUpdate(BaseModel):
     crm_salesforce: Optional[bool] = None
     crm_pipedrive: Optional[bool] = None
     linkedin_leadgen: Optional[bool] = None
+    # Measurement & Verification
+    ga4_measurement: Optional[bool] = None
     # Dashboard
     dashboard_export: Optional[bool] = None
     dashboard_customization: Optional[bool] = None
@@ -493,7 +512,13 @@ FEATURE_CATEGORIES = {
     "integrations": {
         "name": "Integrations",
         "description": "Third-party platform integrations",
-        "features": ["slack_notifications", "crm_salesforce", "crm_pipedrive", "linkedin_leadgen"],
+        "features": [
+            "slack_notifications",
+            "crm_salesforce",
+            "crm_pipedrive",
+            "linkedin_leadgen",
+            "ga4_measurement",
+        ],
     },
     "dashboard": {
         "name": "Dashboard & Reports",
@@ -515,7 +540,7 @@ FEATURE_CATEGORIES = {
 
 FEATURE_DESCRIPTIONS = {
     "signal_health": "Monitor data quality with EMQ scores and event loss tracking",
-    "attribution_variance": "Track differences between platform and web analytics attribution",
+    "attribution_variance": "Track differences between Meta-reported and GA4 (independent) attribution",
     "ai_recommendations": "Get AI-powered recommendations for campaign optimization",
     "anomaly_alerts": "Receive alerts when metrics show unusual patterns",
     "creative_fatigue": "Detect when creatives are losing effectiveness",
@@ -542,6 +567,8 @@ FEATURE_DESCRIPTIONS = {
     "crm_salesforce": "Salesforce CRM data sync and enrichment",
     "crm_pipedrive": "Pipedrive CRM data sync and enrichment",
     "linkedin_leadgen": "LinkedIn Lead Gen form integration",
+    # Measurement & Verification
+    "ga4_measurement": "Google Analytics 4 read-only measurement baseline (independent verification)",
     # Dashboard
     "dashboard_export": "Export dashboard data to CSV/JSON",
     "dashboard_customization": "Customize dashboard layout and widgets",

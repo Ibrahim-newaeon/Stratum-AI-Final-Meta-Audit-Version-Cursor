@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Webhook">
+  <!-- Brand-neutral hook/nodes mark, accent #8B5CF6 -->
+  <path d="M24 10 L13 29" fill="none" stroke="#8B5CF6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M24 10 L35 29" fill="none" stroke="#8B5CF6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M13 29 H35" fill="none" stroke="#8B5CF6" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="24" cy="10" r="6" fill="#8B5CF6"/>
+  <circle cx="11" cy="33" r="6" fill="#8B5CF6"/>
+  <circle cx="37" cy="33" r="6" fill="#8B5CF6"/>
+  <circle cx="24" cy="10" r="2.2" fill="#FFFFFF"/>
+  <circle cx="11" cy="33" r="2.2" fill="#FFFFFF"/>
+  <circle cx="37" cy="33" r="2.2" fill="#FFFFFF"/>
+</svg>

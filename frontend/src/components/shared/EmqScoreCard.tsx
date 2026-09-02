@@ -42,6 +42,12 @@ const driverIcons: Record<string, typeof ClockIcon> = {
   Errors: BugAntIcon,
 };
 
+// Hover/tooltip text per driver. Variance compares Meta-reported figures against the
+// read-only GA4 baseline (measurement only, not an ad channel).
+const driverTitles: Record<string, string> = {
+  Variance: 'Meta vs GA4 baseline variance',
+};
+
 function ScoreGauge({ score, size = 120 }: { score: number; size?: number }) {
   const band = getConfidenceBand(score);
   const strokeWidth = 8;
@@ -148,8 +154,9 @@ export function EmqScoreCard({
           <div className="flex-1 space-y-3">
             {drivers.map((driver) => {
               const Icon = driverIcons[driver.name] || ChartBarIcon;
+              const title = driverTitles[driver.name];
               return (
-                <div key={driver.name} className="flex items-center gap-3">
+                <div key={driver.name} className="flex items-center gap-3" title={title}>
                   <Icon
                     className={cn(
                       'w-4 h-4',
@@ -162,7 +169,9 @@ export function EmqScoreCard({
                   />
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-text-secondary">{driver.name}</span>
+                      <span className="text-sm text-text-secondary" title={title}>
+                        {driver.name}
+                      </span>
                       <span
                         className={cn(
                           'text-sm font-medium',

@@ -76,6 +76,8 @@ const docCategories = [
       { name: 'Facebook Ads', href: '/docs/integrations/facebook' },
       { name: 'Instagram Ads', href: '/docs/integrations/instagram' },
       { name: 'WhatsApp Business', href: '/docs/integrations/whatsapp' },
+      { name: 'Google Analytics 4 (Measurement, read-only)', href: '/docs/integrations/ga4' },
+      { name: 'Google Tag Manager (Tag Deployment)', href: '/docs/integrations/gtm' },
       { name: 'CRM Systems', href: '/docs/integrations/crm' },
     ],
   },

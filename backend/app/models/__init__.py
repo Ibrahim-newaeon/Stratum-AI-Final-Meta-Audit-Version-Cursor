@@ -134,6 +134,15 @@ from app.models.crm import (
     WritebackStatus,
 )
 
+# Measurement & Verification models (GA4 read-only baseline + GTM tag deployment)
+from app.models.measurement import (
+    FactGA4Daily,
+    MeasurementProvider,
+    MeasurementStatus,
+    TenantGA4Integration,
+    TenantGTMIntegration,
+)
+
 # Onboarding models
 from app.models.onboarding import (
     AutomationMode,
@@ -359,6 +368,12 @@ __all__ = [
     "ChangelogEntry",
     "ChangelogReadStatus",
     "SlackIntegration",
+    # Measurement & Verification (GA4 read-only + GTM tag deployment)
+    "MeasurementProvider",
+    "MeasurementStatus",
+    "TenantGA4Integration",
+    "TenantGTMIntegration",
+    "FactGA4Daily",
     # Client Entity (Agency model)
     "Client",
     "ClientAssignment",

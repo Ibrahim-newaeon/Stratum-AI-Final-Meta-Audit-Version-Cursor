@@ -3,7 +3,10 @@
 # =============================================================================
 """
 Celery task for daily attribution variance rollup.
-Compares platform-reported metrics with web analytics data to identify discrepancies.
+
+Compares Meta-reported conversions/revenue (campaign metrics) with the
+independent, read-only GA4 baseline stored in ``fact_ga4_daily`` to identify
+discrepancies per Meta channel (facebook / instagram / whatsapp).
 """
 
 import logging
@@ -11,11 +14,15 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from celery import shared_task
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import async_session_factory
-from app.models.trust_layer import AttributionVarianceStatus, FactAttributionVarianceDaily
+from app.core.config import settings
+from app.db.session import AsyncSessionLocal as async_session_factory
+from app.models.trust_layer import (
+    AttributionVarianceStatus,
+    FactAttributionVarianceDaily,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +31,31 @@ logger = logging.getLogger(__name__)
 # Configuration
 # =============================================================================
 
-# Variance thresholds for status determination
-VARIANCE_THRESHOLDS = {
+# Variance thresholds for status determination (percent).
+# Read from settings when ATTRIBUTION_VARIANCE_{HIGH,MODERATE,MINOR}_PCT are
+# defined on the Settings model; otherwise these module defaults apply.
+_DEFAULT_VARIANCE_THRESHOLDS = {
     "high": 30,  # >30% variance = high
     "moderate": 15,  # 15-30% = moderate
     "minor": 5,  # 5-15% = minor
     # <5% = healthy
 }
 
-PLATFORMS = ["meta"]
+
+def _load_variance_thresholds() -> dict[str, float]:
+    """Resolve variance thresholds from settings when available, else defaults."""
+    resolved: dict[str, float] = {}
+    for level, default in _DEFAULT_VARIANCE_THRESHOLDS.items():
+        value = getattr(settings, f"attribution_variance_{level}_pct", None)
+        resolved[level] = float(value) if value is not None else float(default)
+    return resolved
+
+
+VARIANCE_THRESHOLDS = _load_variance_thresholds()
+
+# Meta channels - matches fact_ga4_daily.meta_channel, the seeded
+# fact_attribution_variance_daily rows and the trust layer grouping.
+PLATFORMS = ["facebook", "instagram", "whatsapp"]
 
 
 # =============================================================================
@@ -160,17 +183,22 @@ def attribution_variance_rollup(
                 else:
                     from app.models.tenant import Tenant
 
-                    result = await db.execute(select(Tenant.id).where(Tenant.is_active == True))
+                    result = await db.execute(
+                        select(Tenant.id).where(Tenant.is_deleted.is_(False))
+                    )
                     tenant_ids = [row[0] for row in result.all()]
 
                 records_created = 0
 
                 for tid in tenant_ids:
                     for platform in PLATFORMS:
-                        # Fetch analytics and platform metrics
+                        # Fetch GA4 baseline and Meta-reported metrics
                         metrics = await fetch_attribution_metrics(db, tid, platform, rollup_date)
 
                         if not metrics:
+                            # No GA4 rows for this date/channel: skip the upsert
+                            # (never write ga4_revenue=0, which would drive the
+                            # EMQ attribution driver to zero).
                             continue
 
                         # Calculate deltas
@@ -269,49 +297,84 @@ async def fetch_attribution_metrics(
     target_date: date,
 ) -> Optional[dict[str, Any]]:
     """
-    Fetch attribution metrics from both web analytics and platform sources.
+    Fetch attribution metrics for one Meta channel on one date.
 
-    In production, this would:
-    1. Query fact_daily_metrics for platform-reported data
-    2. Query the analytics source (fact_ga4_sessions) for web analytics data
-    3. Match by UTM source/medium
+    GA4 side: SUM(conversions, revenue) from ``fact_ga4_daily`` rows classified
+    as Meta traffic for the channel (``is_meta_traffic`` and ``meta_channel``).
 
-    For now, returns placeholder data if connections exist.
+    Platform side: SUM(CampaignMetric.conversions, revenue_cents / 100) joined
+    to Campaign for the same date and channel (``raw_data->>'channel'``, the
+    column the demo seed uses).
+
+    Returns ``None`` when GA4 has no rows for the date/channel so the caller
+    skips the upsert instead of writing a zero baseline.
     """
-    # Check if tenant has this platform connected
-    from app.models.campaign_builder import TenantPlatformConnection
+    from app.base_models import AdPlatform, Campaign, CampaignMetric
+    from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
+    from app.models.measurement import FactGA4Daily
 
-    result = await db.execute(
-        select(TenantPlatformConnection).where(
+    # Informational only: note whether the Meta platform connection is live.
+    # Not a hard gate - the GA4 baseline is what decides whether we roll up.
+    conn_result = await db.execute(
+        select(TenantPlatformConnection.status).where(
             and_(
                 TenantPlatformConnection.tenant_id == tenant_id,
-                TenantPlatformConnection.platform == platform,
-                TenantPlatformConnection.is_connected == True,
+                TenantPlatformConnection.platform == AdPlatform.META.value,
             )
         )
     )
-    connection = result.scalar_one_or_none()
+    connection_status = conn_result.scalar_one_or_none()
+    if connection_status != ConnectionStatus.CONNECTED.value:
+        logger.debug(
+            "Meta platform connection not connected (status=%s) for tenant %s - "
+            "rolling up %s from stored metrics anyway",
+            connection_status,
+            tenant_id,
+            platform,
+        )
 
-    if not connection:
+    # GA4 (independent, read-only baseline)
+    ga4_result = await db.execute(
+        select(
+            func.count(FactGA4Daily.id),
+            func.coalesce(func.sum(FactGA4Daily.conversions), 0),
+            func.coalesce(func.sum(FactGA4Daily.revenue), 0.0),
+        ).where(
+            and_(
+                FactGA4Daily.tenant_id == tenant_id,
+                FactGA4Daily.date == target_date,
+                FactGA4Daily.is_meta_traffic.is_(True),
+                FactGA4Daily.meta_channel == platform,
+            )
+        )
+    )
+    ga4_row_count, ga4_conversions, ga4_revenue = ga4_result.one()
+    if not ga4_row_count:
         return None
 
-    # In production, query actual data from fact tables
-    # For now, return simulated metrics
-    # Platform typically over-reports by 10-30% due to view-through attribution
-
-    import random
-
-    base_revenue = random.uniform(5000, 50000)  # noqa: S311 - simulated metrics
-    base_conversions = random.randint(50, 500)  # noqa: S311
-
-    # Simulate typical variance (platform usually higher)
-    variance_factor = random.uniform(1.05, 1.35)  # noqa: S311
+    # Meta-reported (campaign metrics for the same channel)
+    platform_result = await db.execute(
+        select(
+            func.coalesce(func.sum(CampaignMetric.conversions), 0),
+            func.coalesce(func.sum(CampaignMetric.revenue_cents), 0),
+        )
+        .join(Campaign, Campaign.id == CampaignMetric.campaign_id)
+        .where(
+            and_(
+                CampaignMetric.tenant_id == tenant_id,
+                CampaignMetric.date == target_date,
+                Campaign.tenant_id == tenant_id,
+                Campaign.raw_data["channel"].astext == platform,
+            )
+        )
+    )
+    platform_conversions, platform_revenue_cents = platform_result.one()
 
     return {
-        "ga4_revenue": base_revenue,
-        "platform_revenue": base_revenue * variance_factor,
-        "ga4_conversions": base_conversions,
-        "platform_conversions": int(base_conversions * variance_factor),
+        "ga4_revenue": float(ga4_revenue or 0.0),
+        "platform_revenue": float(platform_revenue_cents or 0) / 100.0,
+        "ga4_conversions": int(ga4_conversions or 0),
+        "platform_conversions": int(platform_conversions or 0),
     }
 
 

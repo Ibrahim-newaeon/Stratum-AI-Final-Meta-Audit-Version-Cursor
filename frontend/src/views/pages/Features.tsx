@@ -10,6 +10,7 @@ import {
   BoltIcon,
   ChartBarIcon,
   ChartPieIcon,
+  CheckBadgeIcon,
   CloudArrowUpIcon,
   CpuChipIcon,
   CubeTransparentIcon,
@@ -32,8 +33,15 @@ const features = [
     icon: SignalIcon,
     title: 'Signal Health Monitoring',
     description:
-      'Real-time monitoring of data quality across all connected platforms with instant anomaly detection.',
+      'Real-time monitoring of data quality across all connected platforms with instant anomaly detection, verified against GA4.',
     color: '#06b6d4',
+  },
+  {
+    icon: CheckBadgeIcon,
+    title: 'Independent Verification',
+    description:
+      'Every Meta-reported number is verified against a read-only Google Analytics 4 baseline; GTM deploys Meta Pixel/CAPI and the Stratum snippet.',
+    color: '#E37400',
   },
   {
     icon: UserGroupIcon,

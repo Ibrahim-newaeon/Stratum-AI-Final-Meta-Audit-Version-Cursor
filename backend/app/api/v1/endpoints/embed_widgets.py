@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.feature_gate import get_current_tier
 from app.core.tiers import Feature, SubscriptionTier, get_tier_limit, has_feature
-from app.db.session import get_db
+from app.db.session import get_sync_session
 from app.models.embed_widgets import (
     BrandingLevel,
     EmbedToken,
@@ -57,11 +57,11 @@ router = APIRouter(prefix="/embed-widgets", tags=["embed-widgets"])
 # =============================================================================
 
 
-def get_widget_service(db: Session = Depends(get_db)) -> EmbedWidgetService:
+def get_widget_service(db: Session = Depends(get_sync_session)) -> EmbedWidgetService:
     return EmbedWidgetService(db)
 
 
-def get_token_service(db: Session = Depends(get_db)) -> EmbedTokenService:
+def get_token_service(db: Session = Depends(get_sync_session)) -> EmbedTokenService:
     return EmbedTokenService(db)
 
 
@@ -201,7 +201,7 @@ async def create_token(
 async def list_tokens(
     widget_id: UUID,
     tenant_id: int = Depends(get_tenant_id),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_sync_session),
 ):
     """List all tokens for a widget (without actual token values)."""
     tokens = (
@@ -307,7 +307,7 @@ async def get_embed_code(
     token_id: UUID = Query(..., description="Token ID to use for the embed"),
     tenant_id: int = Depends(get_tenant_id),
     service: EmbedWidgetService = Depends(get_widget_service),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_sync_session),
 ):
     """
     Generate embed code snippets for a widget.
@@ -399,7 +399,7 @@ async def get_widget_data(
     widget_id: UUID,
     token: str = Query(..., description="Embed token"),
     request: Request = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_sync_session),
 ):
     """
     Public endpoint to fetch widget data for embedding.
