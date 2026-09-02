@@ -103,7 +103,14 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
     def _is_public_endpoint(self, path: str) -> bool:
         """Check if the endpoint is public."""
-        return path in PUBLIC_ENDPOINTS or path.startswith("/docs") or path.startswith("/redoc")
+        return (
+            path in PUBLIC_ENDPOINTS
+            or path.startswith("/docs")
+            or path.startswith("/redoc")
+            # Onboarding assistant works for visitors and signed-in users alike
+            # (the endpoints take an optional user and never require tenant context)
+            or path.startswith("/api/v1/onboarding-agent/")
+        )
 
     async def _extract_tenant_id(self, request: Request) -> Optional[int]:
         """

@@ -41,6 +41,13 @@ interface OnboardingChatProps {
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
+// The app authenticates with a bearer token (not cookies); send it when present so
+// signed-in users get a personalised session, while visitors still work anonymously.
+const authHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem('access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 export default function OnboardingChat({
   isOpen,
   onClose,
@@ -86,6 +93,7 @@ export default function OnboardingChat({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders(),
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -142,6 +150,7 @@ export default function OnboardingChat({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders(),
         },
         credentials: 'include',
         body: JSON.stringify({
