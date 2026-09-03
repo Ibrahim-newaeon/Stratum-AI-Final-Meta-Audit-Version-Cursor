@@ -1,0 +1,19 @@
+# Build context for the repo-root worker Dockerfile: only backend/ is needed.
+.git
+.github
+docs
+frontend
+nginx
+editions
+scripts
+site
+*.md
+docker-compose*.yml
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
+backend/.mypy_cache
+backend/.ruff_cache
+backend/htmlcov
+backend/.local_pgdata
