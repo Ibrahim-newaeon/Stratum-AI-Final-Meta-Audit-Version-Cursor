@@ -858,3 +858,36 @@ docker compose logs api --tail=200
 ---
 
 *Last updated: February 2026*
+
+---
+
+## 7. Railway (managed) deployment
+
+The reference cloud setup runs on Railway project `stratum-ai-meta`, deployed automatically from GitHub (`main`).
+
+### Services
+
+| Service | Source | Notes |
+|---|---|---|
+| `api` | repo, root directory `backend`, `backend/Dockerfile` | Entrypoint `docker-entrypoint.sh` (`SERVICE_ROLE=api`): runs `scripts_db_prepare.py`, optional demo seeding, then `serve.py` (dual-stack socket: IPv4 for the public proxy, IPv6 for the private network). Healthcheck `/health`, timeout 300 s. |
+| `worker` | repo, root directory = repository root, root `Dockerfile` | Same image with `SERVICE_ROLE=worker`: Celery worker with the embedded beat scheduler. Run exactly one replica with beat; scale with `CELERY_CONCURRENCY`. Variables reference the api's (`${{api.DATABASE_URL}}` …). |
+| `frontend` | repo, root directory `frontend`, `frontend/Dockerfile` | nginx on 8080 serving the SPA and proxying `/api`, `/ws` to `${API_UPSTREAM}` (`api.railway.internal:8000`), re-resolved per request. |
+| `Postgres`, `Redis` | Railway plugins | One instance per environment. |
+
+### Environments
+
+- `staging` — every merge to `main` deploys here first. `APP_ENV=staging`, `SEED_DEMO=true` (demo tenant + data, login `demo@stratum.ai`), sandbox Paddle.
+- `production` — `APP_ENV=production` (strict settings validation), `SEED_DEMO=false`, `PADDLE_ENVIRONMENT=production`, real Meta/Paddle/GA4 credentials, custom domains in `FRONTEND_URL` / `CORS_ORIGINS`.
+
+### Database lifecycle
+
+- Schema is managed by Alembic. `0001_baseline` creates everything from the models; later revisions are normal diffs (`alembic revision --autogenerate`).
+- `scripts_db_prepare.py` (run by the entrypoint on every boot) stamps databases that were created from the models before the baseline existed, then upgrades to head. It is idempotent.
+- To wipe a seeded database once (e.g. turning the staging copy into production): set `DB_RESET_CONFIRM=RESET-<database name>` on the `api` service, redeploy, verify, then **remove the variable**.
+
+### Gotchas (learned the hard way)
+
+- Healthcheck **path** and **timeout** are separate fields (`/health` and `300`); a combined value probes a non-existent route and the deploy never becomes healthy.
+- `railway up` (CLI upload) needs `--no-gitignore` or it silently drops `backend/app/models`; repo-connected builds do not have this problem.
+- The CLI cannot change a service's root directory or Dockerfile path (`railway environment edit` reports "No changes to apply"); set those in the dashboard.
+- Python's asyncio marks `::` listeners IPv6-only; bind through `serve.py`, never `uvicorn --host ::` or `0.0.0.0` alone.
