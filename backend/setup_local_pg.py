@@ -6,7 +6,7 @@ from pathlib import Path
 
 import psycopg2
 
-SOCKET_DIR = str(Path.home() / "Library/Caches/TemporaryItems/python_PostgresServer/9b62f52beb")
+SOCKET_DIR = str(sorted((Path.home() / "Library/Caches/TemporaryItems/python_PostgresServer").glob("*"), key=lambda p: p.stat().st_mtime)[-1])
 PGDATA = "/private/tmp/claude-501/-Users-ibrahimabedrabboh-Desktop-Final-Updates-Dec-2025-copy/35a0e022-79ba-406c-b86d-812829334cc7/scratchpad/pgdata"
 PG_CTL = str(Path(__file__).parent / ".venv/lib/python3.12/site-packages/pgserver/pginstall/bin/pg_ctl")
 

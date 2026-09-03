@@ -1,7 +1,10 @@
-"""Run an embedded Postgres (pgserver) on 127.0.0.1:5432 for local development.
+"""Run the embedded Postgres (pgserver) for local development and keep it alive.
 
-Creates role `stratum` and database `stratum_ai` to match the app defaults.
-Keeps running until killed.
+The data directory lives in a space-free path (the project path breaks pg_ctl
+arguments). TCP on 127.0.0.1:5432 and the `stratum` role/database are configured
+once by setup_local_pg.py (persisted in postgresql.auto.conf), so this script only
+starts the server; it never calls pgserver's psql helper, which cannot handle the
+venv path.
 """
 
 import signal
@@ -17,26 +20,11 @@ DATA_DIR = Path(
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 server = pgserver.get_server(DATA_DIR, cleanup_mode=None)
-# Listen on TCP 5432 (pgserver defaults to a unix socket).
-server.psql("ALTER SYSTEM SET listen_addresses TO '127.0.0.1';")
-server.psql("ALTER SYSTEM SET port TO 5432;")
-
-# Create app role/db if missing (idempotent).
-out = server.psql("SELECT 1 FROM pg_roles WHERE rolname='stratum';")
-if "1" not in out:
-    server.psql("CREATE ROLE stratum LOGIN SUPERUSER PASSWORD 'stratum_secure_password_2024';")
-out = server.psql("SELECT 1 FROM pg_database WHERE datname='stratum_ai';")
-if "1" not in out:
-    server.psql("CREATE DATABASE stratum_ai OWNER stratum;")
-
-# Restart so listen_addresses/port take effect.
-server.cleanup()
-server = pgserver.get_server(DATA_DIR, cleanup_mode=None)
-print(f"postgres running, uri={server.get_uri()}", flush=True)
+print(f"postgres running: {server.get_uri()}", flush=True)
 print("tcp: postgresql://stratum:stratum_secure_password_2024@127.0.0.1:5432/stratum_ai", flush=True)
 
 
-def _stop(*_args):
+def _stop(*_args) -> None:
     server.cleanup()
     sys.exit(0)
 
