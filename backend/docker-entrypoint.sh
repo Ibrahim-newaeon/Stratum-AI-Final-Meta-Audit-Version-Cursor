@@ -26,7 +26,10 @@ case "$ROLE" in
     exec python serve.py
     ;;
   worker)
+    # Beat persists its schedule with shelve; /app is not writable by appuser,
+    # so keep the file in /tmp (it is rebuilt from beat_schedule on start).
     exec celery -A app.workers.celery_app worker --beat \
+      --schedule /tmp/celerybeat-schedule \
       --loglevel "${CELERY_LOG_LEVEL:-info}" \
       --concurrency "${CELERY_CONCURRENCY:-2}"
     ;;
