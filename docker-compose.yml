@@ -150,7 +150,10 @@ services:
       start_period: 60s
     networks:
       - stratum_network
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    # -Q must list every queue in celery_app.TASK_ROUTES/BEAT_SCHEDULE
+    # (app.workers.celery_app.CELERY_QUEUES); without it the worker drains
+    # only Celery's built-in "celery" queue and nothing scheduled runs.
+    command: celery -A app.workers.celery_app worker -Q cdp,celery,default,intel,ml,rules,sync --loglevel=info --concurrency=4
 
   # ===========================================================================
   # Celery Beat (Scheduler)

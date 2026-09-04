@@ -26,10 +26,41 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-def require_admin(request: Request) -> int:
-    """Verify user has admin role."""
+def _authorize_tenant_action(
+    request: Request,
+    target_tenant_id: int | None,
+    allowed_roles: tuple[str, ...] | None,
+    forbidden_detail: str,
+) -> int:
+    """
+    Authorize the caller for an action on a specific tenant.
+
+    Role semantics come from ``app.base_models.UserRole``: SUPERADMIN is the
+    cross-tenant platform role, ADMIN is scoped to a single tenant. Because
+    ``auth.signup`` makes the first user of every signup an ADMIN, a role check
+    alone is not authorization - the target tenant must be compared with the
+    caller's own tenant, otherwise any customer could administer any other
+    customer (read their tenant, change their plan, flip their feature flags).
+
+    Args:
+        request: Incoming request (identity set by TenantMiddleware from a
+            signature-verified access token)
+        target_tenant_id: Tenant the action is aimed at, or None for actions
+            that are not scoped to an existing tenant
+        allowed_roles: Roles permitted to perform the action besides SUPERADMIN,
+            or None when every authenticated member of the tenant may perform it
+        forbidden_detail: Message for the 403 raised on a role mismatch
+
+    Returns:
+        The authenticated caller's user id
+
+    Raises:
+        HTTPException: 401 when unauthenticated, 403 on a role mismatch or when
+            a tenant-scoped caller targets another tenant
+    """
     user_role = getattr(request.state, "role", None)
     user_id = getattr(request.state, "user_id", None)
+    caller_tenant_id = getattr(request.state, "tenant_id", None)
 
     if not user_id:
         raise HTTPException(
@@ -37,13 +68,112 @@ def require_admin(request: Request) -> int:
             detail="Not authenticated",
         )
 
-    if user_role != UserRole.ADMIN.value:
+    # Platform role: may operate on any tenant, with or without tenant context.
+    if user_role == UserRole.SUPERADMIN.value:
+        return user_id
+
+    if allowed_roles is not None and user_role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail=forbidden_detail,
+        )
+
+    # Tenant-scoped roles may only ever act on their own tenant.
+    if target_tenant_id is not None and target_tenant_id != caller_tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
 
     return user_id
+
+
+def require_admin(request: Request, target_tenant_id: int | None = None) -> int:
+    """
+    Verify the caller may administer ``target_tenant_id``.
+
+    A SUPERADMIN may administer any tenant; an ADMIN only their own. Passing no
+    target authorizes an action that is not scoped to an existing tenant.
+
+    Args:
+        request: Incoming request
+        target_tenant_id: Tenant the action is aimed at, if any
+
+    Returns:
+        The authenticated caller's user id
+
+    Raises:
+        HTTPException: 401 when unauthenticated, 403 when the caller is not an
+            admin or is an admin of a different tenant
+    """
+    return _authorize_tenant_action(
+        request,
+        target_tenant_id,
+        allowed_roles=(UserRole.ADMIN.value,),
+        forbidden_detail="Admin access required",
+    )
+
+
+def require_platform_admin(request: Request, target_tenant_id: int | None = None) -> int:
+    """
+    Verify the caller holds the cross-tenant platform role (SUPERADMIN).
+
+    Used for the entitlement-bearing writes. A tenant ADMIN owns their tenant's
+    data but must not be able to grant themselves an entitlement: the plan (and
+    the feature flags derived from it) are reconciled from the Paddle Billing
+    webhook, so a customer-callable write next to it would make the paid tier
+    optional - PATCH /tenants/{own_id}/plan?plan=enterprise was a free upgrade
+    to max_users 100 / max_campaigns 1000. Creating tenants is likewise a
+    platform action; self-service organisations are created by POST
+    /auth/signup.
+
+    Args:
+        request: Incoming request
+        target_tenant_id: Tenant the action is aimed at, if any
+
+    Returns:
+        The authenticated caller's user id
+
+    Raises:
+        HTTPException: 401 when unauthenticated, 403 for every non-platform role
+
+    Note:
+        ``allowed_roles=()`` is what makes this superadmin-only:
+        ``_authorize_tenant_action`` returns early for SUPERADMIN and no other
+        role can be in an empty tuple.
+    """
+    return _authorize_tenant_action(
+        request,
+        target_tenant_id,
+        allowed_roles=(),
+        forbidden_detail="Platform admin access required",
+    )
+
+
+def require_tenant_access(request: Request, target_tenant_id: int) -> int:
+    """
+    Verify the caller may read ``target_tenant_id``.
+
+    Any authenticated member may read their own tenant; only a SUPERADMIN may
+    read another one.
+
+    Args:
+        request: Incoming request
+        target_tenant_id: Tenant being read
+
+    Returns:
+        The authenticated caller's user id
+
+    Raises:
+        HTTPException: 401 when unauthenticated, 403 when the tenant is not the
+            caller's own
+    """
+    return _authorize_tenant_action(
+        request,
+        target_tenant_id,
+        allowed_roles=None,
+        forbidden_detail="Access denied",
+    )
 
 
 @router.get("", response_model=APIResponse[list[TenantResponse]])
@@ -55,16 +185,19 @@ async def list_tenants(
     search: Optional[str] = Query(None, max_length=100),
 ):
     """
-    List all tenants.
-    Requires admin role for full list, otherwise returns only user's tenant.
+    List tenants.
+
+    Only the platform role (SUPERADMIN) sees every tenant; every tenant-scoped
+    role - ADMIN included - sees just its own tenant.
     """
     user_role = getattr(request.state, "role", None)
     tenant_id = getattr(request.state, "tenant_id", None)
 
     query = select(Tenant).where(Tenant.is_deleted == False)
 
-    # Non-admin users can only see their own tenant
-    if user_role != UserRole.ADMIN.value:
+    # Cross-tenant listing is a platform action: a tenant ADMIN is an admin of
+    # their own tenant only and must never enumerate other customers.
+    if user_role != UserRole.SUPERADMIN.value:
         query = query.where(Tenant.id == tenant_id)
 
     # Search filter
@@ -148,15 +281,8 @@ async def get_tenant(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get a specific tenant by ID."""
-    user_role = getattr(request.state, "role", None)
-    user_tenant_id = getattr(request.state, "tenant_id", None)
-
-    # Non-admin can only view their own tenant
-    if user_role != UserRole.ADMIN.value and tenant_id != user_tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Own tenant for any member, any tenant for the platform role.
+    require_tenant_access(request, tenant_id)
 
     result = await db.execute(
         select(Tenant).where(Tenant.id == tenant_id, Tenant.is_deleted == False)
@@ -196,9 +322,13 @@ async def create_tenant(
 ):
     """
     Create a new tenant.
-    Requires admin role.
+
+    Platform action: only the SUPERADMIN role may create tenants. A customer
+    ADMIN creating tenants at will (with the plan taken from the request body,
+    enterprise limits included) is the same billing bypass as the plan write
+    below. Self-service organisation creation is POST /auth/signup.
     """
-    require_admin(request)
+    require_platform_admin(request)
 
     # Check for duplicate slug
     result = await db.execute(select(Tenant).where(Tenant.slug == tenant_data.slug))
@@ -266,25 +396,17 @@ async def update_tenant(
     db: AsyncSession = Depends(get_async_session),
 ):
     """
-    Update a tenant.
-    Admin can update any tenant, managers can update their own tenant.
+    Update a tenant (name, domain, settings, ...).
+
+    Admins and managers may update their own tenant; only the platform role
+    (SUPERADMIN) may update another tenant.
     """
-    user_role = getattr(request.state, "role", None)
-    user_tenant_id = getattr(request.state, "tenant_id", None)
-
-    # Check permissions
-    if user_role not in [UserRole.ADMIN.value, UserRole.MANAGER.value]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin or manager access required",
-        )
-
-    # Non-admin can only update their own tenant
-    if user_role != UserRole.ADMIN.value and tenant_id != user_tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    _authorize_tenant_action(
+        request,
+        tenant_id,
+        allowed_roles=(UserRole.ADMIN.value, UserRole.MANAGER.value),
+        forbidden_detail="Admin or manager access required",
+    )
 
     result = await db.execute(
         select(Tenant).where(Tenant.id == tenant_id, Tenant.is_deleted == False)
@@ -337,9 +459,12 @@ async def delete_tenant(
 ):
     """
     Soft delete a tenant.
-    Requires admin role.
+
+    Requires admin rights on the target tenant, so in practice only the platform
+    role (SUPERADMIN) can delete: a tenant ADMIN is limited to their own tenant
+    and deleting your own tenant is refused below.
     """
-    require_admin(request)
+    require_admin(request, tenant_id)
 
     user_tenant_id = getattr(request.state, "tenant_id", None)
 
@@ -382,15 +507,8 @@ async def get_tenant_users(
     """
     Get users count and list for a tenant.
     """
-    user_role = getattr(request.state, "role", None)
-    user_tenant_id = getattr(request.state, "tenant_id", None)
-
-    # Non-admin can only view their own tenant
-    if user_role != UserRole.ADMIN.value and tenant_id != user_tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Own tenant for any member, any tenant for the platform role.
+    require_tenant_access(request, tenant_id)
 
     # Get tenant
     result = await db.execute(
@@ -430,9 +548,14 @@ async def update_tenant_plan(
 ):
     """
     Update tenant subscription plan.
-    Requires admin role.
+
+    Platform role only. The plan is an entitlement: it is owned by Paddle
+    Billing and reconciled by the paddle webhook, so a tenant ADMIN - which is
+    what the first user of every signup is - must not be able to PATCH their
+    own tenant to enterprise and pick up max_users 100 / max_campaigns 1000 for
+    free. Support and billing corrections go through a SUPERADMIN.
     """
-    require_admin(request)
+    require_platform_admin(request, tenant_id)
 
     result = await db.execute(
         select(Tenant).where(Tenant.id == tenant_id, Tenant.is_deleted == False)
@@ -492,9 +615,12 @@ async def update_tenant_features(
 ):
     """
     Update tenant feature flags.
-    Requires admin role.
+
+    Platform role only, for the same reason as the plan write: feature flags
+    are the other plan-gated surface, so letting a tenant ADMIN flip their own
+    would hand back whatever the plan check withholds.
     """
-    require_admin(request)
+    require_platform_admin(request, tenant_id)
 
     result = await db.execute(
         select(Tenant).where(Tenant.id == tenant_id, Tenant.is_deleted == False)

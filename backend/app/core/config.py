@@ -11,15 +11,65 @@ SECURITY NOTE:
 - Use strong, randomly generated keys (32+ bytes) for encryption/signing
 """
 
+import os
 import warnings
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PADDLE_SANDBOX_API_BASE_URL = "https://sandbox-api.paddle.com"
 PADDLE_PRODUCTION_API_BASE_URL = "https://api.paddle.com"
+
+# Opt-in escape hatch for the development conveniences below (fallback signing
+# keys, the default tenant in TenantMiddleware). It exists so a container that
+# deliberately runs without APP_ENV can still be told "yes, this is a dev box";
+# it must never be set on a deployed environment.
+DEV_DEFAULTS_OVERRIDE_ENV = "STRATUM_ALLOW_DEV_DEFAULTS"
+
+
+def explicit_app_env() -> str | None:
+    """
+    Read the environment name the operator actually configured.
+
+    Looks at the process environment first and then at the ``.env`` file that
+    ``Settings`` itself loads, so a local checkout configured only through
+    ``.env`` still counts as explicit. Returns None when nothing set it - which
+    is different from ``Settings.app_env``, whose default silently reads
+    "development".
+
+    Returns:
+        The lower-cased configured value, or None when APP_ENV is not set
+    """
+    raw = os.getenv("APP_ENV")
+    if not raw:
+        try:
+            from dotenv import dotenv_values
+
+            raw = dotenv_values(".env").get("APP_ENV")
+        except (ImportError, OSError):  # pragma: no cover - dotenv is optional
+            raw = None
+    return raw.strip().lower() if raw else None
+
+
+def dev_defaults_allowed() -> bool:
+    """
+    Report whether development conveniences may be used in this process.
+
+    They are allowed only when ``APP_ENV`` is *explicitly* ``development`` or
+    the operator opted in with ``STRATUM_ALLOW_DEV_DEFAULTS=1``. An unset or
+    misspelled ``APP_ENV`` must never enable them: the Settings default would
+    otherwise make an unconfigured container look like a development box and
+    silently adopt the published fallback signing keys, which would let anyone
+    forge an access token.
+
+    Returns:
+        True when development fallbacks are permitted, False otherwise
+    """
+    if os.getenv(DEV_DEFAULTS_OVERRIDE_ENV, "").strip() == "1":
+        return True
+    return explicit_app_env() == "development"
 
 
 class Settings(BaseSettings):
@@ -90,10 +140,92 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: Optional[str] = Field(default=None, description="MLflow tracking server URI")
 
     # -------------------------------------------------------------------------
+    # Trust Engine (signal health -> trust gate)
+    # -------------------------------------------------------------------------
+    # The single source of truth for the thresholds documented in
+    # docs/architecture/trust-engine.md. Call sites read them from here and
+    # never hardcode 70/40: signal health >= healthy is PASS (autopilot
+    # executes), healthy > score >= degraded is HOLD (alert only) and anything
+    # lower is BLOCK (manual review). SignalHealthConfig and the trust gate in
+    # app/tasks/apply_actions_queue.py both read these values.
+    signal_health_healthy_threshold: float = Field(
+        default=70.0,
+        ge=0.0,
+        le=100.0,
+        description="Signal health at or above which the trust gate PASSes (autopilot executes)",
+    )
+    signal_health_degraded_threshold: float = Field(
+        default=40.0,
+        ge=0.0,
+        le=100.0,
+        description="Signal health at or above which the trust gate HOLDs; below it BLOCKs",
+    )
+    signal_health_fresh_minutes: float = Field(
+        default=60.0, gt=0.0, description="Data age scoring full marks for the freshness component"
+    )
+    signal_health_stale_minutes: float = Field(
+        default=24 * 60.0, gt=0.0, description="Data age scoring zero for the freshness component"
+    )
+    # A signal health row may have NULL metric columns. Scoring renormalises
+    # the weights over the columns that are populated, so without a floor a row
+    # carrying one trivially-perfect component (api_error_rate=0 is 15% of the
+    # weight) would score 100 and PASS - "absence of data is health" again, one
+    # level down. Require at least this much of the total weight before a score
+    # is trusted; below it the gate treats the row as unscorable and BLOCKs.
+    signal_health_min_component_weight: float = Field(
+        default=0.5,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Fraction of the component weight that must be populated before a "
+            "signal health row can be scored (below it the trust gate BLOCKs)"
+        ),
+    )
+    # Freshness of the signal health snapshot itself. The rollup writes rows
+    # dated for the previous day (02:00 UTC), so yesterday's row is the newest
+    # one that can exist and 1 is the smallest workable value.
+    trust_gate_max_health_age_days: int = Field(
+        default=1,
+        ge=0,
+        description="How many days old a fact_signal_health_daily row may be and still count",
+    )
+    # The per-minute dispatchers (scheduled WhatsApp sends, scheduled CMS
+    # publishes) select everything whose scheduled_at has passed, with no lower
+    # bound. The worker consumed no queues until now, so whatever was scheduled
+    # since deployment is still pending: without a cut-off the first worker
+    # start would flush the entire backlog at once, sending months-old messages
+    # and publishing stale posts. Anything older than this is left alone for an
+    # operator to review rather than fired blind.
+    scheduled_dispatch_max_age_hours: int = Field(
+        default=24,
+        ge=1,
+        description=(
+            "How overdue a scheduled WhatsApp message or CMS post may be and "
+            "still be dispatched automatically"
+        ),
+    )
+    trust_gate_stale_health_decision: Literal["hold", "block"] = Field(
+        default="hold",
+        description=(
+            "Gate decision when the newest signal health row is older than "
+            "trust_gate_max_health_age_days. Never 'pass' - a stale row is not health."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
     # Ad Platform Configuration
     # -------------------------------------------------------------------------
+    # Fabricated ad metrics. When true, the sync tasks write
+    # MockAdNetwork.generate_time_series() output into CampaignMetric instead
+    # of calling a platform API - useful locally, catastrophic for a real
+    # tenant, who would see invented spend/revenue as if it were their own.
+    # Default off; validate_security_settings() refuses it in production.
     use_mock_ad_data: bool = Field(
-        default=True, description="Use mock data instead of real ad platform APIs"
+        default=False,
+        description=(
+            "Write mock ad metrics instead of real platform data. "
+            "Development only - rejected when APP_ENV=production."
+        ),
     )
 
     # OAuth callback base URL (for constructing redirect URIs)
@@ -105,7 +237,85 @@ class Settings(BaseSettings):
     meta_app_id: Optional[str] = Field(default=None, description="Meta/Facebook App ID")
     meta_app_secret: Optional[str] = Field(default=None, description="Meta/Facebook App Secret")
     meta_access_token: Optional[str] = Field(default=None)
-    meta_api_version: str = Field(default="v19.0", description="Meta Graph API version")
+    # DEPRECATED override kept so an existing META_API_VERSION env var is not
+    # silently ignored. Leave it unset: the OAuth flow then follows
+    # meta_graph_api_version like every other Meta caller. Its old default
+    # (v19.0) expired on 2026-05-21.
+    meta_api_version: Optional[str] = Field(
+        default=None,
+        description=(
+            "DEPRECATED per-flow override for the Meta OAuth Graph version. "
+            "Unset means 'use META_GRAPH_API_VERSION'."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Meta Marketing API insights ingestion (READ-ONLY)
+    # -------------------------------------------------------------------------
+    # The nightly/hourly campaign sync pulls Ads Insights rows and writes them
+    # into CampaignMetric. Only GET requests are ever issued; the scope needed
+    # is ads_read. Per-tenant credentials live in tenant_platform_connection /
+    # tenant_ad_account - only these global knobs come from the environment.
+    meta_graph_api_version: str = Field(
+        default="v23.0",
+        description=(
+            "Graph API version for every Meta caller: the read-only insights "
+            "client, the Conversions API connector, the WhatsApp Cloud API "
+            "connector, offline conversions, CDP audience sync and the OAuth "
+            "flow (via meta_oauth_api_version). v23.0 is supported until "
+            "2027-10-08; v26.0 is the current stable release."
+        ),
+    )
+    meta_insights_lookback_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description=(
+            "Days re-pulled on every campaign sync. Meta restates conversions "
+            "for days after the fact, so the window is re-fetched and upserted."
+        ),
+    )
+    meta_insights_request_timeout_seconds: float = Field(
+        default=30.0, gt=0, description="Per-request timeout for the Ads Insights API"
+    )
+    meta_insights_max_pages: int = Field(
+        default=25,
+        ge=1,
+        description="Upper bound on insights pages followed (guards a runaway cursor loop)",
+    )
+    meta_conversion_action_types: str = Field(
+        default="offsite_conversion.fb_pixel_purchase,omni_purchase,purchase",
+        description=(
+            "Comma-separated Meta action_type values counted as conversions and "
+            "revenue. The first type present in a row wins, so order matters: "
+            "the web-pixel purchase is preferred, then Meta's grouped "
+            "'omni_purchase' (which also covers app, on-Facebook and offline "
+            "purchases), then a bare 'purchase' as a belt-and-braces fallback. "
+            "A tenant whose purchases are app-only or on-Facebook must have a "
+            "type here that its account actually reports, or conversions and "
+            "revenue are recorded as zero."
+        ),
+    )
+
+    @property
+    def meta_oauth_api_version(self) -> str:
+        """
+        Graph API version for the Meta OAuth flow.
+
+        Follows ``meta_graph_api_version`` unless the deprecated
+        ``META_API_VERSION`` override is set, so one knob moves every Meta
+        caller.
+        """
+        return self.meta_api_version or self.meta_graph_api_version
+
+    @property
+    def meta_conversion_action_types_list(self) -> list[str]:
+        """Get the configured Meta conversion action types as an ordered list."""
+        return [
+            action_type.strip()
+            for action_type in self.meta_conversion_action_types.split(",")
+            if action_type.strip()
+        ]
 
     # -------------------------------------------------------------------------
     # Measurement & Verification (GA4 read-only + GTM tag deployment)
@@ -342,6 +552,23 @@ class Settings(BaseSettings):
         return self.app_env == "development"
 
     @property
+    def dev_defaults_enabled(self) -> bool:
+        """
+        Check whether development-only fallbacks may be applied.
+
+        Stricter than :attr:`is_development`, which is true whenever ``app_env``
+        holds its default - including when ``APP_ENV`` was never set or was
+        misspelled. Security-relevant fallbacks (the tenant default in
+        ``TenantMiddleware``, the fallback signing keys) key off this instead,
+        so an unconfigured container fails closed.
+
+        Returns:
+            True only when APP_ENV is explicitly "development" (or the operator
+            set STRATUM_ALLOW_DEV_DEFAULTS=1) and the app is not production
+        """
+        return self.is_development and dev_defaults_allowed()
+
+    @property
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.app_env == "production"
@@ -468,6 +695,15 @@ class Settings(BaseSettings):
             if paddle_issues:
                 issues.extend(paddle_issues)
 
+        # Fabricated ad metrics must never reach a paying tenant. This is a
+        # production-only rejection: local development and the demo seed set
+        # USE_MOCK_AD_DATA=true deliberately.
+        if self.use_mock_ad_data and self.is_production:
+            issues.append(
+                "USE_MOCK_AD_DATA must be false in production "
+                "(it writes fabricated campaign metrics into tenant data)"
+            )
+
         if issues:
             if self.is_production:
                 # In production, fail fast with clear error
@@ -512,20 +748,52 @@ def get_settings() -> Settings:
 
     In development mode, provides fallback values for required keys
     to allow local testing without full configuration.
+
+    The fallback keys are source-controlled constants: anyone can sign a JWT
+    with them. They are therefore injected only when APP_ENV is *explicitly*
+    "development" (or STRATUM_ALLOW_DEV_DEFAULTS=1 is set) - never for
+    staging/production, and never when APP_ENV is missing or misspelled, which
+    used to fall through to the development branch and hand out the published
+    signing key.
+
+    Returns:
+        The cached Settings instance
     """
-    import os
+    configured_env = explicit_app_env()
 
-    # Check if we're in production before creating settings
-    app_env = os.getenv("APP_ENV", "development").lower()
-
-    if app_env != "production":
+    if dev_defaults_allowed():
         # For development, set fallback values if not provided
         for key, fallback in _DEV_FALLBACK_KEYS.items():
             env_key = key.upper()
             if not os.getenv(env_key):
                 os.environ[env_key] = fallback
+    elif configured_env is None:
+        warnings.warn(
+            "APP_ENV is not set. Refusing to inject development fallback keys: "
+            "set APP_ENV=development for a local box (or "
+            f"{DEV_DEFAULTS_OVERRIDE_ENV}=1), and SECRET_KEY / JWT_SECRET_KEY / "
+            "PII_ENCRYPTION_KEY on every deployed environment.",
+            UserWarning,
+            stacklevel=2,
+        )
 
-    return Settings()
+    try:
+        return Settings()
+    except ValidationError as exc:
+        if configured_env is not None:
+            raise
+        # Fail fast with an actionable message rather than the raw pydantic
+        # error: this is the "APP_ENV was never set" path, which used to fall
+        # through to the development branch and adopt the published signing
+        # keys, so that anyone could forge an access token.
+        raise RuntimeError(
+            "APP_ENV is not set and the required secrets are missing.\n"
+            "  - deployed environments: set APP_ENV (staging|production) plus "
+            "SECRET_KEY, JWT_SECRET_KEY and PII_ENCRYPTION_KEY\n"
+            "  - local development: set APP_ENV=development (or "
+            f"{DEV_DEFAULTS_OVERRIDE_ENV}=1) to use the development fallbacks\n"
+            f"Underlying error: {exc}"
+        ) from exc
 
 
 # Global settings instance

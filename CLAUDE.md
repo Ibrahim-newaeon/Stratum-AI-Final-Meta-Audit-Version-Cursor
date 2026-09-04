@@ -144,6 +144,7 @@ Frontend lint, type checking, unit tests, and builds are blocking in GitHub Acti
 - `backend/scripts_db_prepare.py` is the idempotent deployment preparation path run by the API entrypoint. Do not replace it with new one-off `create_all` migration scripts.
 - Legacy table-creation and column-migration scripts remain for historical compatibility; they are not the default path for new schema work.
 - Never set `DB_RESET_CONFIRM` unless the user explicitly requests the documented one-shot reset procedure. Remove it immediately after the intended deployment.
+- The `*_cents` money columns hold hundredths of the account's **major** unit for every currency, not ISO-4217 minor units: every reader divides by 100 with no currency awareness, so a zero-decimal currency such as JPY is quantised at its real precision and then scaled. That is why those columns are `BigInteger`.
 - Add configuration through `backend/app/core/config.py` and update the appropriate example environment files without placing secrets or tenant credentials in source control.
 
 ## Integration guardrails
@@ -155,6 +156,8 @@ Frontend lint, type checking, unit tests, and builds are blocking in GitHub Acti
 - Load Paddle.js only inside the authenticated SPA. Do not place checkout scripts in `frontend/public/*.html`.
 - Keep integration credentials encrypted at rest and never return, log, or store secrets in public configuration objects.
 - Preserve signed-webhook verification, replay/idempotency protection, transaction rollback, and retry-safe error behavior.
+- Meta insights ingestion is strictly read-only: the client issues `GET` and nothing else. The autopilot write path in `backend/app/tasks/apply_actions_queue.py` is a simulator with hardcoded responses; do not schedule it or treat its output as real until a genuine executor exists.
+- Never report a successful sync, or leave `last_synced_at` fresh, when no metrics were written. Freshness feeds signal health, so a source nobody can read must degrade rather than present as healthy.
 
 ## Git and delivery workflow
 

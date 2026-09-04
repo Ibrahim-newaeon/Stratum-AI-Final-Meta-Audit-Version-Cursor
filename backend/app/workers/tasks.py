@@ -92,59 +92,73 @@ def sync_campaign_data(self, tenant_id: int, campaign_id: int):
             logger.warning(f"Campaign {campaign_id} not found")
             return {"status": "not_found"}
 
+        if not settings.use_mock_ad_data:
+            # No real ad-platform ingestion exists behind this task; the mock
+            # generator below is the only implementation. Skip instead of
+            # falling through to a bare commit that published "sync_complete"
+            # without having written a single metric.
+            logger.warning(
+                "Skipping sync for campaign %s (tenant %s): USE_MOCK_AD_DATA is off "
+                "and no Meta Marketing API ingestion is implemented. No metrics were "
+                "written and last_synced_at is unchanged.",
+                campaign_id,
+                tenant_id,
+            )
+            return {
+                "status": "skipped",
+                "reason": "real_ad_platform_sync_unavailable",
+                "campaign_id": campaign_id,
+            }
+
         try:
-            # Use mock client for development
-            if settings.use_mock_ad_data:
-                from app.services.mock_client import MockAdNetworkManager
+            # Mock generator - development and demo only, gated by the setting
+            # above (rejected outright when APP_ENV=production).
+            from app.services.mock_client import MockAdNetwork
 
-                manager = MockAdNetworkManager(tenant_id)
-                # Get time series data
-                from app.services.mock_client import MockAdNetwork
+            network = MockAdNetwork(seed=tenant_id)
 
-                network = MockAdNetwork(seed=tenant_id)
+            end_date = datetime.now(UTC).date()
+            start_date = campaign.start_date or (end_date - timedelta(days=30))
 
-                end_date = datetime.now(UTC).date()
-                start_date = campaign.start_date or (end_date - timedelta(days=30))
+            time_series = network.generate_time_series(
+                campaign.external_id,
+                start_date,
+                end_date,
+                campaign.__dict__,
+            )
 
-                time_series = network.generate_time_series(
-                    campaign.external_id,
-                    start_date,
-                    end_date,
-                    campaign.__dict__,
-                )
+            # Update daily metrics
+            for day_data in time_series:
+                existing = db.execute(
+                    select(CampaignMetric).where(
+                        CampaignMetric.campaign_id == campaign_id,
+                        CampaignMetric.date == day_data["date"],
+                    )
+                ).scalar_one_or_none()
 
-                # Update daily metrics
-                for day_data in time_series:
-                    existing = db.execute(
-                        select(CampaignMetric).where(
-                            CampaignMetric.campaign_id == campaign_id,
-                            CampaignMetric.date == day_data["date"],
-                        )
-                    ).scalar_one_or_none()
+                if existing:
+                    for key, value in day_data.items():
+                        if key != "date" and hasattr(existing, key):
+                            setattr(existing, key, value)
+                else:
+                    metric = CampaignMetric(
+                        tenant_id=tenant_id,
+                        campaign_id=campaign_id,
+                        date=day_data["date"],
+                        impressions=day_data["impressions"],
+                        clicks=day_data["clicks"],
+                        conversions=day_data["conversions"],
+                        spend_cents=day_data["spend_cents"],
+                        revenue_cents=day_data["revenue_cents"],
+                        video_views=day_data.get("video_views"),
+                        video_completions=day_data.get("video_completions"),
+                    )
+                    db.add(metric)
 
-                    if existing:
-                        for key, value in day_data.items():
-                            if key != "date" and hasattr(existing, key):
-                                setattr(existing, key, value)
-                    else:
-                        metric = CampaignMetric(
-                            tenant_id=tenant_id,
-                            campaign_id=campaign_id,
-                            date=day_data["date"],
-                            impressions=day_data["impressions"],
-                            clicks=day_data["clicks"],
-                            conversions=day_data["conversions"],
-                            spend_cents=day_data["spend_cents"],
-                            revenue_cents=day_data["revenue_cents"],
-                            video_views=day_data.get("video_views"),
-                            video_completions=day_data.get("video_completions"),
-                        )
-                        db.add(metric)
-
-                # Update campaign aggregates
-                campaign.calculate_metrics()
-                campaign.last_synced_at = datetime.now(UTC)
-                campaign.sync_error = None
+            # Update campaign aggregates
+            campaign.calculate_metrics()
+            campaign.last_synced_at = datetime.now(UTC)
+            campaign.sync_error = None
 
             db.commit()
 

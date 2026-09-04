@@ -41,17 +41,18 @@ export interface LoginResponse {
 }
 
 export interface SignupRequest {
-  name: string;
+  full_name: string;
   email: string;
   password: string;
+  company_name: string;
   phone?: string;
-  company?: string;
-  verification_token?: string;
 }
 
 export interface SignupResponse {
-  user: User;
+  user_id: number;
+  email: string;
   message: string;
+  verification_required: boolean;
 }
 
 export interface VerifyEmailRequest {
@@ -116,8 +117,11 @@ export const authApi = {
   /**
    * Register a new user
    */
+  // Self-service signup: creates the tenant and its first (admin) user.
+  // POST /auth/register no longer exists - it was public and accepted
+  // tenant_id/role from the body, so anyone could mint a superadmin account.
   signup: async (data: SignupRequest): Promise<SignupResponse> => {
-    const response = await apiClient.post<ApiResponse<SignupResponse>>('/auth/register', data);
+    const response = await apiClient.post<ApiResponse<SignupResponse>>('/auth/signup', data);
     return response.data.data;
   },
 

@@ -41,7 +41,6 @@ from app.schemas import (
     LoginRequest,
     RefreshTokenRequest,
     TokenResponse,
-    UserCreate,
     UserResponse,
 )
 from app.services.email_service import get_email_service
@@ -621,75 +620,18 @@ async def login_with_mfa(
     )
 
 
-@router.post("/register", response_model=APIResponse[UserResponse])
-async def register(
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_async_session),
-):
-    """
-    Register a new user.
-
-    Args:
-        user_data: User registration details
-
-    Returns:
-        Created user information
-    """
-    from app.core.security import encrypt_pii
-
-    # Check if email already exists
-    email_hash = hash_pii_for_lookup(user_data.email.lower())
-    result = await db.execute(
-        select(User).where(
-            User.tenant_id == user_data.tenant_id,
-            User.email_hash == email_hash,
-        )
-    )
-    existing = result.scalar_one_or_none()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-
-    # Create user with encrypted PII
-    user = User(
-        tenant_id=user_data.tenant_id,
-        email=encrypt_pii(user_data.email.lower()),
-        email_hash=email_hash,
-        password_hash=get_password_hash(user_data.password),
-        full_name=encrypt_pii(user_data.full_name) if user_data.full_name else None,
-        role=user_data.role,
-        locale=user_data.locale,
-        timezone=user_data.timezone,
-    )
-
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-
-    logger.info("user_registered", user_id=user.id, tenant_id=user.tenant_id)
-
-    return APIResponse(
-        success=True,
-        data=UserResponse(
-            id=user.id,
-            tenant_id=user.tenant_id,
-            email=user_data.email,  # Return original email
-            full_name=user_data.full_name,
-            role=user.role,
-            locale=user.locale,
-            timezone=user.timezone,
-            is_active=user.is_active,
-            is_verified=user.is_verified,
-            last_login_at=user.last_login_at,
-            avatar_url=user.avatar_url,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-        ),
-        message="Registration successful",
-    )
+# =============================================================================
+# NOTE: POST /auth/register has been removed.
+#
+# It was public (listed in PUBLIC_ENDPOINTS) and built the User row straight
+# from the request body - including ``tenant_id`` and ``role`` - so any
+# anonymous caller could create a role="superadmin" account inside any tenant
+# and then log in with it, defeating the middleware, the router guard and the
+# tenant-authorization checks in tenants.py at once. Self-service registration
+# is POST /auth/signup, which creates a fresh tenant and never takes a role;
+# creating a user inside an existing tenant is POST /users/invite, which is
+# authenticated and scoped to the caller's own tenant.
+# =============================================================================
 
 
 @router.post("/refresh", response_model=APIResponse[TokenResponse])

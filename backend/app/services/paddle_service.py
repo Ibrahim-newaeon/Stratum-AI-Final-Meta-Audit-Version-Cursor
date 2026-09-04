@@ -25,7 +25,11 @@ Paddle API reference used here (``Paddle-Version: 1``):
 - ``GET /transactions``, ``GET /transactions/{id}``,
   ``GET /transactions/{id}/invoice``
 - ``POST /customers/{id}/portal-sessions``
-- ``GET /prices``
+- ``GET /prices``, ``POST /prices``, ``GET /products``, ``POST /products``
+  (catalogue bootstrap, ``scripts_paddle_bootstrap.py``)
+- ``GET /notification-settings``, ``POST /notification-settings``
+  (webhook destination bootstrap; entities carry ``endpoint_secret_key``,
+  which is never logged)
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 from sqlalchemy import func, update
@@ -59,6 +64,9 @@ PADDLE_PRODUCTION_API_BASE_URL = "https://api.paddle.com"
 DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_SIGNATURE_TOLERANCE_SECONDS = 300
 MAX_TRANSACTIONS_PER_PAGE = 100
+# Upper bound on pages followed by ``PaddleClient._get_all`` (guards against a
+# broken ``meta.pagination.next`` loop; the catalogue is a handful of entities).
+MAX_LIST_PAGES = 50
 
 # Transaction statuses that represent a real charge (shown as "invoices").
 TRANSACTION_STATUSES_FOR_HISTORY = ("completed", "billed", "past_due", "paid")
@@ -258,6 +266,20 @@ def _as_dict(value: Any) -> dict[str, Any]:
 def _as_list(value: Any) -> list[Any]:
     """Return ``value`` when it is a list, otherwise an empty list."""
     return value if isinstance(value, list) else []
+
+
+def pagination_after_cursor(next_url: Any) -> Optional[str]:
+    """
+    Extract the ``after`` cursor from a ``meta.pagination.next`` URL.
+
+    Paddle returns ``next`` as a full URL such as
+    ``https://api.paddle.com/prices?after=pri_01...``; the cursor is the value
+    of its ``after`` query parameter. Returns None for anything else.
+    """
+    if not isinstance(next_url, str) or not next_url:
+        return None
+    values = parse_qs(urlsplit(next_url).query).get("after")
+    return values[0] if values and values[0] else None
 
 
 def _to_minor_units(value: Any) -> int:
@@ -603,6 +625,32 @@ class PaddleClient:
         body = await self._request("GET", path, params=params)
         return [_as_dict(item) for item in _as_list(body.get("data"))]
 
+    async def _get_all(
+        self, path: str, params: Optional[dict[str, Any]] = None
+    ) -> list[dict[str, Any]]:
+        """
+        GET ``path`` and return the ``data`` items of every page.
+
+        Follows ``meta.pagination`` (``has_more`` + the ``after`` cursor taken
+        from ``next``) for at most ``MAX_LIST_PAGES`` pages and stops on a
+        repeated cursor so a malformed ``next`` can never loop forever.
+        """
+        query: dict[str, Any] = dict(params or {})
+        items: list[dict[str, Any]] = []
+        seen_cursors: set[str] = set()
+        for _ in range(MAX_LIST_PAGES):
+            body = await self._request("GET", path, params=query)
+            items.extend(_as_dict(item) for item in _as_list(body.get("data")))
+            pagination = _as_dict(_as_dict(body.get("meta")).get("pagination"))
+            if not pagination.get("has_more"):
+                break
+            after = pagination_after_cursor(pagination.get("next"))
+            if not after or after in seen_cursors:
+                break
+            seen_cursors.add(after)
+            query["after"] = after
+        return items
+
     # -------------------------------------------------------------- customers
 
     async def create_customer(
@@ -830,11 +878,153 @@ class PaddleClient:
             update_payment_method_url=first.get("update_subscription_payment_method") or None,
         )
 
-    # ----------------------------------------------------------------- prices
+    # -------------------------------------------------------------- catalogue
 
-    async def list_prices(self) -> list[dict[str, Any]]:
-        """List active prices (``GET /prices?status=active``) as raw Paddle entities."""
-        return await self._get_list("/prices", params={"status": "active"})
+    async def list_products(self, status: str = "active") -> list[dict[str, Any]]:
+        """List products (``GET /products?status=...``) as raw Paddle entities, every page."""
+        return await self._get_all("/products", params={"status": status})
+
+    async def create_product(
+        self,
+        name: str,
+        tax_category: str,
+        description: Optional[str],
+        custom_data: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Create a product (``POST /products``) and return the raw entity (``pro_...``).
+
+        Args:
+            name: Product name shown at checkout and on invoices.
+            tax_category: Paddle tax category (``standard``, ``saas``, ...).
+            description: Optional description (max 2048 characters).
+            custom_data: Your own key-value data stored on the product.
+        """
+        payload: dict[str, Any] = {"name": name, "tax_category": tax_category}
+        if description:
+            payload["description"] = description
+        if custom_data:
+            payload["custom_data"] = custom_data
+        body = await self._request("POST", "/products", json_body=payload)
+        product = _as_dict(body.get("data"))
+        logger.info("paddle_product_created", product_id=product.get("id"), name=name)
+        return product
+
+    async def list_prices(
+        self, product_id: Optional[str] = None, status: str = "active"
+    ) -> list[dict[str, Any]]:
+        """
+        List prices (``GET /prices?status=...[&product_id=...]``) as raw Paddle entities, every page.
+
+        Args:
+            product_id: Optional product filter (``pro_...``).
+            status: ``active`` (default) or ``archived``.
+        """
+        params: dict[str, Any] = {"status": status}
+        if product_id:
+            params["product_id"] = product_id
+        return await self._get_all("/prices", params=params)
+
+    async def create_price(
+        self,
+        product_id: str,
+        description: str,
+        amount_minor: str,
+        currency_code: str,
+        billing_interval: str,
+        billing_frequency: int,
+        quantity_minimum: int = 1,
+        quantity_maximum: int = 1,
+        custom_data: Optional[dict[str, Any]] = None,
+        name: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Create a recurring price (``POST /prices``) and return the raw entity (``pri_...``).
+
+        Args:
+            product_id: Owning product (``pro_...``).
+            description: Internal description (not shown to customers).
+            amount_minor: Amount in the currency's minor unit as a string (``"49900"`` = 499.00).
+            currency_code: ISO 4217 code (``USD``).
+            billing_interval: ``day`` | ``week`` | ``month`` | ``year``.
+            billing_frequency: Number of intervals per billing cycle (>= 1).
+            quantity_minimum: Minimum quantity per checkout.
+            quantity_maximum: Maximum quantity per checkout.
+            custom_data: Your own key-value data stored on the price.
+            name: Optional customer-facing name.
+        """
+        payload: dict[str, Any] = {
+            "product_id": product_id,
+            "description": description,
+            "unit_price": {"amount": amount_minor, "currency_code": currency_code},
+            "billing_cycle": {"interval": billing_interval, "frequency": billing_frequency},
+            "quantity": {"minimum": quantity_minimum, "maximum": quantity_maximum},
+        }
+        if name:
+            payload["name"] = name
+        if custom_data:
+            payload["custom_data"] = custom_data
+        body = await self._request("POST", "/prices", json_body=payload)
+        price = _as_dict(body.get("data"))
+        logger.info(
+            "paddle_price_created",
+            price_id=price.get("id"),
+            product_id=product_id,
+            amount_minor=amount_minor,
+            currency_code=currency_code,
+        )
+        return price
+
+    # -------------------------------------------------- notification settings
+
+    async def list_notification_settings(self) -> list[dict[str, Any]]:
+        """
+        List notification destinations (``GET /notification-settings``), every page.
+
+        Every entity carries ``endpoint_secret_key`` (``pdl_ntfset_...``);
+        callers must never log, print or persist it outside a secret store.
+        """
+        return await self._get_all("/notification-settings")
+
+    async def create_notification_setting(
+        self,
+        description: str,
+        destination: str,
+        subscribed_events: list[str],
+        destination_type: str = "url",
+        include_sensitive_fields: bool = False,
+        api_version: int = int(PADDLE_API_VERSION),
+    ) -> dict[str, Any]:
+        """
+        Create a notification destination (``POST /notification-settings``).
+
+        Returns the raw entity (``ntfset_...``) including ``endpoint_secret_key``,
+        the secret that verifies ``Paddle-Signature`` on webhook deliveries.
+
+        Args:
+            description: Label shown in the Paddle dashboard.
+            destination: Webhook URL (``type='url'``) or email address (``type='email'``).
+            subscribed_events: Event type names (``subscription.created``, ...).
+            destination_type: ``url`` (default) or ``email``.
+            include_sensitive_fields: Whether Paddle sends potentially sensitive fields.
+            api_version: Paddle API version the event payloads conform to.
+        """
+        payload: dict[str, Any] = {
+            "description": description,
+            "destination": destination,
+            "type": destination_type,
+            "subscribed_events": list(subscribed_events),
+            "include_sensitive_fields": include_sensitive_fields,
+            "api_version": api_version,
+        }
+        body = await self._request("POST", "/notification-settings", json_body=payload)
+        setting = _as_dict(body.get("data"))
+        logger.info(
+            "paddle_notification_setting_created",
+            notification_setting_id=setting.get("id"),
+            destination=destination,
+        )
+        return setting
 
 
 # =============================================================================

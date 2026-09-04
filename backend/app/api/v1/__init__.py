@@ -5,7 +5,7 @@
 Main API router that aggregates all endpoint routers.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api.v1.endpoints import (
     analytics,
@@ -70,8 +70,28 @@ from app.api.v1.endpoints import (
     webhooks,
     whatsapp,
 )
+from app.api.v1.guards import require_authenticated_request
 
-api_router = APIRouter()
+# Router-level authentication guard (defense in depth).
+#
+# It is attached to api_router itself rather than to each non-public
+# include_router() call below, on purpose:
+#   * omission is impossible - a router added later is guarded automatically,
+#     which is exactly the failure mode being fixed (39 of 59 endpoint modules
+#     never imported get_current_user and no include_router passed a dependency,
+#     so TenantMiddleware was their only authentication);
+#   * routers that mix public and authenticated paths are handled correctly.
+#     cdp.router carries both the key-authenticated /cdp/ingest and ~60
+#     tenant-scoped routes, and webhooks/auth are the same - a per-router
+#     dependencies=[...] list cannot express that split, so those routers would
+#     have had to stay unguarded;
+#   * the public exemption stays in one place. The guard defers to
+#     app.middleware.tenant.is_public_endpoint, the same predicate the
+#     middleware skips on, so the middleware and the guard can never disagree
+#     about which routes are public.
+# The guard reads request.state only (no database query); endpoints that need
+# the user record still depend on get_current_user.
+api_router = APIRouter(dependencies=[Depends(require_authenticated_request)])
 
 # Authentication
 api_router.include_router(

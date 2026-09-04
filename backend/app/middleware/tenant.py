@@ -4,10 +4,14 @@
 """
 Middleware that extracts and validates tenant context from requests.
 Implements Row-Level Security at the application level.
+
+Tenant, user and role are derived from a single signature-verified JWT access
+token. Request-supplied hints that any caller can forge - the ``X-Tenant-ID``
+header and the request Host/subdomain - are never consulted for authentication.
 """
 
 from collections.abc import Callable
-from typing import Optional
+from typing import Any
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
@@ -20,6 +24,10 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# The ``type`` claim minted by app.core.security.create_access_token. Refresh
+# tokens carry "refresh" and must never authenticate an API request.
+ACCESS_TOKEN_TYPE = "access"
+
 # Endpoints that don't require tenant context
 PUBLIC_ENDPOINTS = {
     "/health",
@@ -28,10 +36,19 @@ PUBLIC_ENDPOINTS = {
     "/docs",
     "/redoc",
     "/openapi.json",
+    # Pre-authentication flows. None of them can carry an access token (the
+    # caller is trying to obtain one, verify an address or reset a password)
+    # and none of them read request.state.tenant_id.
     "/api/v1/auth/login",
-    "/api/v1/auth/register",
+    "/api/v1/auth/login/mfa",
+    "/api/v1/auth/signup",
     "/api/v1/auth/refresh",
     "/api/v1/auth/forgot-password",
+    "/api/v1/auth/reset-password",
+    "/api/v1/auth/verify-email",
+    "/api/v1/auth/resend-verification",
+    "/api/v1/auth/whatsapp/send-otp",
+    "/api/v1/auth/whatsapp/verify-otp",
     # Key-only CDP ingest for server-side GTM containers (Measurement & Verification).
     # Authenticates with X-Source-Key; the endpoint derives the tenant from the
     # CDP source itself and never reads request.state.tenant_id.
@@ -41,19 +58,100 @@ PUBLIC_ENDPOINTS = {
     # from the event payload (custom_data.tenant_id / paddle_customer_id) and
     # never reads request.state.tenant_id.
     "/api/v1/webhooks/paddle",
+    # Marketing site content. These are the endpoints cms.py documents as
+    # "(public endpoint)": they are tenant-independent, read only rows with
+    # status PUBLISHED and never touch request.state. They are reached from the
+    # logged-out SPA routes /blog, /blog/:slug, /faq, /contact and the landing
+    # pricing section, so they must answer without a token. Every CMS write and
+    # admin route lives under /api/v1/cms/admin/... and stays authenticated.
+    "/api/v1/cms/categories",
+    "/api/v1/cms/tags",
+    # Public writes, rate-limited per IP by RateLimitMiddleware: the marketing
+    # contact form and the landing-page newsletter signup. Both store a lead and
+    # read no tenant context.
+    "/api/v1/cms/contact",
+    "/api/v1/landing-cms/subscribe",
 }
+
+# Path prefixes served without an authenticated identity.
+PUBLIC_ENDPOINT_PREFIXES = (
+    "/docs",
+    "/redoc",
+    # Onboarding assistant works for visitors and signed-in users alike
+    # (the endpoints take an optional user and never require tenant context)
+    "/api/v1/onboarding-agent/",
+    # Published blog posts: covers both /cms/posts and /cms/posts/{slug}. It
+    # cannot widen to the admin surface, which lives under /api/v1/cms/admin/.
+    "/api/v1/cms/posts",
+)
+
+
+def is_public_endpoint(path: str) -> bool:
+    """
+    Check whether a request path may be served without an authenticated identity.
+
+    This is the single source of truth shared by the tenant middleware and the
+    router-level authentication guard (``app.api.v1.guards``), so an endpoint
+    can never be public for one and protected by the other.
+
+    Args:
+        path: Request path, e.g. ``/api/v1/campaigns``
+
+    Returns:
+        True when the path is public, False when it requires authentication
+    """
+    return path in PUBLIC_ENDPOINTS or path.startswith(PUBLIC_ENDPOINT_PREFIXES)
+
+
+def decode_access_token(token: str) -> dict[str, Any] | None:
+    """
+    Verify one bearer token and return its claims when it is an access token.
+
+    The single place in the codebase that decides whether a token authenticates
+    a caller: it checks the signature and expiry, and rejects any token whose
+    ``type`` claim is not ``access`` (refresh tokens must never authenticate).
+    Used by the tenant middleware for HTTP requests and by the ``/ws``
+    handshake, so both apply exactly the same rules.
+
+    Args:
+        token: Raw JWT string, without the ``Bearer `` prefix
+
+    Returns:
+        The verified claims, or None when the token is missing, malformed,
+        expired, wrongly signed or not an access token
+    """
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except JWTError:
+        return None
+
+    # Refresh tokens (and any other token type) must not authenticate a request.
+    if payload.get("type") != ACCESS_TOKEN_TYPE:
+        logger.warning("rejected_non_access_token", token_type=payload.get("type"))
+        return None
+
+    return payload
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     """
     Middleware that ensures tenant isolation for all requests.
 
-    Extracts tenant_id from:
-    1. JWT token claims
-    2. X-Tenant-ID header (for API key auth)
-    3. Subdomain (e.g., acme.stratum.ai)
+    Tenant, user and role all come from the claims of one signature-verified
+    JWT access token (``Authorization: Bearer <token>``), decoded once per
+    request. Tokens whose ``type`` claim is not ``access`` (refresh tokens) are
+    rejected, and unsigned request data - the ``X-Tenant-ID`` header, the Host
+    subdomain - is ignored entirely.
 
-    Sets request.state.tenant_id for downstream handlers.
+    Sets request.state.tenant_id, request.state.user_id and request.state.role
+    for downstream handlers.
     """
 
     def __init__(self, app: ASGIApp):
@@ -66,17 +164,24 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if self._is_public_endpoint(request.url.path):
             return await call_next(request)
 
-        # Try to extract tenant context
-        tenant_id = await self._extract_tenant_id(request)
-        user_id = await self._extract_user_id(request)
-        role = await self._extract_role(request)
+        # One signature verification per request; every identity field below is
+        # read from the same verified payload.
+        claims = self._decode_access_token(request)
+
+        tenant_id = self._extract_tenant_id(claims)
+        user_id = self._extract_user_id(claims)
+        role = self._extract_role(claims)
 
         if tenant_id is None:
             # Superadmins can operate without a specific tenant context
             if role == "superadmin":
                 logger.debug("superadmin_no_tenant_context")
-            # For development, use a default tenant for non-superadmin users
-            elif settings.is_development:
+            # For development, use a default tenant for non-superadmin users.
+            # Never outside development: dev_defaults_enabled requires APP_ENV
+            # to be *explicitly* "development" (or an opt-in override), so an
+            # unset or misspelled APP_ENV does not re-open this branch on a
+            # deployed box, where a missing tenant context is a 401.
+            elif settings.dev_defaults_enabled:
                 tenant_id = 1
                 logger.debug("using_default_tenant", tenant_id=tenant_id)
             else:
@@ -103,113 +208,91 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
     def _is_public_endpoint(self, path: str) -> bool:
         """Check if the endpoint is public."""
-        return (
-            path in PUBLIC_ENDPOINTS
-            or path.startswith("/docs")
-            or path.startswith("/redoc")
-            # Onboarding assistant works for visitors and signed-in users alike
-            # (the endpoints take an optional user and never require tenant context)
-            or path.startswith("/api/v1/onboarding-agent/")
-        )
+        return is_public_endpoint(path)
 
-    async def _extract_tenant_id(self, request: Request) -> Optional[int]:
+    def _decode_access_token(self, request: Request) -> dict[str, Any] | None:
         """
-        Extract tenant_id from various sources.
+        Decode and verify the bearer access token carried by the request.
 
-        Priority:
-        1. JWT token claims
-        2. X-Tenant-ID header
-        3. Subdomain
+        The signature, expiry and the ``type`` claim are all checked here; this
+        is the only place the token is decoded, and every identity attribute is
+        read from the payload it returns.
+
+        Args:
+            request: Incoming request
+
+        Returns:
+            The verified JWT claims, or None when the request carries no bearer
+            token, an invalid/expired one, or a token that is not an access token
         """
-        # Try JWT token first
-        tenant_id = await self._extract_from_jwt(request)
-        if tenant_id:
-            return tenant_id
-
-        # Try header
-        tenant_header = request.headers.get("X-Tenant-ID")
-        if tenant_header:
-            try:
-                return int(tenant_header)
-            except ValueError:
-                pass
-
-        # Try subdomain
-        return self._extract_from_subdomain(request)
-
-    async def _extract_from_jwt(self, request: Request) -> Optional[int]:
-        """Extract tenant_id from JWT token."""
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             return None
 
-        token = auth_header.split(" ")[1]
+        return decode_access_token(auth_header.split(" ", 1)[1])
 
-        try:
-            payload = jwt.decode(
-                token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            return payload.get("tenant_id")
-        except JWTError:
-            return None
-
-    async def _extract_user_id(self, request: Request) -> Optional[int]:
-        """Extract user_id from JWT token."""
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return None
-
-        token = auth_header.split(" ")[1]
-
-        try:
-            payload = jwt.decode(
-                token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            sub = payload.get("sub")
-            return int(sub) if sub else None
-        except (JWTError, ValueError):
-            return None
-
-    async def _extract_role(self, request: Request) -> Optional[str]:
-        """Extract role from JWT token."""
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return None
-
-        token = auth_header.split(" ")[1]
-
-        try:
-            payload = jwt.decode(
-                token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            return payload.get("role")
-        except JWTError:
-            return None
-
-    def _extract_from_subdomain(self, request: Request) -> Optional[int]:
+    def _extract_tenant_id(self, claims: dict[str, Any] | None) -> int | None:
         """
-        Extract tenant from subdomain.
+        Extract tenant_id from verified JWT claims.
 
-        Example: acme.stratum.ai -> lookup tenant by slug 'acme'
+        The signed token is the only source: a forgeable ``X-Tenant-ID`` header
+        or request subdomain must never select a tenant.
+
+        Args:
+            claims: Verified access-token payload, or None
+
+        Returns:
+            The tenant id, or None when the token carries no usable tenant claim
         """
-        host = request.headers.get("Host", "")
-        parts = host.split(".")
+        if not claims:
+            return None
 
-        # Expecting format: {tenant}.stratum.ai or {tenant}.localhost
-        if len(parts) >= 2:
-            subdomain = parts[0]
-            if subdomain not in {"www", "api", "app"}:
-                # In production, this would lookup the tenant by slug
-                # For now, we'll return None and rely on JWT
-                logger.debug("subdomain_detected", subdomain=subdomain)
+        tenant_id = claims.get("tenant_id")
+        if tenant_id is None:
+            return None
 
-        return None
+        try:
+            return int(tenant_id)
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_user_id(self, claims: dict[str, Any] | None) -> int | None:
+        """
+        Extract user_id from verified JWT claims.
+
+        Args:
+            claims: Verified access-token payload, or None
+
+        Returns:
+            The user id from the ``sub`` claim, or None
+        """
+        if not claims:
+            return None
+
+        sub = claims.get("sub")
+        if sub is None:
+            return None
+
+        try:
+            return int(sub)
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_role(self, claims: dict[str, Any] | None) -> str | None:
+        """
+        Extract role from verified JWT claims.
+
+        Args:
+            claims: Verified access-token payload, or None
+
+        Returns:
+            The role claim, or None
+        """
+        if not claims:
+            return None
+
+        role = claims.get("role")
+        return role if isinstance(role, str) else None
 
 
 class TenantContext:

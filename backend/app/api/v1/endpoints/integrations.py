@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.guards import SUPERADMIN_ROLE
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import get_async_session
@@ -51,6 +52,64 @@ from app.services.crm.zoho_writeback import ZohoWritebackService
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# Tenant resolution
+# =============================================================================
+
+
+async def resolve_tenant_id(
+    request: Request,
+    tenant_id: int | None = Query(
+        None,
+        description=(
+            "Target tenant. Optional: defaults to the caller's own tenant. "
+            "Only the platform role (superadmin) may name a different one."
+        ),
+    ),
+) -> int:
+    """
+    Resolve the tenant every handler in this router operates on.
+
+    Every route here used to take ``tenant_id`` as a required query parameter
+    and pass it straight to the data layer, so any authenticated user could
+    read and mutate another tenant's CRM data by changing a number in the URL.
+    The tenant now comes from the verified identity on ``request.state``; the
+    query parameter is kept for backwards compatibility but is only honoured
+    when it agrees with the caller's own tenant, or when the caller holds the
+    cross-tenant platform role.
+
+    Args:
+        request: Incoming request (identity set by TenantMiddleware)
+        tenant_id: Optional tenant named by the caller
+
+    Returns:
+        The tenant id the request may act on
+
+    Raises:
+        HTTPException: 401 when there is no tenant context, 403 when a
+            tenant-scoped caller names a tenant other than their own
+    """
+    caller_tenant_id = getattr(request.state, "tenant_id", None)
+    role = getattr(request.state, "role", None)
+
+    if role == SUPERADMIN_ROLE:
+        resolved = tenant_id if tenant_id is not None else caller_tenant_id
+        if resolved is None:
+            raise HTTPException(
+                status_code=400,
+                detail="tenant_id is required when operating without tenant context",
+            )
+        return resolved
+
+    if caller_tenant_id is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if tenant_id is not None and tenant_id != caller_tenant_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return caller_tenant_id
 
 
 # =============================================================================
@@ -173,7 +232,7 @@ class WebhookPayload(BaseModel):
 )
 async def hubspot_connect(
     request: HubSpotConnectRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -250,7 +309,7 @@ async def hubspot_callback(
     summary="Get HubSpot connection status",
 )
 async def hubspot_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get current HubSpot connection status for tenant."""
@@ -269,7 +328,7 @@ async def hubspot_status(
     summary="Disconnect HubSpot",
 )
 async def hubspot_disconnect(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Disconnect HubSpot integration for tenant."""
@@ -298,7 +357,7 @@ async def hubspot_disconnect(
 )
 async def hubspot_sync(
     request: SyncRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -397,7 +456,7 @@ async def hubspot_webhook(
     summary="Get pipeline summary",
 )
 async def pipeline_summary(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get CRM pipeline summary with stage counts and values."""
@@ -416,7 +475,7 @@ async def pipeline_summary(
     summary="Get Pipeline ROAS metrics",
 )
 async def pipeline_roas(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
     platform: Optional[str] = Query(None, description="Filter by platform"),
@@ -493,7 +552,7 @@ async def pipeline_roas(
     summary="Get attribution report",
 )
 async def attribution_report(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
     group_by: str = Query("campaign", description="Group by: campaign, platform"),
@@ -533,7 +592,7 @@ async def attribution_report(
     summary="List CRM contacts",
 )
 async def list_contacts(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     lifecycle_stage: Optional[str] = Query(None, description="Filter by lifecycle stage"),
     has_attribution: Optional[bool] = Query(None, description="Filter by attribution status"),
     limit: int = Query(50, ge=1, le=100),
@@ -596,7 +655,7 @@ async def list_contacts(
     summary="List CRM deals",
 )
 async def list_deals(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     stage: Optional[str] = Query(None, description="Filter by stage"),
     is_won: Optional[bool] = Query(None, description="Filter by won status"),
     has_attribution: Optional[bool] = Query(None, description="Filter by attribution status"),
@@ -672,7 +731,7 @@ async def list_deals(
     summary="Run identity matching",
 )
 async def run_identity_matching(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -700,7 +759,7 @@ async def run_identity_matching(
     summary="Get writeback status",
 )
 async def get_writeback_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -723,7 +782,7 @@ async def get_writeback_status(
     summary="Setup custom properties",
 )
 async def setup_writeback_properties(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -788,7 +847,7 @@ async def setup_writeback_properties(
     summary="Run writeback sync",
 )
 async def run_writeback_sync(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     sync_contacts: bool = Query(True, description="Sync contact attribution"),
     sync_deals: bool = Query(True, description="Sync deal attribution"),
     full_sync: bool = Query(False, description="Full sync (ignore modified_since)"),
@@ -898,7 +957,7 @@ async def run_writeback_sync(
     summary="Get writeback sync history",
 )
 async def get_writeback_history(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -941,7 +1000,7 @@ async def get_writeback_history(
     summary="Update writeback config",
 )
 async def update_writeback_config(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     enabled: Optional[bool] = Query(None, description="Enable/disable writeback"),
     sync_contacts: Optional[bool] = Query(None, description="Sync contacts"),
     sync_deals: Optional[bool] = Query(None, description="Sync deals"),
@@ -1144,7 +1203,7 @@ class SalesforceSyncResponse(BaseModel):
 )
 async def zoho_connect(
     request: ZohoConnectRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1221,7 +1280,7 @@ async def zoho_callback(
     summary="Get Zoho connection status",
 )
 async def zoho_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get current Zoho CRM connection status for tenant."""
@@ -1240,7 +1299,7 @@ async def zoho_status(
     summary="Disconnect Zoho",
 )
 async def zoho_disconnect(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Disconnect Zoho CRM integration for tenant."""
@@ -1269,7 +1328,7 @@ async def zoho_disconnect(
 )
 async def zoho_sync(
     request: SyncRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -1302,7 +1361,7 @@ async def zoho_sync(
     summary="Get Zoho pipeline summary",
 )
 async def zoho_pipeline_summary(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get Zoho CRM pipeline summary with stage counts and values."""
@@ -1326,7 +1385,7 @@ async def zoho_pipeline_summary(
     summary="Get Zoho writeback status",
 )
 async def get_zoho_writeback_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1347,7 +1406,7 @@ async def get_zoho_writeback_status(
     summary="Get required Zoho custom fields",
 )
 async def get_zoho_writeback_fields(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1371,7 +1430,7 @@ async def get_zoho_writeback_fields(
     summary="Setup Zoho custom fields",
 )
 async def setup_zoho_writeback_fields(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1401,7 +1460,7 @@ async def setup_zoho_writeback_fields(
     summary="Run Zoho writeback sync",
 )
 async def run_zoho_writeback_sync(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     sync_contacts: bool = Query(True, description="Sync contact attribution"),
     sync_deals: bool = Query(True, description="Sync deal attribution"),
     full_sync: bool = Query(False, description="Full sync (ignore modified_since)"),
@@ -1461,7 +1520,7 @@ async def run_zoho_writeback_sync(
 )
 async def pipedrive_connect(
     request: PipedriveConnectRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1537,7 +1596,7 @@ async def pipedrive_callback(
     summary="Get Pipedrive connection status",
 )
 async def pipedrive_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get current Pipedrive connection status for tenant."""
@@ -1556,7 +1615,7 @@ async def pipedrive_status(
     summary="Disconnect Pipedrive",
 )
 async def pipedrive_disconnect(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Disconnect Pipedrive integration for tenant."""
@@ -1585,7 +1644,7 @@ async def pipedrive_disconnect(
 )
 async def pipedrive_sync(
     request: SyncRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -1617,7 +1676,7 @@ async def pipedrive_sync(
     summary="Get Pipedrive pipeline summary",
 )
 async def pipedrive_pipeline_summary(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get Pipedrive pipeline summary with stage counts and values."""
@@ -1675,7 +1734,7 @@ async def pipedrive_pipeline_summary(
     summary="Get Pipedrive writeback status",
 )
 async def get_pipedrive_writeback_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1696,7 +1755,7 @@ async def get_pipedrive_writeback_status(
     summary="Setup Pipedrive custom fields",
 )
 async def setup_pipedrive_writeback_fields(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1727,7 +1786,7 @@ async def setup_pipedrive_writeback_fields(
     summary="Run Pipedrive writeback sync",
 )
 async def run_pipedrive_writeback_sync(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     sync_persons: bool = Query(True, description="Sync person attribution"),
     sync_deals: bool = Query(True, description="Sync deal attribution"),
     full_sync: bool = Query(False, description="Full sync (ignore modified_since)"),
@@ -1787,7 +1846,7 @@ async def run_pipedrive_writeback_sync(
 )
 async def salesforce_connect(
     request: SalesforceConnectRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1864,7 +1923,7 @@ async def salesforce_callback(
     summary="Get Salesforce connection status",
 )
 async def salesforce_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get current Salesforce connection status for tenant."""
@@ -1883,7 +1942,7 @@ async def salesforce_status(
     summary="Disconnect Salesforce",
 )
 async def salesforce_disconnect(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Disconnect Salesforce integration for tenant."""
@@ -1912,7 +1971,7 @@ async def salesforce_disconnect(
 )
 async def salesforce_sync(
     request: SyncRequest,
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -1947,7 +2006,7 @@ async def salesforce_sync(
     summary="Get Salesforce pipeline summary",
 )
 async def salesforce_pipeline_summary(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get Salesforce pipeline summary with stage counts and values."""
@@ -1971,7 +2030,7 @@ async def salesforce_pipeline_summary(
     summary="Get Salesforce writeback status",
 )
 async def get_salesforce_writeback_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -1992,7 +2051,7 @@ async def get_salesforce_writeback_status(
     summary="Get required Salesforce custom fields",
 )
 async def get_salesforce_writeback_fields(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -2016,7 +2075,7 @@ async def get_salesforce_writeback_fields(
     summary="Check Salesforce custom fields setup",
 )
 async def setup_salesforce_writeback_fields(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -2047,7 +2106,7 @@ async def setup_salesforce_writeback_fields(
     summary="Run Salesforce writeback sync",
 )
 async def run_salesforce_writeback_sync(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     sync_contacts: bool = Query(True, description="Sync contact attribution"),
     sync_opportunities: bool = Query(True, description="Sync opportunity attribution"),
     full_sync: bool = Query(False, description="Full sync (ignore modified_since)"),
@@ -2106,7 +2165,7 @@ async def run_salesforce_writeback_sync(
     summary="Get all CRM connection statuses",
 )
 async def get_all_crm_status(
-    tenant_id: int = Query(..., description="Tenant ID"),
+    tenant_id: int = Depends(resolve_tenant_id),
     db: AsyncSession = Depends(get_async_session),
 ):
     """

@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.capi.pii_hasher import PIIHasher
 
@@ -176,7 +177,11 @@ class MetaOfflineUploader(BaseOfflineUploader):
 
     PLATFORM_NAME = "meta"
     BASE_URL = "https://graph.facebook.com"
-    API_VERSION = "v18.0"
+
+    @property
+    def API_VERSION(self) -> str:
+        """Graph API version, from config so one knob moves every Meta caller."""
+        return settings.meta_graph_api_version
 
     async def upload(self, conversions: list[OfflineConversion]) -> UploadResult:
         """Upload conversions to Meta Offline Events API."""

@@ -12,9 +12,10 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 
+from app.api.v1.guards import SUPERADMIN_ROLE
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.ml.data_loader import TrainingDataLoader
@@ -22,6 +23,39 @@ from app.ml.train import ModelTrainer
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+# Roles allowed to change the shared model artefacts under settings.ml_models_path.
+ML_ADMIN_ROLES = ("admin", SUPERADMIN_ROLE)
+
+
+def require_ml_admin(request: Request) -> None:
+    """
+    Restrict the ML artefact routes to tenant admins and the platform role.
+
+    The models and uploaded datasets under ``settings.ml_models_path`` are
+    shared platform state, not tenant-scoped rows: this module has no tenant
+    filter at all, so before this check any authenticated analyst of any tenant
+    could retrain or delete a model everyone depends on, or enumerate the
+    training data other customers had uploaded.
+
+    Args:
+        request: Incoming request (identity set by TenantMiddleware)
+
+    Raises:
+        HTTPException: 401 without a verified identity, 403 for other roles
+    """
+    if getattr(request.state, "user_id", None) is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    if getattr(request.state, "role", None) not in ML_ADMIN_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
 
 
 # =============================================================================
@@ -76,7 +110,11 @@ class GenerateSampleRequest(BaseModel):
 # =============================================================================
 # Endpoints
 # =============================================================================
-@router.post("/upload", response_model=DataUploadResponse)
+@router.post(
+    "/upload",
+    response_model=DataUploadResponse,
+    dependencies=[Depends(require_ml_admin)],
+)
 async def upload_training_data(
     file: UploadFile = File(...),
     platform: str = Query(
@@ -150,7 +188,11 @@ async def upload_training_data(
             Path(tmp_path).unlink()
 
 
-@router.post("/train", response_model=TrainingResponse)
+@router.post(
+    "/train",
+    response_model=TrainingResponse,
+    dependencies=[Depends(require_ml_admin)],
+)
 async def train_models(
     data_file: Optional[str] = Query(
         None, description="Path to training data CSV (uses latest if not specified)"
@@ -233,6 +275,10 @@ async def train_models(
 async def list_models():
     """
     List all trained ML models and their metadata.
+
+    Readable by any authenticated user: it returns model names and metrics
+    only, and the tenant Model Explainability view depends on it. Every route
+    that changes an artefact carries ``require_ml_admin``.
     """
     import json
 
@@ -264,7 +310,7 @@ async def list_models():
     )
 
 
-@router.delete("/models/{model_name}")
+@router.delete("/models/{model_name}", dependencies=[Depends(require_ml_admin)])
 async def delete_model(model_name: str):
     """
     Delete a trained model.
@@ -292,7 +338,7 @@ async def delete_model(model_name: str):
     return {"success": True, "deleted_files": deleted}
 
 
-@router.post("/generate-sample")
+@router.post("/generate-sample", dependencies=[Depends(require_ml_admin)])
 async def generate_sample_data(request: GenerateSampleRequest):
     """
     Generate sample training data for testing.
@@ -324,7 +370,7 @@ async def generate_sample_data(request: GenerateSampleRequest):
     }
 
 
-@router.get("/training-data")
+@router.get("/training-data", dependencies=[Depends(require_ml_admin)])
 async def list_training_data():
     """
     List available training data files.

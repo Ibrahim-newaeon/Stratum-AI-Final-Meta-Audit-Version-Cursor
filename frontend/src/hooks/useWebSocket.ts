@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { getAccessToken } from '@/api/client';
+
 type MessageHandler = (data: any) => void;
 type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -31,6 +33,23 @@ interface UseWebSocketOptions {
 const DEFAULT_WS_URL =
   import.meta.env.VITE_WS_URL ||
   `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+
+/**
+ * Append the access token to a WebSocket URL.
+ *
+ * The server derives the subscribed tenant from this token's claims only - the
+ * handshake is closed (code 1008) without a valid access token, and there is no
+ * tenant_id query parameter any more. Browsers cannot set headers on a
+ * WebSocket handshake, so the token travels as a query parameter.
+ */
+function withAccessToken(url: string): string {
+  const token = getAccessToken();
+  if (!token) {
+    return url;
+  }
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const {
@@ -60,7 +79,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     setConnectionState('connecting');
 
     try {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(withAccessToken(url));
       wsRef.current = ws;
 
       ws.onopen = () => {

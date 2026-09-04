@@ -5,13 +5,14 @@
 Background tasks for WhatsApp Business API messaging.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.db.session import SyncSessionLocal
 from app.models import (
     WhatsAppContact,
@@ -135,6 +136,11 @@ def process_scheduled_whatsapp_messages():
 
     with SyncSessionLocal() as db:
         now = datetime.now(UTC)
+        # Lower bound on how overdue a message may be. The worker consumed no
+        # queues until the queue-list fix, so a real tenant's backlog could
+        # stretch back to deployment; without this the first worker start would
+        # send all of it at once.
+        oldest = now - timedelta(hours=settings.scheduled_dispatch_max_age_hours)
 
         # Get pending scheduled messages
         messages = (
@@ -142,11 +148,24 @@ def process_scheduled_whatsapp_messages():
                 select(WhatsAppMessage).where(
                     WhatsAppMessage.status == WhatsAppMessageStatus.PENDING,
                     WhatsAppMessage.scheduled_at <= now,
+                    WhatsAppMessage.scheduled_at >= oldest,
                     WhatsAppMessage.scheduled_at.isnot(None),
                 )
             )
             .scalars()
             .all()
+        )
+
+        stale_count = (
+            db.execute(
+                select(func.count())
+                .select_from(WhatsAppMessage)
+                .where(
+                    WhatsAppMessage.status == WhatsAppMessageStatus.PENDING,
+                    WhatsAppMessage.scheduled_at < oldest,
+                )
+            ).scalar()
+            or 0
         )
 
         task_count = 0
@@ -158,10 +177,23 @@ def process_scheduled_whatsapp_messages():
                 variables=message.variables,
                 media_url=message.media_url,
             )
+            # Take the message out of the pending set. Nothing else does: this
+            # task dispatches by tenant/template/number rather than by message
+            # id, so the row was never updated and the same message was
+            # re-queued on every single beat tick, forever.
+            message.status = WhatsAppMessageStatus.SENT
+            message.sent_at = now
             task_count += 1
 
+        db.commit()
+
+    if stale_count:
+        logger.warning(
+            f"Skipped {stale_count} scheduled WhatsApp message(s) more than "
+            f"{settings.scheduled_dispatch_max_age_hours}h overdue; review them manually"
+        )
     logger.info(f"Queued {task_count} scheduled WhatsApp messages")
-    return {"queued": task_count}
+    return {"queued": task_count, "skipped_stale": stale_count}
 
 
 def _build_template_components(

@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 from .event_mapper import AIEventMapper
@@ -369,11 +370,15 @@ class MetaCAPIConnector(BaseCAPIConnector):
     """
 
     PLATFORM_NAME = "meta"
-    API_VERSION = "v23.0"
     BASE_URL = "https://graph.facebook.com"
     # Sent with the validation event so Meta routes it to Events Manager's
     # "Test events" tab instead of recording it as real traffic.
     TEST_EVENT_CODE = "STRATUM_CONNECTION_TEST"
+
+    @property
+    def API_VERSION(self) -> str:
+        """Graph API version, from config so one knob moves every Meta caller."""
+        return settings.meta_graph_api_version
 
     def __init__(self):
         super().__init__()
@@ -581,8 +586,12 @@ class WhatsAppCAPIConnector(BaseCAPIConnector):
     """
 
     PLATFORM_NAME = "whatsapp"
-    API_VERSION = "v18.0"
     BASE_URL = "https://graph.facebook.com"
+
+    @property
+    def API_VERSION(self) -> str:
+        """Graph API version, from config (WhatsApp Cloud shares Graph versioning)."""
+        return settings.meta_graph_api_version
 
     def __init__(self):
         super().__init__()
