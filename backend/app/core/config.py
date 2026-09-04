@@ -237,7 +237,85 @@ class Settings(BaseSettings):
     meta_app_id: Optional[str] = Field(default=None, description="Meta/Facebook App ID")
     meta_app_secret: Optional[str] = Field(default=None, description="Meta/Facebook App Secret")
     meta_access_token: Optional[str] = Field(default=None)
-    meta_api_version: str = Field(default="v19.0", description="Meta Graph API version")
+    # DEPRECATED override kept so an existing META_API_VERSION env var is not
+    # silently ignored. Leave it unset: the OAuth flow then follows
+    # meta_graph_api_version like every other Meta caller. Its old default
+    # (v19.0) expired on 2026-05-21.
+    meta_api_version: Optional[str] = Field(
+        default=None,
+        description=(
+            "DEPRECATED per-flow override for the Meta OAuth Graph version. "
+            "Unset means 'use META_GRAPH_API_VERSION'."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Meta Marketing API insights ingestion (READ-ONLY)
+    # -------------------------------------------------------------------------
+    # The nightly/hourly campaign sync pulls Ads Insights rows and writes them
+    # into CampaignMetric. Only GET requests are ever issued; the scope needed
+    # is ads_read. Per-tenant credentials live in tenant_platform_connection /
+    # tenant_ad_account - only these global knobs come from the environment.
+    meta_graph_api_version: str = Field(
+        default="v23.0",
+        description=(
+            "Graph API version for every Meta caller: the read-only insights "
+            "client, the Conversions API connector, the WhatsApp Cloud API "
+            "connector, offline conversions, CDP audience sync and the OAuth "
+            "flow (via meta_oauth_api_version). v23.0 is supported until "
+            "2027-10-08; v26.0 is the current stable release."
+        ),
+    )
+    meta_insights_lookback_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description=(
+            "Days re-pulled on every campaign sync. Meta restates conversions "
+            "for days after the fact, so the window is re-fetched and upserted."
+        ),
+    )
+    meta_insights_request_timeout_seconds: float = Field(
+        default=30.0, gt=0, description="Per-request timeout for the Ads Insights API"
+    )
+    meta_insights_max_pages: int = Field(
+        default=25,
+        ge=1,
+        description="Upper bound on insights pages followed (guards a runaway cursor loop)",
+    )
+    meta_conversion_action_types: str = Field(
+        default="offsite_conversion.fb_pixel_purchase,omni_purchase,purchase",
+        description=(
+            "Comma-separated Meta action_type values counted as conversions and "
+            "revenue. The first type present in a row wins, so order matters: "
+            "the web-pixel purchase is preferred, then Meta's grouped "
+            "'omni_purchase' (which also covers app, on-Facebook and offline "
+            "purchases), then a bare 'purchase' as a belt-and-braces fallback. "
+            "A tenant whose purchases are app-only or on-Facebook must have a "
+            "type here that its account actually reports, or conversions and "
+            "revenue are recorded as zero."
+        ),
+    )
+
+    @property
+    def meta_oauth_api_version(self) -> str:
+        """
+        Graph API version for the Meta OAuth flow.
+
+        Follows ``meta_graph_api_version`` unless the deprecated
+        ``META_API_VERSION`` override is set, so one knob moves every Meta
+        caller.
+        """
+        return self.meta_api_version or self.meta_graph_api_version
+
+    @property
+    def meta_conversion_action_types_list(self) -> list[str]:
+        """Get the configured Meta conversion action types as an ordered list."""
+        return [
+            action_type.strip()
+            for action_type in self.meta_conversion_action_types.split(",")
+            if action_type.strip()
+        ]
 
     # -------------------------------------------------------------------------
     # Measurement & Verification (GA4 read-only + GTM tag deployment)
