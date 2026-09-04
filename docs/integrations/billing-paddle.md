@@ -17,6 +17,7 @@ Paddle is the only billing and payment integration in the project (see
 | Webhook | `backend/app/api/v1/endpoints/paddle_webhook.py` | Public `POST /api/v1/webhooks/paddle` |
 | Models | `backend/app/base_models.py` (`Tenant` paddle columns, `PaddleWebhookEvent`) | Subscription state per tenant, idempotency |
 | Migration | `backend/scripts_migrate_paddle_columns.py` | Idempotent column rename/add + webhook table |
+| Bootstrap | `backend/scripts_paddle_bootstrap.py` | Idempotent catalogue (tier products + monthly prices) and notification destination; prints the ids or writes them into Railway variables |
 | Frontend | `frontend/src/api/billing.ts`, `frontend/src/lib/paddle.ts`, `frontend/src/components/settings/PaddleBilling.tsx`, `frontend/src/views/billing/BillingSuccess.tsx` | Billing tab, Paddle.js v2 overlay checkout, checkout success page |
 
 ## Configuration
@@ -197,6 +198,89 @@ The `*.paddle.com` wildcard covers the sandbox hosts (`sandbox-api.paddle.com`, 
 `sandbox-checkout-service.paddle.com`, `sandbox-cdn.paddle.com`). Paddle.js is loaded only from
 `https://cdn.paddle.com/paddle/v2/paddle.js` and only inside the authenticated SPA.
 
+## Bootstrap the catalogue and webhook
+
+`backend/scripts_paddle_bootstrap.py` automates everything in a Paddle account that needs only the API
+key: the three tier products, their recurring monthly USD prices and (optionally) the webhook notification
+destination. It is idempotent, touches no database or Redis, never prints the API key and never prints the
+webhook secret unless asked to. Run it once per Paddle account (sandbox for staging, live for production).
+
+### Where the three secrets come from
+
+Only these values are created by hand, in the Paddle dashboard (sandbox `https://sandbox-vendors.paddle.com`,
+production `https://vendors.paddle.com`), and stored directly in the Railway service variables:
+
+| Variable | Dashboard location | Format |
+|----------|--------------------|--------|
+| `PADDLE_API_KEY` | Developer Tools > Authentication > API keys > *New API key* (needs product, price and notification-setting write permissions) | `pdl_sdbx_apikey_...` (sandbox) / `pdl_live_apikey_...` (live), 69 characters |
+| `PADDLE_CLIENT_TOKEN` | Developer Tools > Authentication > Client-side tokens | `test_...` (sandbox) / `live_...` (live) |
+| `PADDLE_WEBHOOK_SECRET` | Developer Tools > Notifications > the destination > *Secret key* - **or let the script create the destination and write the secret into Railway** | `pdl_ntfset_...` |
+
+Set `PADDLE_API_KEY` (and `PADDLE_ENVIRONMENT`) on the api service first; the script reads them from the
+process environment, which `railway run` injects, so no secret is typed into a shell or pasted into a chat.
+
+### Running it
+
+From `backend/` with the Railway CLI logged in and the project linked:
+
+```bash
+# staging = Paddle sandbox account
+railway run -e staging --service api -- python scripts_paddle_bootstrap.py --dry-run
+railway run -e staging --service api -- python scripts_paddle_bootstrap.py \
+    --webhook-url https://<staging-api-host>/api/v1/webhooks/paddle \
+    --railway-env staging --railway-service api
+
+# production = Paddle live account (PADDLE_ENVIRONMENT=production, pdl_live_apikey_ key)
+railway run -e production --service api -- python scripts_paddle_bootstrap.py --dry-run
+railway run -e production --service api -- python scripts_paddle_bootstrap.py \
+    --webhook-url https://<api-host>/api/v1/webhooks/paddle \
+    --railway-env production --railway-service api
+```
+
+Then redeploy the service (`railway redeploy -e <env> --service api`): the variables are written with
+`--skip-deploys`. Without `--railway-env/--railway-service` the script prints a `tier -> product -> price`
+table and the exact `railway variable set` line for the **non-secret** values (price ids); the webhook
+secret is then copied from the dashboard, or shown once with `--print-webhook-secret` (loud warning; for
+operators who cannot use the Railway flags).
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | `GET` calls only: shows what exists and what would be created or written; no `POST`, no CLI writes |
+| `--enterprise-usd <int>` | Creates the Enterprise monthly price (whole dollars). Without it the Enterprise price is skipped and `PADDLE_ENTERPRISE_PRICE_ID` is left untouched |
+| `--webhook-url https://<api-host>/api/v1/webhooks/paddle` | Creates or reuses the notification destination |
+| `--railway-env <env> --railway-service <svc>` | Writes `PADDLE_*_PRICE_ID` with `railway variable set -e <env> --service <svc> --skip-deploys KEY=VALUE ...` and, when the destination was created in this run, pipes `PADDLE_WEBHOOK_SECRET` to `railway variable set ... PADDLE_WEBHOOK_SECRET --stdin` (argv lists, no shell; the secret is never echoed and never a command-line argument, so it does not show in a process list). `--railway-env production` is accepted only with `PADDLE_ENVIRONMENT=production`, and a production run only writes into `production` |
+| `--print-webhook-secret` | Opt-in: prints the destination secret once |
+
+Exit codes: `0` ok, `2` usage, `3` configuration (empty or placeholder `PADDLE_API_KEY`; a key whose
+prefix contradicts `PADDLE_ENVIRONMENT` - a `pdl_live_apikey_` key on a sandbox run or vice versa, while a
+key with an unrecognised prefix only warns; or `--railway-env production` combined with a non-production
+`PADDLE_ENVIRONMENT` and vice versa, so sandbox price ids and a sandbox webhook secret can never land in the
+production service), `4` Paddle API error, `5` Railway CLI error (the script then lists which keys were
+already written; if the secret write is the one that failed, the destination already exists, so copy the
+secret from the dashboard or use `--print-webhook-secret`).
+
+### What it creates and how it stays idempotent
+
+| Entity | Created as | Reused when |
+|--------|------------|-------------|
+| Product per tier | `POST /products` - name `Stratum AI <Tier>`, `tax_category: standard`, description from `TIER_PRICING`, `custom_data: {"stratum_tier": "<starter\|professional\|enterprise>"}` | an active product (`GET /products?status=active`, all pages) has that `custom_data.stratum_tier`, else exactly that name |
+| Monthly price per product | `POST /prices` - `unit_price {amount: "49900" \| "99900", currency_code: USD}` (minor units), `billing_cycle {interval: month, frequency: 1}`, `quantity {minimum: 1, maximum: 1}`, description `<Tier> monthly`, the same `custom_data` | an active price of the product (`GET /prices?product_id=...&status=active`) is monthly USD with exactly the catalogue amount and carries the `stratum_tier` tag, else is an untagged monthly USD price with the same amount. A tagged price with another amount (the catalogue or `--enterprise-usd` changed) is never reused: a new price is created, the table shows the amount actually in effect, and the stale id is reported as a warning so it can be archived once no subscription uses it |
+| Notification destination | `POST /notification-settings` - `type: url`, `include_sensitive_fields: false`, `api_version: 1`, `subscribed_events` = exactly the events the handler processes (`subscription.created\|activated\|updated\|trialing\|past_due\|paused\|resumed\|canceled`, `transaction.completed\|paid\|payment_failed`, `customer.created\|updated`) | a `url` destination with the same URL exists (`GET /notification-settings`; Paddle returns `subscribed_events` as objects and the script compares their `name`); an inactive destination (`active: false`, Paddle delivers nothing to it) and missing events are reported as warnings |
+
+Enterprise is custom-priced (`TIER_PRICING[...]["price"] is None`), so without `--enterprise-usd` its
+product is created but no price is, and the script prints what that means: `settings.paddle_fully_configured`
+stays `False` (the property has no runtime callers; the API gates on `paddle_service.is_configured()` plus
+the per-tier price id, so Starter and Professional checkout work), `POST /billing/checkout-session` and
+`POST /billing/upgrade` answer 400 for the enterprise tier, and with `APP_ENV=production` the settings
+validator refuses to start while `PADDLE_API_KEY` is set and `PADDLE_ENTERPRISE_PRICE_ID` is empty.
+
+Paddle returns `endpoint_secret_key` for notification destinations on create **and** on list, so a re-run
+against an existing destination can still show the secret with `--print-webhook-secret`; the Railway write
+of `PADDLE_WEBHOOK_SECRET` (piped through `--stdin`) happens only in the run that created the destination,
+and the report says "written" only after the CLI succeeded. The manual dashboard
+subscription described under [Webhook](#webhook) (`subscription.*`, `transaction.*`, `customer.*`,
+`adjustment.created`) is a superset of the script's list; the extra events are simply answered `ignored`.
+
 ## Migration for existing deployments
 
 The database schema is created from the SQLAlchemy models (`create_all`), so upgrading an existing
@@ -223,6 +307,7 @@ pre-existing row-banding utility props in `frontend/src/components/ui/data-table
 ## Related
 
 - Operator setup: `SERVER_DEPLOYMENT_GUIDE.md`, Step 8 "Configure Paddle Billing"
+- Catalogue + webhook bootstrap: [Bootstrap the catalogue and webhook](#bootstrap-the-catalogue-and-webhook) (`backend/scripts_paddle_bootstrap.py`)
 - Runbook: `docs/05-operations/runbooks.md`, "Paddle Webhook Failures"
 - Backend overview: `docs/02-backend/backend-overview.md`
 - Integrations index: [README](./README.md)

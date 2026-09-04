@@ -147,6 +147,7 @@ Properties: `settings.paddle_enabled`, `settings.paddle_fully_configured`, `sett
 `paddle_webhook_events` (`PaddleWebhookEvent`). Schema is `create_all`-based: existing deployments run
 `backend/scripts_migrate_paddle_columns.py` once (idempotent rename/add + webhook table). Never silently
 downgrade a tenant on an unknown price id; `canceled` -> `plan='free'`.
+Catalogue + webhook bootstrap: `backend/scripts_paddle_bootstrap.py` (`railway run -e <env> --service api -- python scripts_paddle_bootstrap.py [--dry-run] [--webhook-url ...] [--railway-env <env> --railway-service api]`) creates/reuses the tier products, monthly prices and notification destination idempotently and prints or writes the ids into Railway (the webhook secret is piped through `railway variable set --stdin`; `--railway-env production` only with `PADDLE_ENVIRONMENT=production` and vice versa); it never prints a secret unless `--print-webhook-secret`.
 
 **API** (`backend/app/api/v1/endpoints/billing.py`, `APIResponse` envelope, schemas in `schemas/billing.py`):
 `GET /api/v1/billing/config`, `GET /billing/subscription`, `POST /billing/checkout-session` (returns

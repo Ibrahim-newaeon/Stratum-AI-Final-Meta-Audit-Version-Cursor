@@ -222,6 +222,16 @@ In the Paddle dashboard (sandbox: `https://sandbox-vendors.paddle.com`, producti
 5. Restart the API (and worker) so the settings load, then confirm `GET /api/v1/billing/config` returns
    `paddle_configured: true` and open Settings > Billing to run a sandbox checkout.
 
+**Scripted catalogue + webhook (Railway):** steps 3 and 4 are automated by
+`backend/scripts_paddle_bootstrap.py`. Put the API key (step 1) in the service variables, then run
+`railway run -e <env> --service api -- python scripts_paddle_bootstrap.py --dry-run` followed by the same
+command with `--webhook-url https://<api-host>/api/v1/webhooks/paddle --railway-env <env> --railway-service api`
+and redeploy. It creates or reuses the tier products, the monthly prices and the notification destination,
+writes the `pri_` ids and (for a newly created destination) `PADDLE_WEBHOOK_SECRET` into Railway (the secret
+piped through `railway variable set --stdin`, never as a command-line argument), refuses to write a sandbox
+run into `production` or a production run anywhere else, and never prints a secret. Details, flags and exit
+codes: `docs/integrations/billing-paddle.md`, "Bootstrap the catalogue and webhook".
+
 **Going live:** set `PADDLE_ENVIRONMENT=production`, replace all six other values with the production
 account's, and create the notification destination again in the production dashboard. With
 `APP_ENV=production` the app refuses to start when an API key is set but `PADDLE_ENVIRONMENT` is still
