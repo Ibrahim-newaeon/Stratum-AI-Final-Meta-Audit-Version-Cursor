@@ -92,8 +92,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Note: Prometheus metrics are initialized in create_application()
     logger.info("prometheus_metrics_ready", endpoint="/metrics")
 
-    # Start Memory Auditor (non-production or when explicitly enabled)
-    if not settings.is_production or settings.debug:
+    # Start Memory Auditor when create_application() built one.
+    # The condition must mirror where the auditor is CREATED, not restate it:
+    # it is created only under settings.is_development, so any other
+    # environment (staging, or production with DEBUG=true) previously reached
+    # app.state.memory_auditor when it had never been set and died during
+    # startup. Asking whether the attribute exists cannot drift from the
+    # creation condition the way a duplicated boolean can.
+    if hasattr(app.state, "memory_auditor"):
         memory_auditor = app.state.memory_auditor
         memory_auditor.start_tracking()
         memory_auditor.take_snapshot(label="app_startup")
