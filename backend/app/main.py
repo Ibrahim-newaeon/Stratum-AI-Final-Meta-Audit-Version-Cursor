@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import sentry_sdk
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, ORJSONResponse
@@ -19,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1 import api_router
 from app.api.v1.endpoints.memory_debug import init_debug_endpoints, router as memory_debug_router
+from app.api.v1.guards import require_authenticated_request, require_superadmin_request
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logging import get_logger, setup_logging
@@ -30,7 +31,7 @@ from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
-from app.middleware.tenant import TenantMiddleware
+from app.middleware.tenant import TenantMiddleware, decode_access_token
 from app.monitoring.memory_audit import MemoryAuditor
 from app.monitoring.middleware import MemoryProfilingMiddleware
 
@@ -266,9 +267,14 @@ def create_application() -> FastAPI:
         )
 
     # -------------------------------------------------------------------------
-    # Memory Profiling (non-production or debug mode)
+    # Memory Profiling (development only)
     # -------------------------------------------------------------------------
-    if not settings.is_production or settings.debug:
+    # Previously gated on "not production OR debug" - and settings.debug
+    # defaults to True - so the /debug/memory/* routes (including the
+    # gc/collect, snapshot and reset writes) were mounted on staging and on any
+    # production deployment that had not explicitly set DEBUG=false. They live
+    # outside /api/v1, so api_router's guard cannot cover them.
+    if settings.is_development:
         auditor = MemoryAuditor()
         app.state.memory_auditor = auditor
 
@@ -286,8 +292,13 @@ def create_application() -> FastAPI:
             middleware=memory_profiling_tracker,
         )
 
-        # Mount debug routes (outside /api/v1 prefix for easy access)
-        app.include_router(memory_debug_router)
+        # Mount debug routes (outside /api/v1 prefix for easy access).
+        # Even in development they require the platform role: they expose
+        # process internals and can force a GC or reset the profiler.
+        app.include_router(
+            memory_debug_router,
+            dependencies=[Depends(require_superadmin_request)],
+        )
         logger.info("memory_profiling_enabled", endpoints="/debug/memory/*")
 
     # -------------------------------------------------------------------------
@@ -350,7 +361,14 @@ def create_application() -> FastAPI:
     # -------------------------------------------------------------------------
     # Server-Sent Events for Real-Time Updates
     # -------------------------------------------------------------------------
-    @app.get("/api/v1/events/stream", tags=["Real-Time"])
+    # Declared on the app rather than on api_router, so it needs the router
+    # guard attached explicitly: the stream is tenant-scoped and must never be
+    # readable without a verified identity.
+    @app.get(
+        "/api/v1/events/stream",
+        tags=["Real-Time"],
+        dependencies=[Depends(require_authenticated_request)],
+    )
     async def event_stream(request: Request):
         """
         Server-Sent Events endpoint for real-time dashboard updates.
@@ -400,15 +418,21 @@ def create_application() -> FastAPI:
     @app.websocket("/ws")
     async def websocket_endpoint(
         websocket: WebSocket,
-        tenant_id: Optional[int] = Query(default=None),
         token: Optional[str] = Query(default=None),
     ):
         """
         WebSocket endpoint for real-time dashboard updates.
 
+        Authentication: a signature-verified access token is required on the
+        handshake (``/ws?token=<access token>``) and the subscription is scoped
+        to the ``tenant_id`` claim of that token. There is no ``tenant_id``
+        query parameter: it used to decide which tenant's stream the socket
+        joined, so any anonymous caller could subscribe to another tenant's
+        live autopilot/EMQ events. HTTP middleware does not run for the
+        WebSocket scope, so the check has to happen here.
+
         Query params:
-        - tenant_id: Optional tenant ID for tenant-scoped messages
-        - token: Optional auth token for authenticated connections
+        - token: Access token (required)
 
         Message types:
         - emq_update: EMQ score changes
@@ -418,19 +442,21 @@ def create_application() -> FastAPI:
         - action_recommendation: New action recommendations
         - platform_status: Platform health updates
         """
-        # Validate token if provided (simplified - in production, verify JWT)
-        user_id = None
-        if token:
-            try:
-                from app.auth.jwt import decode_token
+        claims = decode_access_token(token or "")
+        if not claims:
+            # 1008 = policy violation. Closing before accept() means the
+            # handshake never completes for an unauthenticated caller.
+            await websocket.close(code=1008)
+            logger.warning("websocket_connection_rejected", reason="missing_or_invalid_token")
+            return
 
-                payload = decode_token(token)
-                user_id = payload.get("sub")
-                if not tenant_id:
-                    tenant_id = payload.get("tenant_id")
-            except Exception:
-                # Invalid token - allow anonymous connection
-                pass
+        user_id = claims.get("sub")
+        try:
+            tenant_id = int(claims["tenant_id"])
+        except (KeyError, TypeError, ValueError):
+            # Superadmins hold a token without tenant context; they subscribe
+            # to the global channel only.
+            tenant_id = None
 
         # Connect the client
         client_id = await ws_manager.connect(
@@ -467,9 +493,16 @@ def create_application() -> FastAPI:
                 error=str(e),
             )
 
-    @app.get("/ws/stats", tags=["Real-Time"])
+    # Declared on the app rather than on api_router, so the guard is attached
+    # explicitly. The payload includes connections_by_tenant, i.e. a census of
+    # which tenants are online, so it is a platform-operator surface.
+    @app.get(
+        "/ws/stats",
+        tags=["Real-Time"],
+        dependencies=[Depends(require_superadmin_request)],
+    )
     async def websocket_stats():
-        """Get WebSocket connection statistics."""
+        """Get WebSocket connection statistics (platform role only)."""
         return ws_manager.get_stats()
 
     return app

@@ -39,25 +39,9 @@ export const getAccessToken = (): string | null => {
   return accessToken;
 };
 
-// Tenant ID management
-let currentTenantId: number | null = null;
-
-export const setTenantId = (tenantId: number | null) => {
-  currentTenantId = tenantId;
-  if (tenantId) {
-    localStorage.setItem('tenant_id', String(tenantId));
-  } else {
-    localStorage.removeItem('tenant_id');
-  }
-};
-
-export const getTenantId = (): number => {
-  if (!currentTenantId) {
-    const stored = localStorage.getItem('tenant_id');
-    currentTenantId = stored ? parseInt(stored, 10) : 1;
-  }
-  return currentTenantId;
-};
+// Tenant context is NOT sent by the client: the API derives the tenant from the
+// signature-verified JWT alone. An X-Tenant-ID header is caller-controlled and
+// therefore worthless as authentication, so it is no longer attached to requests.
 
 // Super admin bypass header management
 let superAdminBypass = false;
@@ -70,18 +54,12 @@ export const getSuperAdminBypass = (): boolean => {
   return superAdminBypass;
 };
 
-// Request interceptor - add auth token, tenant ID, and super admin bypass
+// Request interceptor - add auth token and super admin bypass
 apiClient.interceptors.request.use(
   (config) => {
     const token = getAccessToken();
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    // Add tenant ID header
-    const tenantId = getTenantId();
-    if (tenantId && config.headers) {
-      config.headers['X-Tenant-ID'] = String(tenantId);
     }
 
     // Add super admin bypass header if enabled

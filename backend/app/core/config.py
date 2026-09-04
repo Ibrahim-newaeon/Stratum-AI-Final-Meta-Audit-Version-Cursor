@@ -11,15 +11,65 @@ SECURITY NOTE:
 - Use strong, randomly generated keys (32+ bytes) for encryption/signing
 """
 
+import os
 import warnings
 from functools import lru_cache
 from typing import Literal, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PADDLE_SANDBOX_API_BASE_URL = "https://sandbox-api.paddle.com"
 PADDLE_PRODUCTION_API_BASE_URL = "https://api.paddle.com"
+
+# Opt-in escape hatch for the development conveniences below (fallback signing
+# keys, the default tenant in TenantMiddleware). It exists so a container that
+# deliberately runs without APP_ENV can still be told "yes, this is a dev box";
+# it must never be set on a deployed environment.
+DEV_DEFAULTS_OVERRIDE_ENV = "STRATUM_ALLOW_DEV_DEFAULTS"
+
+
+def explicit_app_env() -> str | None:
+    """
+    Read the environment name the operator actually configured.
+
+    Looks at the process environment first and then at the ``.env`` file that
+    ``Settings`` itself loads, so a local checkout configured only through
+    ``.env`` still counts as explicit. Returns None when nothing set it - which
+    is different from ``Settings.app_env``, whose default silently reads
+    "development".
+
+    Returns:
+        The lower-cased configured value, or None when APP_ENV is not set
+    """
+    raw = os.getenv("APP_ENV")
+    if not raw:
+        try:
+            from dotenv import dotenv_values
+
+            raw = dotenv_values(".env").get("APP_ENV")
+        except (ImportError, OSError):  # pragma: no cover - dotenv is optional
+            raw = None
+    return raw.strip().lower() if raw else None
+
+
+def dev_defaults_allowed() -> bool:
+    """
+    Report whether development conveniences may be used in this process.
+
+    They are allowed only when ``APP_ENV`` is *explicitly* ``development`` or
+    the operator opted in with ``STRATUM_ALLOW_DEV_DEFAULTS=1``. An unset or
+    misspelled ``APP_ENV`` must never enable them: the Settings default would
+    otherwise make an unconfigured container look like a development box and
+    silently adopt the published fallback signing keys, which would let anyone
+    forge an access token.
+
+    Returns:
+        True when development fallbacks are permitted, False otherwise
+    """
+    if os.getenv(DEV_DEFAULTS_OVERRIDE_ENV, "").strip() == "1":
+        return True
+    return explicit_app_env() == "development"
 
 
 class Settings(BaseSettings):
@@ -342,6 +392,23 @@ class Settings(BaseSettings):
         return self.app_env == "development"
 
     @property
+    def dev_defaults_enabled(self) -> bool:
+        """
+        Check whether development-only fallbacks may be applied.
+
+        Stricter than :attr:`is_development`, which is true whenever ``app_env``
+        holds its default - including when ``APP_ENV`` was never set or was
+        misspelled. Security-relevant fallbacks (the tenant default in
+        ``TenantMiddleware``, the fallback signing keys) key off this instead,
+        so an unconfigured container fails closed.
+
+        Returns:
+            True only when APP_ENV is explicitly "development" (or the operator
+            set STRATUM_ALLOW_DEV_DEFAULTS=1) and the app is not production
+        """
+        return self.is_development and dev_defaults_allowed()
+
+    @property
     def is_production(self) -> bool:
         """Check if running in production mode."""
         return self.app_env == "production"
@@ -512,20 +579,52 @@ def get_settings() -> Settings:
 
     In development mode, provides fallback values for required keys
     to allow local testing without full configuration.
+
+    The fallback keys are source-controlled constants: anyone can sign a JWT
+    with them. They are therefore injected only when APP_ENV is *explicitly*
+    "development" (or STRATUM_ALLOW_DEV_DEFAULTS=1 is set) - never for
+    staging/production, and never when APP_ENV is missing or misspelled, which
+    used to fall through to the development branch and hand out the published
+    signing key.
+
+    Returns:
+        The cached Settings instance
     """
-    import os
+    configured_env = explicit_app_env()
 
-    # Check if we're in production before creating settings
-    app_env = os.getenv("APP_ENV", "development").lower()
-
-    if app_env != "production":
+    if dev_defaults_allowed():
         # For development, set fallback values if not provided
         for key, fallback in _DEV_FALLBACK_KEYS.items():
             env_key = key.upper()
             if not os.getenv(env_key):
                 os.environ[env_key] = fallback
+    elif configured_env is None:
+        warnings.warn(
+            "APP_ENV is not set. Refusing to inject development fallback keys: "
+            "set APP_ENV=development for a local box (or "
+            f"{DEV_DEFAULTS_OVERRIDE_ENV}=1), and SECRET_KEY / JWT_SECRET_KEY / "
+            "PII_ENCRYPTION_KEY on every deployed environment.",
+            UserWarning,
+            stacklevel=2,
+        )
 
-    return Settings()
+    try:
+        return Settings()
+    except ValidationError as exc:
+        if configured_env is not None:
+            raise
+        # Fail fast with an actionable message rather than the raw pydantic
+        # error: this is the "APP_ENV was never set" path, which used to fall
+        # through to the development branch and adopt the published signing
+        # keys, so that anyone could forge an access token.
+        raise RuntimeError(
+            "APP_ENV is not set and the required secrets are missing.\n"
+            "  - deployed environments: set APP_ENV (staging|production) plus "
+            "SECRET_KEY, JWT_SECRET_KEY and PII_ENCRYPTION_KEY\n"
+            "  - local development: set APP_ENV=development (or "
+            f"{DEV_DEFAULTS_OVERRIDE_ENV}=1) to use the development fallbacks\n"
+            f"Underlying error: {exc}"
+        ) from exc
 
 
 # Global settings instance

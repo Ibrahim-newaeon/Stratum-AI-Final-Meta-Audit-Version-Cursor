@@ -199,8 +199,9 @@ async def authenticated_client(client, test_user, test_tenant) -> AsyncClient:
         },
     )
 
+    # The signed access token is the only tenant context the API accepts;
+    # an X-Tenant-ID header is ignored (and no longer sent by the frontend).
     client.headers["Authorization"] = f"Bearer {token}"
-    client.headers["X-Tenant-ID"] = str(test_tenant["id"])
 
     return client
 
@@ -373,10 +374,8 @@ def auth_headers(test_user, test_tenant):
         },
     )
 
-    return {
-        "Authorization": f"Bearer {token}",
-        "X-Tenant-ID": str(test_tenant["id"]),
-    }
+    # Tenant, user and role all come from the verified token claims.
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
