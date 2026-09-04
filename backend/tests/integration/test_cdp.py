@@ -536,10 +536,10 @@ class TestCDPHealth:
     @pytest.mark.asyncio
     async def test_health_check(
         self,
-        client: AsyncClient,
+        cdp_client: AsyncClient,
     ):
-        """Test CDP health check endpoint."""
-        response = await client.get("/api/v1/cdp/health")
+        """Test CDP health check endpoint (authenticated, like the SPA calls it)."""
+        response = await cdp_client.get("/api/v1/cdp/health")
 
         assert response.status_code == 200
         data = response.json()
