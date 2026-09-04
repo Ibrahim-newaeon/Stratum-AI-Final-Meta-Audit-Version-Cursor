@@ -1,356 +1,174 @@
-# Stratum AI Platform
+# Stratum AI Project Guide
 
-## Overview
-Revenue Operating System with Trust-Gated Autopilot architecture.
-Automation executes ONLY when signal health passes safety thresholds.
+This file is the working guide for contributors and coding agents. Keep it focused on durable architecture, safety rules, and verified development workflows. Do not copy feature inventories, test counts, marketing copy, or deployment runbooks into this file.
 
-## Core Concept
+## Product and safety model
+
+Stratum AI is a revenue operating system for Meta channels with Trust-Gated Autopilot. Automated actions are allowed only when signal quality passes the trust gate.
+
+| Signal health | Gate | Behavior |
+|---|---|---|
+| `>= 70` | PASS | Automation may execute, subject to normal authorization and policy checks |
+| `40-69` | HOLD | Alert and hold; do not execute automatically |
+| `< 40` | BLOCK | Require manual action |
+
+Never bypass the trust gate for a quick fix. Preserve audit logging for every executed automation. Thresholds currently have multiple backend and frontend consumers; if they change, trace and update all consumers, tests, and documentation together.
+
+## Sources of truth
+
+Use these in order when documentation disagrees:
+
+1. Implementation and tests
+2. `.github/workflows/ci.yml` for validation behavior
+3. `docker-compose*.yml`, Dockerfiles, and Railway configuration for runtime behavior
+4. `.env.example` and `backend/.env.example` for configuration names
+5. Focused documents under `docs/` and `SERVER_DEPLOYMENT_GUIDE.md`
+
+Treat version badges, feature counts, route inventories, coverage percentages, and marketing pages as descriptive rather than authoritative.
+
+## Technology
+
+- Backend: FastAPI, Pydantic 2, SQLAlchemy 2, Alembic, Celery, and Redis
+- Data: PostgreSQL 16 and Redis 7
+- Frontend: React 18, TypeScript, Vite, Tailwind CSS, TanStack Query, and Zustand
+- Operations: Docker Compose, Railway, Prometheus, Grafana, and Sentry
+- Billing: Paddle Billing through a thin `httpx` client and Paddle.js
+
+For local CI parity, use the Python and Node versions declared in `.github/workflows/ci.yml`. Container versions are pinned separately in the backend and frontend Dockerfiles.
+
+## Repository map
+
+```text
+backend/
+  app/
+    api/v1/endpoints/   FastAPI routes
+    core/               configuration and shared application concerns
+    models/             model modules; shared models also live in base_models.py
+    schemas/            Pydantic schemas; shared schemas also live in base_schemas.py
+    services/           integrations and business services
+    workers/            Celery application and tasks
+  migrations/           Alembic environment and revisions
+  tests/unit/           backend unit tests
+  tests/integration/    database-backed integration tests
+frontend/
+  src/
+    api/                 API client modules and hooks
+    components/          shared and feature components
+    views/               routed application views
+    stores/              Zustand state
+    lib/                 shared frontend utilities
+  e2e/                   Playwright tests
+docs/                    architecture, integration, and operations documentation
+editions/                starter, professional, and enterprise variants
+scripts/                 repository-level data and database helpers
+docker-compose*.yml      local, production, and monitoring stacks
+nginx/                   proxy configuration
 ```
-Signal Health Check → Trust Gate → Automation Decision
-       ↓                  ↓              ↓
-   [HEALTHY]         [PASS]         [EXECUTE]
-   [DEGRADED]        [HOLD]         [ALERT ONLY]
-   [UNHEALTHY]       [BLOCK]        [MANUAL REQUIRED]
-```
 
-## Tech Stack
-- **Backend**: Python 3.11+, FastAPI, Pydantic
-- **Database**: PostgreSQL 15, Redis (caching/queues)
-- **Queue**: Celery + Redis
-- **Frontend**: React 18, TypeScript, Tailwind CSS
-- **Infra**: Docker, AWS (ECS, RDS, ElastiCache)
-- **Monitoring**: Prometheus, Grafana, Sentry
-- **Billing**: Paddle Billing (Merchant of Record) — thin httpx client, Paddle.js v2 overlay checkout, signed webhooks
+Some paths have historical copies with a trailing ` 2` in the filename. Treat the unsuffixed path as canonical unless a task explicitly asks to consolidate the duplicates.
 
-## Project Structure
-```
-/stratum-ai/
-├── api/              # FastAPI routes
-├── core/             # Business logic, trust engine
-│   ├── signals/      # Signal collectors & processors
-│   ├── gates/        # Trust gate evaluators
-│   └── automations/  # Automation executors
-├── models/           # SQLAlchemy models
-├── schemas/          # Pydantic schemas
-├── services/         # External integrations
-├── workers/          # Celery tasks
-└── tests/
-```
+## Local development
 
-## Key Commands
+From the repository root:
+
 ```bash
-make dev              # Start local env
-make test             # Run pytest
-make lint             # Ruff + mypy
-make migrate          # Alembic migrations
-docker compose up -d  # Full stack
+cp .env.example .env
+docker compose up -d
 ```
 
-## Code Standards
-- Type hints REQUIRED on all functions
-- Pydantic models for all API I/O
-- Async/await for all I/O operations
-- 90%+ test coverage for core/
-- Docstrings on public functions
+Do not commit `.env` or real credentials. The default local endpoints are:
 
-## Domain Terminology
-| Term | Definition |
-|------|------------|
-| Signal | Input data point (metric, event, webhook) |
-| Signal Health | Composite score (0-100) of signal reliability |
-| Trust Gate | Decision checkpoint before automation |
-| Autopilot | Automated action when trust passes |
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:8000`
+- OpenAPI UI: `http://localhost:8000/docs`
+- Flower: `http://localhost:5555` when the `monitoring` profile is enabled
 
-## Trust Engine Rules
-```python
-HEALTHY_THRESHOLD = 70      # Green - autopilot enabled
-DEGRADED_THRESHOLD = 40     # Yellow - alert + hold
-# Never auto-execute when signal_health < 70
+## Validation
+
+Run the checks relevant to the files you changed. Before broad or high-risk changes, run the complete affected suite.
+
+### Backend
+
+From `backend/`, with PostgreSQL and Redis configured:
+
+```bash
+python -m pip install -r requirements.txt
+pytest tests/unit -v --tb=short -m "unit or not integration"
+pytest tests/integration -v --tb=short -m "integration"
+ruff check .
+black --check --diff .
+isort --check-only --diff .
+mypy app --ignore-missing-imports --no-error-summary
 ```
 
-## Measurement Integrations (read-only)
-Stratum AI **acts only on Meta channels** (Facebook, Instagram, WhatsApp). Google Analytics 4 and
-Google Tag Manager are restored strictly as **"Measurement & Verification"** integrations
-(Arabic: القياس والتحقق). They are never ad platforms, channels or activation targets.
+Backend tests are blocking in GitHub Actions. Backend lint, formatting, and type checks currently report legacy debt without blocking; keep new and touched code clean and do not increase that debt. Coverage is reported but is not currently gated.
 
-**GA4 = read-only independent revenue/conversion baseline**
-- GA4 Data API with a per-tenant service account (scope `https://www.googleapis.com/auth/analytics.readonly`)
-- Daily rows land in `fact_ga4_daily` (date x utm_source/medium/campaign, sessions/conversions/revenue,
-  Meta-traffic classification) and feed:
-  - attribution variance (`fact_attribution_variance_daily`, Platform vs GA4)
-  - EMQ "attribution accuracy" driver
-  - Signal Health and the Trust Gate
-- Positioning everywhere: "independent verification", "read-only baseline", never "Google Ads"
+### Frontend
 
-**GTM = tag deployment only**
-- Web container (`GTM-XXXXXXX`): Meta Pixel + Stratum tracking snippet
-- Server-side tagging endpoint (sGTM, `https://tags.yourdomain.com`): Meta Conversions API tag +
-  the CDP `sgtm` source, which posts to `POST /api/v1/cdp/ingest` with header `X-Source-Key`
-  (`cdp_sources.source_key`; source_type `sgtm`, label "Server-side GTM")
+From `frontend/`:
 
-**Tables** (created ONLY by `backend/scripts_create_measurement_tables.py`, idempotent, no Alembic migration):
-`tenant_ga4_integrations`, `tenant_gtm_integrations`, `fact_ga4_daily`. Service-account JSON and the GTM
-preview header are encrypted with `app.services.encryption.encrypt_token` and never returned, logged or
-written to `CDPSource.config`.
-
-**Endpoints**: `/api/v1/integrations/measurement/*` (tag "Measurement & Verification", `APIResponse` envelope):
-`GET status`, `GET|PUT|DELETE ga4`, `POST ga4/test-connection`, `POST ga4/sync`, `GET ga4/baseline`,
-`GET|PUT|DELETE gtm`, `POST gtm/verify`, `GET gtm/snippets`, `DELETE` (both).
-
-**Celery**: `app.workers.tasks.measurement.pull_ga4_daily_baseline` (beat `measurement-ga4-daily-pull`, 02:30 UTC),
-`app.workers.tasks.measurement.sync_ga4_tenant`, plus `trust-signal-health-rollup` (02:00 UTC) and
-`trust-attribution-variance-rollup` (03:00 UTC); queue `sync`.
-
-**Key files**
-- `backend/app/models/measurement.py` (TenantGA4Integration, TenantGTMIntegration, FactGA4Daily, MeasurementStatus)
-- `backend/app/services/measurement/` (`ga4_client.py`, `ga4_ingestion.py`, `gtm_service.py`)
-- `backend/app/workers/tasks/measurement.py`
-- `backend/app/api/v1/endpoints/measurement.py`, `backend/app/schemas/measurement.py`
-- `frontend/src/api/measurement.ts`, `frontend/src/components/settings/GA4Integration.tsx`, `GTMIntegration.tsx`
-- Operator docs: `docs/integrations/README.md`, `SERVER_DEPLOYMENT_GUIDE.md` (Step 7)
-
-**Global env (the ONLY GA4_*/GTM_* variables; property IDs, service accounts and container IDs are per tenant in the DB)**
-```
-GA4_SYNC_ENABLED=true
-GA4_LOOKBACK_DAYS=3
-GA4_BACKFILL_DAYS=30
-GA4_REQUEST_TIMEOUT_SECONDS=30
-GA4_DEFAULT_CONVERSION_EVENT=purchase
-GTM_VERIFY_TIMEOUT_SECONDS=10
-GTM_DEFAULT_SERVER_CONTAINER_URL=
+```bash
+npm ci
+npm run lint
+npx tsc --noEmit
+npm run test:coverage
+npm run build
+npm run test:e2e -- --project=chromium
 ```
 
-## Billing (Paddle Billing)
-Tenant subscriptions are billed through **Paddle Billing** (Merchant of Record). Paddle hosts the checkout,
-collects payment, handles tax/invoices/dunning and reports back through signed webhooks; Stratum never
-stores card data. The integration is a **thin `httpx.AsyncClient`** (`backend/app/services/paddle_service.py`),
-no `paddle-python-sdk`, no `@paddle/*` npm package — Paddle.js v2 is loaded at runtime from
-`https://cdn.paddle.com/paddle/v2/paddle.js` and only inside the authenticated SPA (never in `frontend/public/*.html`).
+Frontend lint, type checking, unit tests, and builds are blocking in GitHub Actions. Playwright E2E currently reports without blocking.
 
-**Config keys** (`backend/app/core/config.py` Settings) and env names — all optional, sandbox by default:
-| Setting | Env |
-|---------|-----|
-| `paddle_api_key` | `PADDLE_API_KEY` (empty = billing disabled) |
-| `paddle_client_token` | `PADDLE_CLIENT_TOKEN` (served via `GET /api/v1/billing/config`, never a frontend env var) |
-| `paddle_webhook_secret` | `PADDLE_WEBHOOK_SECRET` |
-| `paddle_environment` | `PADDLE_ENVIRONMENT` (`sandbox` \| `production`, default `sandbox`) |
-| `paddle_starter_price_id` / `paddle_professional_price_id` / `paddle_enterprise_price_id` | `PADDLE_STARTER_PRICE_ID` / `PADDLE_PROFESSIONAL_PRICE_ID` / `PADDLE_ENTERPRISE_PRICE_ID` (`pri_...`) |
+## Engineering conventions
 
-Properties: `settings.paddle_enabled`, `settings.paddle_fully_configured`, `settings.paddle_api_base_url`
-(`https://sandbox-api.paddle.com` | `https://api.paddle.com`). The validator raises only in production
-(API key set while the environment is still `sandbox`, or a companion key missing). Frontend: optional
-`VITE_PADDLE_ENVIRONMENT` override only.
+### Backend
 
-**Tenant columns** (`backend/app/base_models.py`, table `tenants`): `paddle_customer_id`,
-`paddle_subscription_id`, `subscription_status` (`active|trialing|past_due|paused|canceled`),
-`current_period_end`; existing `plan` / `plan_expires_at` keep their semantics. Idempotency table
-`paddle_webhook_events` (`PaddleWebhookEvent`). Schema is `create_all`-based: existing deployments run
-`backend/scripts_migrate_paddle_columns.py` once (idempotent rename/add + webhook table). Never silently
-downgrade a tenant on an unknown price id; `canceled` -> `plan='free'`.
+- Put HTTP routes in `backend/app/api/v1/endpoints/` and keep business or integration logic in services or domain modules.
+- Use Pydantic models for API input and output and preserve the standard `APIResponse`/`PaginatedResponse` envelopes from `app.schemas.response`.
+- Follow the existing asynchronous SQLAlchemy and I/O patterns.
+- Derive tenant scope from authenticated request context and existing dependencies or middleware. Never trust a client-supplied tenant identifier as authorization.
+- Preserve role checks, tenant filtering, audit records, and idempotency around mutations and webhooks.
+- Add type hints and focused docstrings to new public Python code.
 
-**API** (`backend/app/api/v1/endpoints/billing.py`, `APIResponse` envelope, schemas in `schemas/billing.py`):
-`GET /api/v1/billing/config`, `GET /billing/subscription`, `POST /billing/checkout-session` (returns
-price id + client token + customer email + `custom_data{tenant_id,tier}`; the SPA opens the Paddle.js overlay),
-`POST /billing/portal-session`, `POST /billing/cancel`, `POST /billing/reactivate`, `POST /billing/upgrade`,
-`GET /billing/transactions`, `GET /billing/transactions/{id}/invoice`. Errors: not configured -> 503,
-Paddle error -> 502.
+### Frontend
 
-**Webhook** (`backend/app/api/v1/endpoints/paddle_webhook.py`): public `POST /api/v1/webhooks/paddle`
-(in `TenantMiddleware.PUBLIC_ENDPOINTS`), `Paddle-Signature: ts=<unix>;h1=<hex>` verified as HMAC-SHA256
-over `<ts>:<raw body>` with a 300 s tolerance; 200 `{status: received|duplicate|ignored}`, 400 bad
-signature/JSON, 503 no secret, 500 after rollback so Paddle retries. Handles `subscription.*`,
-`transaction.completed|paid|payment_failed`, `customer.created|updated`; everything else is `ignored`.
+- Use the shared API client and existing React Query hooks instead of adding ad hoc request code.
+- Do not hardcode production API or WebSocket hosts; use the existing same-origin defaults and environment configuration.
+- Keep routes, navigation, API types, loading/error states, and English/Arabic copy aligned when a feature changes.
+- Reuse the existing component, theme, and state-management patterns before introducing new abstractions.
 
-**Frontend**: `frontend/src/api/billing.ts` (hooks + types), `frontend/src/lib/paddle.ts` (loader),
-`frontend/src/components/settings/PaddleBilling.tsx` (Settings > Billing, `/dashboard/settings?tab=billing`),
-`frontend/src/views/billing/BillingSuccess.tsx` (`/dashboard/billing/success`). Pricing CTAs on the public
-landing pages are navigation only; checkout happens in Settings > Billing after signup.
+## Database and configuration
 
-**CSP hosts** (identical in `backend/app/middleware/security.py` build_csp, `frontend/nginx.conf`, `nginx/beta.conf`):
-`script-src` + `https://cdn.paddle.com`; `connect-src` + `https://*.paddle.com`; `frame-src 'self' https://*.paddle.com`;
-nginx `Permissions-Policy: payment=(self "https://buy.paddle.com" "https://sandbox-buy.paddle.com")`.
+- Alembic is the schema lifecycle. The baseline revision creates the current model-backed schema; every later schema change must be a normal Alembic revision under `backend/migrations/versions/`.
+- From `backend/`, create and apply migrations with `alembic revision --autogenerate -m "description"` and `alembic upgrade head`.
+- Ensure new model modules are registered through `app.models` so Alembic can see their metadata.
+- `backend/scripts_db_prepare.py` is the idempotent deployment preparation path run by the API entrypoint. Do not replace it with new one-off `create_all` migration scripts.
+- Legacy table-creation and column-migration scripts remain for historical compatibility; they are not the default path for new schema work.
+- Never set `DB_RESET_CONFIRM` unless the user explicitly requests the documented one-shot reset procedure. Remove it immediately after the intended deployment.
+- Add configuration through `backend/app/core/config.py` and update the appropriate example environment files without placing secrets or tenant credentials in source control.
 
-**No other payment provider.** The former provider's name (spelled S-T-R-I-P-E) must not appear anywhere in
-the project — code, tests, docs, env examples, compose files, HTML, comments. The only tolerated matches for
-a case-insensitive search of that name are the pre-existing row-banding utility props in
-`frontend/src/components/ui/data-table.tsx` and `frontend/src/components/ui/progress.tsx` (their name is that
-word plus a trailing "d"); do not rename them.
+## Integration guardrails
 
-Docs: `docs/integrations/billing-paddle.md`, `SERVER_DEPLOYMENT_GUIDE.md` (Step 8),
-`docs/05-operations/runbooks.md` ("Paddle Webhook Failures").
+- Activation is Meta-only: Facebook, Instagram, WhatsApp, Meta Marketing API, Conversions API, and Custom Audiences.
+- GA4 and GTM belong only to **Measurement & Verification**. GA4 is a read-only independent baseline; GTM deploys web and server-side tags. Do not treat either as an ad channel or add them to activation/platform enums.
+- Do not add Google Ads, Customer Match, `gclid` handling, Google sign-in, GA4 write scopes, or other non-Meta activation paths.
+- Paddle Billing is the only payment provider. Keep the backend integration as a thin `httpx` client; do not add a Paddle SDK dependency.
+- Load Paddle.js only inside the authenticated SPA. Do not place checkout scripts in `frontend/public/*.html`.
+- Keep integration credentials encrypted at rest and never return, log, or store secrets in public configuration objects.
+- Preserve signed-webhook verification, replay/idempotency protection, transaction rollback, and retry-safe error behavior.
 
-## Do NOT
-- Skip trust gate checks for "quick fixes"
-- Hardcode thresholds (use config)
-- Execute automations without audit logging
-- Merge without passing CI
-- Treat GA4/GTM as ad channels (no Google Ads, Customer Match, gclid, write scopes, Google OAuth); never put ga4/gtm in AdPlatform/SyncPlatform/Platform enums or TenantPlatformConnection
-- Add any payment provider other than Paddle Billing, add a Paddle SDK dependency, or load Paddle.js in public static HTML
+## Git and delivery workflow
 
-## Git Workflow
-- Branch: `feature/STRAT-123-description`
-- Commit: `feat(signals): add anomaly detection [STRAT-123]`
+- Use short branches such as `feat/description`, `fix/description`, or `security/description`.
+- Use conventional commit subjects such as `feat(signals): add anomaly detection` or `fix(worker): keep beat state writable`.
+- Keep changes scoped, add or update focused tests, and pass all blocking CI checks before merge.
+- Update focused documentation when an interface, invariant, deployment procedure, or operator workflow changes.
 
-## CDP (Customer Data Platform) Frontend
+## Detailed documentation
 
-### Views & Routes
-| Route | Component | Description |
-|-------|-----------|-------------|
-| `/dashboard/cdp` | CDPDashboard | Main overview with stats, lifecycle distribution, event volume charts |
-| `/dashboard/cdp/profiles` | CDPProfiles | Profile viewer with search, filters, pagination, detail modal |
-| `/dashboard/cdp/segments` | CDPSegments | Segment builder with condition builder, preview, CRUD |
-| `/dashboard/cdp/events` | CDPEvents | Event timeline with volume charts, anomaly detection |
-| `/dashboard/cdp/identity` | CDPIdentityGraph | SVG-based identity graph visualization |
+- [Trust engine](docs/architecture/trust-engine.md)
+- [Integration boundaries](docs/integrations/README.md)
+- [Paddle Billing](docs/integrations/billing-paddle.md)
+- [Operations runbooks](docs/05-operations/runbooks.md)
+- [Server and Railway deployment](SERVER_DEPLOYMENT_GUIDE.md)
 
-### Key Files
-- `frontend/src/views/cdp/` - All CDP view components
-- `frontend/src/api/cdp.ts` - React Query hooks for CDP API (60+ hooks)
-- `frontend/src/views/DashboardLayout.tsx` - CDP navigation added here
-
-### CDP API Hooks (from `@/api/cdp`)
-- `useCDPHealth`, `useProfileStatistics`, `useEventStatistics`
-- `useSegments`, `useCreateSegment`, `useUpdateSegment`, `useDeleteSegment`
-- `useSearchProfiles`, `useCDPProfile`, `useExportAudience`
-- `useEventTrends`, `useAnomalySummary`, `useEventAnomalies`
-- `useIdentityGraph`, `useMergeHistory`
-
-### Navigation
-CDP section is in sidebar with collapsible submenu (6 items including Audience Sync).
-State managed via `cdpExpanded` in DashboardLayout.
-
-### CDP Audience Sync (New Feature)
-Push CDP segments directly to Meta for targeting across Facebook, Instagram, and WhatsApp.
-
-**Routes:**
-- `/dashboard/cdp/audience-sync` - Main audience sync management
-
-**Key Files:**
-- `frontend/src/components/cdp/AudienceSync.tsx` - Full UI component
-- `frontend/src/views/cdp/CDPAudienceSync.tsx` - View wrapper
-- `backend/app/services/cdp/audience_sync/` - Platform connectors
-- `backend/app/api/v1/endpoints/audience_sync.py` - REST API
-
-**Supported Platforms:**
-- Meta (Custom Audiences API — covers Facebook, Instagram, and WhatsApp)
-
-**Features:**
-- Create platform audiences linked to CDP segments
-- Auto-sync with configurable intervals (1h - 1 week)
-- Manual sync trigger
-- Sync history with metrics (profiles sent, added, match rate)
-- Manual export to CSV/JSON with traits and events
-
----
-
-## Update Landing Content with CDP Unique Selling Points
-
-### CDP Core Value Propositions
-
-**1. Unified Customer Profiles**
-- Single customer view across all touchpoints
-- Identity resolution merging anonymous → known → customer
-- Real-time profile enrichment from events
-
-**2. Meta Audience Sync**
-- Push segments to Meta Custom Audiences with one click (Facebook, Instagram, WhatsApp)
-- Hashed identifier matching (email, phone, MAID)
-- Auto-sync keeps audiences fresh (configurable intervals)
-- Match rate tracking and optimization
-
-**3. Advanced Segmentation**
-- Dynamic segments with behavioral conditions
-- RFM analysis (Recency, Frequency, Monetary)
-- Lifecycle stage targeting (anonymous → churned)
-- Computed traits for complex attributes
-
-**4. Event Intelligence**
-- Real-time event ingestion and processing
-- Anomaly detection with alerting
-- EMQ (Event Match Quality) scoring
-- Conversion funnel analysis
-
-**5. Identity Graph**
-- Visual identity resolution
-- Cross-device tracking
-- Profile merge history and audit trail
-- Canonical identity management
-
-**6. Privacy-First Design**
-- Consent management per data type
-- GDPR/CCPA compliant exports
-- Hashed PII for platform sync
-- Audit logging for all operations
-
-### Landing Page Feature Highlights
-
-```
-CDP FEATURES FOR LANDING PAGE:
-
-Hero Section:
-"Turn Customer Data Into Revenue"
-- AI-powered revenue operating system for ad teams
-- Optimize Facebook, Instagram & WhatsApp campaigns with Trust-Gated Autopilot
-- Every AI decision is auditable, explainable and reversible — one-click human override
-- Connect any ad account read-only. 14-day free trial, no credit card. 👉 stratumai.app
-
-Feature Cards:
-┌─────────────────────────────────────────────────────────────┐
-│ 🎯 One-Click Audience Sync                                  │
-│ Push segments to Meta Custom Audiences instantly —          │
-│ Facebook, Instagram & WhatsApp. Auto-sync keeps your        │
-│ audiences fresh 24/7.                                       │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ 👤 360° Customer Profiles                                   │
-│ Unified view from anonymous visitor to loyal customer.      │
-│ Real-time enrichment from every interaction.                │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ 📊 Smart Segmentation                                       │
-│ Build segments with behavioral rules, RFM scores,           │
-│ and lifecycle stages. Preview before you publish.           │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ 🔗 Identity Resolution                                      │
-│ Connect the dots across devices and channels.               │
-│ Visual identity graph shows every connection.               │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│ 📤 Flexible Export                                          │
-│ Export audiences as CSV or JSON anytime.                    │
-│ Include traits, events, and custom attributes.              │
-└─────────────────────────────────────────────────────────────┘
-
-Comparison Table:
-| Feature                  | Stratum CDP | Segment | mParticle |
-|--------------------------|-------------|---------|-----------|
-| Meta Custom Audience sync| ✅ FB, IG & WhatsApp | ✅ | ✅ |
-| Real-time segments       | ✅ | ✅ | ✅ |
-| Identity graph viz       | ✅ | ❌ | ❌ |
-| RFM analysis             | ✅ Built-in | ❌ | ❌ |
-| Trust-gated actions      | ✅ Unique | ❌ | ❌ |
-| Independent GA4 verification baseline | ✅ Read-only | ❌ | ❌ |
-| Predictive models (ROAS, LTV, churn, conversion, creative fatigue) | ✅ Built-in | ❌ | ❌ |
-| Manual CSV export        | ✅ | ✅ | ✅ |
-| Anomaly detection        | ✅ | ❌ | ✅ |
-```
-
-### API Endpoints Summary (for docs)
-```
-CDP Audience Sync API:
-GET    /cdp/audience-sync/platforms           - Connected platforms
-GET    /cdp/audience-sync/audiences           - List audiences
-POST   /cdp/audience-sync/audiences           - Create audience
-POST   /cdp/audience-sync/audiences/{id}/sync - Trigger sync
-GET    /cdp/audience-sync/audiences/{id}/history - Sync history
-DELETE /cdp/audience-sync/audiences/{id}      - Delete audience
-POST   /cdp/audiences/export                  - Export CSV/JSON
-```
-
-## Imports
-@docs/architecture/trust-engine.md
-@docs/integrations/README.md
+Prefer linking to these documents over duplicating their endpoint lists, environment matrices, schedules, or runbooks here.
