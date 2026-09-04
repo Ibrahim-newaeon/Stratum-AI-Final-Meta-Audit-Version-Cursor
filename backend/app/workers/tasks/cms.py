@@ -5,13 +5,14 @@
 Background tasks for CMS content publishing and scheduling.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from celery import shared_task
 from celery.utils.log import get_task_logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.db.session import SyncSessionLocal
 from app.workers.tasks.helpers import publish_event
 
@@ -30,6 +31,11 @@ def publish_scheduled_cms_posts():
 
     with SyncSessionLocal() as db:
         now = datetime.now(UTC)
+        # Lower bound on how overdue a post may be. This publishes public
+        # content, and the worker consumed no queues until the queue-list fix,
+        # so without a cut-off the first worker start would publish every post
+        # scheduled since deployment in one burst.
+        oldest = now - timedelta(hours=settings.scheduled_dispatch_max_age_hours)
 
         # Get posts scheduled for publishing
         posts = (
@@ -37,11 +43,29 @@ def publish_scheduled_cms_posts():
                 select(CMSPost).where(
                     CMSPost.status == CMSPostStatus.SCHEDULED,
                     CMSPost.scheduled_at <= now,
+                    CMSPost.scheduled_at >= oldest,
                 )
             )
             .scalars()
             .all()
         )
+
+        stale_count = (
+            db.execute(
+                select(func.count())
+                .select_from(CMSPost)
+                .where(
+                    CMSPost.status == CMSPostStatus.SCHEDULED,
+                    CMSPost.scheduled_at < oldest,
+                )
+            ).scalar()
+            or 0
+        )
+        if stale_count:
+            logger.warning(
+                f"Skipped {stale_count} CMS post(s) more than "
+                f"{settings.scheduled_dispatch_max_age_hours}h overdue; publish them manually"
+            )
 
         published_count = 0
         for post in posts:
@@ -53,7 +77,7 @@ def publish_scheduled_cms_posts():
                 logger.error(f"Failed to queue post {post.id}: {e}")
 
     logger.info(f"Queued {published_count} posts for publishing")
-    return {"queued": published_count}
+    return {"queued": published_count, "skipped_stale": stale_count}
 
 
 @shared_task(

@@ -58,9 +58,24 @@ async def cdp_client(app, db_session, test_tenant) -> AsyncClient:
     app.dependency_overrides[get_async_session] = get_test_session
     app.dependency_overrides[get_current_user] = mock_get_current_user
 
+    # A real signed access token, not just the dependency override: the router
+    # guard reads request.state, which TenantMiddleware fills in only from a
+    # verified token, so mocking get_current_user alone now yields 401.
+    from app.core.security import create_access_token
+
+    token = create_access_token(
+        subject=1,
+        additional_claims={
+            "email": "test@example.com",
+            "tenant_id": test_tenant["id"],
+            "role": "admin",
+        },
+    )
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
+        headers={"Authorization": f"Bearer {token}"},
     ) as ac:
         yield ac
 

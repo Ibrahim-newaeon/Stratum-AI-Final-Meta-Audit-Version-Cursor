@@ -118,6 +118,92 @@ def with_distributed_lock(
         return wrapper
     return decorator
 
+# =============================================================================
+# Queue Topology
+# =============================================================================
+#
+# Every task is routed to a named queue below. A worker only consumes the
+# queues it is started with, so the routing table and the ``-Q`` list handed to
+# the worker MUST stay in sync: a route to a queue nobody consumes means the
+# task is accepted by the broker and then never executed. That is exactly what
+# happened before this module exported CELERY_QUEUES - the worker ran with no
+# ``-Q`` at all, so it consumed only Celery's built-in "celery" queue while
+# beat kept publishing to sync/rules/intel/ml/cdp/default.
+#
+# CELERY_QUEUES is derived from TASK_ROUTES and BEAT_SCHEDULE rather than
+# written out by hand, so a new route cannot silently go unconsumed.
+# docker-entrypoint.sh reads it at start-up; the compose files repeat it
+# literally and tests/unit/test_worker_queue_coverage.py fails when any of
+# them drifts.
+
+# Queue for tasks that match no route (Celery's task_default_queue).
+DEFAULT_QUEUE = "default"
+
+# Celery's own built-in default queue name. Anything enqueued by a client that
+# does not know our routing table lands here, so the worker must drain it too.
+CELERY_BUILTIN_QUEUE = "celery"
+
+# Task routing (organized by domain module)
+TASK_ROUTES: dict[str, dict[str, str]] = {
+    # Sync tasks
+    "app.workers.tasks.sync.sync_campaign_data": {"queue": "sync"},
+    "app.workers.tasks.sync.sync_all_campaigns": {"queue": "sync"},
+    # Measurement & Verification (GA4 read-only baseline pull)
+    "app.workers.tasks.measurement.*": {"queue": "sync"},
+    # Trust Layer rollups
+    "tasks.signal_health_rollup": {"queue": "sync"},
+    "tasks.attribution_variance_rollup": {"queue": "sync"},
+    # Rules tasks
+    "app.workers.tasks.rules.evaluate_rules": {"queue": "rules"},
+    "app.workers.tasks.rules.evaluate_all_rules": {"queue": "rules"},
+    # Competitor tasks
+    "app.workers.tasks.competitors.fetch_competitor_data": {"queue": "intel"},
+    "app.workers.tasks.competitors.refresh_all_competitors": {"queue": "intel"},
+    # ML tasks
+    "app.workers.tasks.ml.*": {"queue": "ml"},
+    "app.workers.tasks.forecast.*": {"queue": "ml"},
+    # CDP tasks
+    "app.workers.tasks.cdp.*": {"queue": "cdp"},
+    # CMS tasks
+    "app.workers.tasks.cms.*": {"queue": DEFAULT_QUEUE},
+    # WhatsApp tasks
+    "app.workers.tasks.whatsapp.*": {"queue": DEFAULT_QUEUE},
+}
+
+
+def collect_queue_names(
+    task_routes: dict[str, dict[str, str]],
+    beat_schedule: dict[str, dict[str, Any]],
+) -> tuple[str, ...]:
+    """
+    Derive the full set of queues a worker has to consume.
+
+    Unions every queue named by a routing rule, every queue named in a beat
+    entry's ``options``, the default queue for unrouted tasks and Celery's
+    built-in queue name.
+
+    Args:
+        task_routes: The ``task_routes`` mapping handed to Celery
+        beat_schedule: The ``beat_schedule`` mapping handed to Celery beat
+
+    Returns:
+        Sorted tuple of queue names, safe to pass to ``celery worker -Q``
+    """
+    names: set[str] = {DEFAULT_QUEUE, CELERY_BUILTIN_QUEUE}
+
+    for route in task_routes.values():
+        queue = route.get("queue")
+        if queue:
+            names.add(queue)
+
+    for entry in beat_schedule.values():
+        queue = (entry.get("options") or {}).get("queue")
+        if queue:
+            names.add(queue)
+
+    return tuple(sorted(names))
+
+
 # Create Celery app
 celery_app = Celery(
     "stratum_ai",
@@ -167,39 +253,19 @@ celery_app.conf.update(
     worker_max_tasks_per_child=1000,  # Recycle worker after 1000 tasks to prevent fragmentation
     # Result settings
     result_expires=3600,  # Results expire after 1 hour (was 24h - reduced per memory audit)
-    # Task routing (organized by domain module)
-    task_routes={
-        # Sync tasks
-        "app.workers.tasks.sync.sync_campaign_data": {"queue": "sync"},
-        "app.workers.tasks.sync.sync_all_campaigns": {"queue": "sync"},
-        # Measurement & Verification (GA4 read-only baseline pull)
-        "app.workers.tasks.measurement.*": {"queue": "sync"},
-        # Trust Layer rollups
-        "tasks.signal_health_rollup": {"queue": "sync"},
-        "tasks.attribution_variance_rollup": {"queue": "sync"},
-        # Rules tasks
-        "app.workers.tasks.rules.evaluate_rules": {"queue": "rules"},
-        "app.workers.tasks.rules.evaluate_all_rules": {"queue": "rules"},
-        # Competitor tasks
-        "app.workers.tasks.competitors.fetch_competitor_data": {"queue": "intel"},
-        "app.workers.tasks.competitors.refresh_all_competitors": {"queue": "intel"},
-        # ML tasks
-        "app.workers.tasks.ml.*": {"queue": "ml"},
-        "app.workers.tasks.forecast.*": {"queue": "ml"},
-        # CDP tasks
-        "app.workers.tasks.cdp.*": {"queue": "cdp"},
-        # CMS tasks
-        "app.workers.tasks.cms.*": {"queue": "default"},
-        # WhatsApp tasks
-        "app.workers.tasks.whatsapp.*": {"queue": "default"},
-    },
+    # Task routing (organized by domain module). Declared above so the
+    # queue list handed to the worker can be derived from it.
+    task_routes=TASK_ROUTES,
+    # Anything that matches no route goes to a queue the worker consumes,
+    # never to Celery's implicit "celery" queue by accident.
+    task_default_queue=DEFAULT_QUEUE,
     # Task time limits
     task_time_limit=600,  # 10 minutes hard limit
     task_soft_time_limit=540,  # 9 minutes soft limit (for graceful shutdown)
 )
 
 # Beat schedule for periodic tasks (using new modular task paths)
-celery_app.conf.beat_schedule = {
+BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
     # ==========================================================================
     # Rules Engine Tasks
     # ==========================================================================
@@ -263,12 +329,12 @@ celery_app.conf.beat_schedule = {
     "calculate-fatigue-scores": {
         "task": "app.workers.tasks.creative.calculate_all_fatigue_scores",
         "schedule": crontab(minute=0, hour=3),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     "calculate-daily-scores": {
         "task": "app.workers.tasks.scores.calculate_daily_scores",
         "schedule": crontab(minute=0, hour=4),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     # ==========================================================================
     # Audit & Monitoring Tasks
@@ -276,12 +342,12 @@ celery_app.conf.beat_schedule = {
     "process-audit-logs": {
         "task": "app.workers.tasks.audit.process_audit_log_queue",
         "schedule": crontab(minute="*"),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     "check-pipeline-health": {
         "task": "app.workers.tasks.monitoring.check_pipeline_health",
         "schedule": crontab(minute=30),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     # ==========================================================================
     # Billing & Usage Tasks
@@ -289,12 +355,12 @@ celery_app.conf.beat_schedule = {
     "calculate-cost-allocation": {
         "task": "app.workers.tasks.billing.calculate_cost_allocation",
         "schedule": crontab(minute=0, hour=2),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     "calculate-usage-rollup": {
         "task": "app.workers.tasks.billing.calculate_usage_rollup",
         "schedule": crontab(minute=0, hour=1),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     # ==========================================================================
     # WhatsApp Tasks
@@ -302,7 +368,7 @@ celery_app.conf.beat_schedule = {
     "process-scheduled-whatsapp": {
         "task": "app.workers.tasks.whatsapp.process_scheduled_whatsapp_messages",
         "schedule": crontab(minute="*"),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
     # ==========================================================================
     # CDP (Customer Data Platform) Tasks
@@ -323,9 +389,16 @@ celery_app.conf.beat_schedule = {
     "publish-scheduled-cms-posts": {
         "task": "app.workers.tasks.cms.publish_scheduled_cms_posts",
         "schedule": crontab(minute="*"),
-        "options": {"queue": "default"},
+        "options": {"queue": DEFAULT_QUEUE},
     },
 }
+
+celery_app.conf.beat_schedule = BEAT_SCHEDULE
+
+# The exact queue list a worker must consume for every routed and every
+# scheduled task to actually run. Read by docker-entrypoint.sh:
+#   celery ... worker -Q "$(python -c '...print(",".join(CELERY_QUEUES))')"
+CELERY_QUEUES: tuple[str, ...] = collect_queue_names(TASK_ROUTES, BEAT_SCHEDULE)
 
 
 # Task decorators for common patterns

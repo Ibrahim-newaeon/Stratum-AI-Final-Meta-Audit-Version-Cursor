@@ -135,7 +135,7 @@ VITE_API_BASE_URL=https://yourdomain.com
 ### Step 6: Configure ad platforms (optional for dev)
 
 ```env
-USE_MOCK_AD_DATA=true   # Set to false in production
+USE_MOCK_AD_DATA=true   # Local development only - see the note below
 
 # Fill in when connecting Meta (Facebook, Instagram, WhatsApp):
 META_APP_ID=
@@ -265,7 +265,7 @@ its Paddle name when present, adds any missing columns and creates the webhook t
 | `DATABASE_URL` | Yes | Async PostgreSQL connection string |
 | `REDIS_URL` | Yes | Redis connection string |
 | `APP_ENV` | Yes | `development`, `staging`, or `production` |
-| `USE_MOCK_AD_DATA` | No | `true` for dev, `false` for prod |
+| `USE_MOCK_AD_DATA` | No | Defaults to `false`. `true` writes generated metrics into `campaign_metrics`; the API refuses to start with it `true` while `APP_ENV=production`. |
 | `SENTRY_DSN` | No | Sentry error tracking URL |
 | `SUBSCRIPTION_TIER` | No | `starter`, `professional`, `enterprise` |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
@@ -347,8 +347,10 @@ alembic upgrade head
 # Start the API
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Start Celery worker (separate terminal)
-celery -A app.workers.celery_app worker --loglevel=info
+# Start Celery worker (separate terminal). -Q is required: every task is routed
+# to a named queue, so a worker started without it drains only Celery's built-in
+# "celery" queue and nothing scheduled ever runs.
+celery -A app.workers.celery_app worker -Q cdp,celery,default,intel,ml,rules,sync --loglevel=info
 
 # Start Celery beat (separate terminal)
 celery -A app.workers.celery_app beat --loglevel=info
@@ -387,6 +389,17 @@ LOG_LEVEL=WARNING
 LOG_FORMAT=json
 USE_MOCK_AD_DATA=false
 ```
+
+> **`USE_MOCK_AD_DATA` is off by default and rejected in production.** With it `true`, the campaign
+> sync tasks write `MockAdNetwork.generate_time_series(...)` output straight into `campaign_metrics`,
+> so a real tenant would see invented spend and revenue as their own numbers. The settings validator
+> now refuses to start when it is `true` and `APP_ENV=production`.
+>
+> With it `false` there is currently **no ad-platform ingestion behind those tasks** - no Meta
+> Marketing API client was ever wired up. `sync_campaign_data` logs a warning and returns
+> `{"status": "skipped", "reason": "real_ad_platform_sync_unavailable"}` without writing a row or
+> touching `last_synced_at`, so signal health degrades on freshness and the Trust Gate holds, which
+> is the correct behaviour for a pipeline that is not delivering data.
 
 ### Step 2: Build and start production services
 
@@ -553,12 +566,53 @@ max_connections=50
 
 | Queue | Tasks | Schedule |
 |-------|-------|----------|
-| `default` | CMS, WhatsApp | As triggered |
-| `sync` | Campaign sync | Every hour |
+| `default` | CMS, WhatsApp, anything unrouted (`task_default_queue`) | As triggered |
+| `celery` | Celery's built-in default, for clients that do not know the routing table | As triggered |
+| `sync` | Campaign sync, GA4 baseline pull, Trust Layer rollups | Every hour / nightly |
 | `rules` | Rule evaluation | Every 15 min |
 | `intel` | Competitor data | Every 6 hours |
 | `ml` | Predictions, forecasts | Every 30 min / Daily |
 | `cdp` | Segments, funnels | Hourly / Every 2 hours |
+
+**The worker must be started with all of them.** A Celery worker consumes only
+the queues named in `-Q`; every task here is routed to one of the queues above,
+so a worker started without `-Q` drains only `celery` and nothing scheduled ever
+runs - beat keeps logging "Sending due task" and no task is ever received.
+
+```
+-Q cdp,celery,default,intel,ml,rules,sync
+```
+
+`docker-entrypoint.sh` (`SERVICE_ROLE=worker`) derives that list at start-up from
+`app.workers.celery_app.CELERY_QUEUES`, which is itself computed from
+`TASK_ROUTES` and `BEAT_SCHEDULE`, and echoes it before exec'ing the worker. The
+compose files spell the same list out literally.
+`backend/tests/unit/test_worker_queue_coverage.py` fails if a route or beat entry
+ever names a queue that is missing from any of them, so adding a new queue means
+updating the compose commands and this section. That test also runs the
+entrypoint's derivation and the entrypoint itself, because the value has to be
+right at run time, not just in the file: importing the Celery app writes a
+structlog line to stdout, so an earlier inline `python -c` had that log line
+glued onto the first queue name and the worker silently never consumed `cdp`.
+The derivation therefore lives in `backend/scripts_print_celery_queues.py`,
+which keeps stdout to the queue list alone, and the entrypoint refuses to start
+if what it captures is not a queue list.
+
+### Before the first worker rollout
+
+The worker has never consumed these queues, so anything the per-minute
+dispatchers queue up has been accumulating. Check the backlog before starting a
+worker against a database with real tenants:
+
+```sql
+SELECT count(*) FROM whatsapp_messages WHERE status = 'pending' AND scheduled_at <= now();
+SELECT count(*) FROM cms_posts        WHERE status = 'scheduled' AND scheduled_at <= now();
+```
+
+Both dispatchers now ignore anything more than `SCHEDULED_DISPATCH_MAX_AGE_HOURS`
+(default 24) overdue and log a warning naming how many they skipped, so the first
+start cannot fire months of backlog at once. Clear or reschedule those rows
+deliberately rather than letting them go out late.
 
 ### Beat Schedule Summary
 
@@ -880,7 +934,7 @@ The reference cloud setup runs on Railway project `stratum-ai-meta`, deployed au
 | Service | Source | Notes |
 |---|---|---|
 | `api` | repo, root directory `backend`, `backend/Dockerfile` | Entrypoint `docker-entrypoint.sh` (`SERVICE_ROLE=api`): runs `scripts_db_prepare.py`, optional demo seeding, then `serve.py` (dual-stack socket: IPv4 for the public proxy, IPv6 for the private network). Healthcheck `/health`, timeout 300 s. |
-| `worker` | repo, root directory = repository root, root `Dockerfile` | Same image with `SERVICE_ROLE=worker`: Celery worker with the embedded beat scheduler. Run exactly one replica with beat; scale with `CELERY_CONCURRENCY`. Variables reference the api's (`${{api.DATABASE_URL}}` …). |
+| `worker` | repo, root directory = repository root, root `Dockerfile` | Same image with `SERVICE_ROLE=worker`: Celery worker with the embedded beat scheduler, consuming every routed queue (`-Q cdp,celery,default,intel,ml,rules,sync`, derived at start-up from `CELERY_QUEUES` and echoed in the logs). Run exactly one replica with beat; scale with `CELERY_CONCURRENCY`. Variables reference the api's (`${{api.DATABASE_URL}}` …). |
 | `frontend` | repo, root directory `frontend`, `frontend/Dockerfile` | nginx on 8080 serving the SPA and proxying `/api`, `/ws` to `${API_UPSTREAM}` (`api.railway.internal:8000`), re-resolved per request. |
 | `Postgres`, `Redis` | Railway plugins | One instance per environment. |
 

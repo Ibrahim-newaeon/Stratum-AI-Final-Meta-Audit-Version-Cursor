@@ -55,6 +55,10 @@ services:
     restart: always
     environment:
       - APP_ENV=production
+      # Never inherit the base compose file's dev default: fabricated ad
+      # metrics must never reach a real tenant, and the settings validator
+      # refuses to start with this true while APP_ENV=production.
+      - USE_MOCK_AD_DATA=false
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
@@ -101,6 +105,10 @@ services:
     restart: always
     environment:
       - APP_ENV=production
+      # Never inherit the base compose file's dev default: fabricated ad
+      # metrics must never reach a real tenant, and the settings validator
+      # refuses to start with this true while APP_ENV=production.
+      - USE_MOCK_AD_DATA=false
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
@@ -118,7 +126,10 @@ services:
       - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./ml_service/models:/app/ml_service/models:ro
-    command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=2
+    # -Q must list every queue in celery_app.TASK_ROUTES/BEAT_SCHEDULE
+    # (app.workers.celery_app.CELERY_QUEUES); without it the worker drains
+    # only Celery's built-in "celery" queue and nothing scheduled runs.
+    command: celery -A app.workers.celery_app worker -Q cdp,celery,default,intel,ml,rules,sync --loglevel=warning --concurrency=2
     deploy:
       resources:
         limits:
@@ -139,6 +150,10 @@ services:
     restart: always
     environment:
       - APP_ENV=production
+      # Never inherit the base compose file's dev default: fabricated ad
+      # metrics must never reach a real tenant, and the settings validator
+      # refuses to start with this true while APP_ENV=production.
+      - USE_MOCK_AD_DATA=false
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
