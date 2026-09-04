@@ -60,7 +60,9 @@ class MetaOAuthService(OAuthService):
         super().__init__()
         self.app_id = settings.meta_app_id
         self.app_secret = settings.meta_app_secret
-        self.api_version = settings.meta_api_version
+        # One knob for every Meta caller: settings.meta_graph_api_version,
+        # unless the deprecated META_API_VERSION override is set.
+        self.api_version = settings.meta_oauth_api_version
 
     def _get_auth_url(self) -> str:
         """Get versioned auth URL."""

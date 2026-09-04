@@ -23,6 +23,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from app.core.config import settings
 from app.stratum.models import AutomationAction, SignalHealth
 
 logger = logging.getLogger("stratum.trust_gate")
@@ -40,10 +41,16 @@ class GateDecision(str, Enum):
 class TrustGateConfig:
     """Configuration for trust gate thresholds."""
 
-    # Score thresholds
-    pass_threshold: float = 70.0  # Signal health >= 70 allows execution
-    hold_threshold: float = 40.0  # Signal health 40-69 holds for review
-    # Below 40 = BLOCK
+    # Score thresholds. Read from configuration rather than repeated as
+    # literals here: these are the same documented thresholds the gate in
+    # app/tasks/apply_actions_queue.py enforces, and two divergent copies of
+    # 70/40 means lowering the configured value silently misses one of them.
+    pass_threshold: float = field(
+        default_factory=lambda: float(settings.signal_health_healthy_threshold)
+    )  # Signal health >= healthy threshold allows execution
+    hold_threshold: float = field(
+        default_factory=lambda: float(settings.signal_health_degraded_threshold)
+    )  # Between the two thresholds, hold for review; below the lower one, BLOCK
 
     # Action-specific overrides
     high_risk_threshold: float = 80.0  # Higher threshold for high-risk actions

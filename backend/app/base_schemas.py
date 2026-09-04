@@ -230,8 +230,11 @@ class CampaignBase(BaseSchema):
 class CampaignCreate(CampaignBase):
     """Campaign creation request."""
 
-    external_id: str = Field(..., max_length=255)
-    account_id: str = Field(..., max_length=255)
+    # min_length=1: a blank external_id cannot identify the campaign's rows in
+    # the Meta insights pull, and an empty string would otherwise disable both
+    # the server-side and the local campaign filter.
+    external_id: str = Field(..., min_length=1, max_length=255)
+    account_id: str = Field(..., min_length=1, max_length=255)
     daily_budget_cents: Optional[int] = Field(None, ge=0)
     lifetime_budget_cents: Optional[int] = Field(None, ge=0)
     currency: str = Field(default="USD", max_length=3)

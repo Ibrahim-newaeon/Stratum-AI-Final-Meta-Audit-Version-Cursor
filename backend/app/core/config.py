@@ -140,10 +140,92 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: Optional[str] = Field(default=None, description="MLflow tracking server URI")
 
     # -------------------------------------------------------------------------
+    # Trust Engine (signal health -> trust gate)
+    # -------------------------------------------------------------------------
+    # The single source of truth for the thresholds documented in
+    # docs/architecture/trust-engine.md. Call sites read them from here and
+    # never hardcode 70/40: signal health >= healthy is PASS (autopilot
+    # executes), healthy > score >= degraded is HOLD (alert only) and anything
+    # lower is BLOCK (manual review). SignalHealthConfig and the trust gate in
+    # app/tasks/apply_actions_queue.py both read these values.
+    signal_health_healthy_threshold: float = Field(
+        default=70.0,
+        ge=0.0,
+        le=100.0,
+        description="Signal health at or above which the trust gate PASSes (autopilot executes)",
+    )
+    signal_health_degraded_threshold: float = Field(
+        default=40.0,
+        ge=0.0,
+        le=100.0,
+        description="Signal health at or above which the trust gate HOLDs; below it BLOCKs",
+    )
+    signal_health_fresh_minutes: float = Field(
+        default=60.0, gt=0.0, description="Data age scoring full marks for the freshness component"
+    )
+    signal_health_stale_minutes: float = Field(
+        default=24 * 60.0, gt=0.0, description="Data age scoring zero for the freshness component"
+    )
+    # A signal health row may have NULL metric columns. Scoring renormalises
+    # the weights over the columns that are populated, so without a floor a row
+    # carrying one trivially-perfect component (api_error_rate=0 is 15% of the
+    # weight) would score 100 and PASS - "absence of data is health" again, one
+    # level down. Require at least this much of the total weight before a score
+    # is trusted; below it the gate treats the row as unscorable and BLOCKs.
+    signal_health_min_component_weight: float = Field(
+        default=0.5,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Fraction of the component weight that must be populated before a "
+            "signal health row can be scored (below it the trust gate BLOCKs)"
+        ),
+    )
+    # Freshness of the signal health snapshot itself. The rollup writes rows
+    # dated for the previous day (02:00 UTC), so yesterday's row is the newest
+    # one that can exist and 1 is the smallest workable value.
+    trust_gate_max_health_age_days: int = Field(
+        default=1,
+        ge=0,
+        description="How many days old a fact_signal_health_daily row may be and still count",
+    )
+    # The per-minute dispatchers (scheduled WhatsApp sends, scheduled CMS
+    # publishes) select everything whose scheduled_at has passed, with no lower
+    # bound. The worker consumed no queues until now, so whatever was scheduled
+    # since deployment is still pending: without a cut-off the first worker
+    # start would flush the entire backlog at once, sending months-old messages
+    # and publishing stale posts. Anything older than this is left alone for an
+    # operator to review rather than fired blind.
+    scheduled_dispatch_max_age_hours: int = Field(
+        default=24,
+        ge=1,
+        description=(
+            "How overdue a scheduled WhatsApp message or CMS post may be and "
+            "still be dispatched automatically"
+        ),
+    )
+    trust_gate_stale_health_decision: Literal["hold", "block"] = Field(
+        default="hold",
+        description=(
+            "Gate decision when the newest signal health row is older than "
+            "trust_gate_max_health_age_days. Never 'pass' - a stale row is not health."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
     # Ad Platform Configuration
     # -------------------------------------------------------------------------
+    # Fabricated ad metrics. When true, the sync tasks write
+    # MockAdNetwork.generate_time_series() output into CampaignMetric instead
+    # of calling a platform API - useful locally, catastrophic for a real
+    # tenant, who would see invented spend/revenue as if it were their own.
+    # Default off; validate_security_settings() refuses it in production.
     use_mock_ad_data: bool = Field(
-        default=True, description="Use mock data instead of real ad platform APIs"
+        default=False,
+        description=(
+            "Write mock ad metrics instead of real platform data. "
+            "Development only - rejected when APP_ENV=production."
+        ),
     )
 
     # OAuth callback base URL (for constructing redirect URIs)
@@ -155,7 +237,85 @@ class Settings(BaseSettings):
     meta_app_id: Optional[str] = Field(default=None, description="Meta/Facebook App ID")
     meta_app_secret: Optional[str] = Field(default=None, description="Meta/Facebook App Secret")
     meta_access_token: Optional[str] = Field(default=None)
-    meta_api_version: str = Field(default="v19.0", description="Meta Graph API version")
+    # DEPRECATED override kept so an existing META_API_VERSION env var is not
+    # silently ignored. Leave it unset: the OAuth flow then follows
+    # meta_graph_api_version like every other Meta caller. Its old default
+    # (v19.0) expired on 2026-05-21.
+    meta_api_version: Optional[str] = Field(
+        default=None,
+        description=(
+            "DEPRECATED per-flow override for the Meta OAuth Graph version. "
+            "Unset means 'use META_GRAPH_API_VERSION'."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Meta Marketing API insights ingestion (READ-ONLY)
+    # -------------------------------------------------------------------------
+    # The nightly/hourly campaign sync pulls Ads Insights rows and writes them
+    # into CampaignMetric. Only GET requests are ever issued; the scope needed
+    # is ads_read. Per-tenant credentials live in tenant_platform_connection /
+    # tenant_ad_account - only these global knobs come from the environment.
+    meta_graph_api_version: str = Field(
+        default="v23.0",
+        description=(
+            "Graph API version for every Meta caller: the read-only insights "
+            "client, the Conversions API connector, the WhatsApp Cloud API "
+            "connector, offline conversions, CDP audience sync and the OAuth "
+            "flow (via meta_oauth_api_version). v23.0 is supported until "
+            "2027-10-08; v26.0 is the current stable release."
+        ),
+    )
+    meta_insights_lookback_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description=(
+            "Days re-pulled on every campaign sync. Meta restates conversions "
+            "for days after the fact, so the window is re-fetched and upserted."
+        ),
+    )
+    meta_insights_request_timeout_seconds: float = Field(
+        default=30.0, gt=0, description="Per-request timeout for the Ads Insights API"
+    )
+    meta_insights_max_pages: int = Field(
+        default=25,
+        ge=1,
+        description="Upper bound on insights pages followed (guards a runaway cursor loop)",
+    )
+    meta_conversion_action_types: str = Field(
+        default="offsite_conversion.fb_pixel_purchase,omni_purchase,purchase",
+        description=(
+            "Comma-separated Meta action_type values counted as conversions and "
+            "revenue. The first type present in a row wins, so order matters: "
+            "the web-pixel purchase is preferred, then Meta's grouped "
+            "'omni_purchase' (which also covers app, on-Facebook and offline "
+            "purchases), then a bare 'purchase' as a belt-and-braces fallback. "
+            "A tenant whose purchases are app-only or on-Facebook must have a "
+            "type here that its account actually reports, or conversions and "
+            "revenue are recorded as zero."
+        ),
+    )
+
+    @property
+    def meta_oauth_api_version(self) -> str:
+        """
+        Graph API version for the Meta OAuth flow.
+
+        Follows ``meta_graph_api_version`` unless the deprecated
+        ``META_API_VERSION`` override is set, so one knob moves every Meta
+        caller.
+        """
+        return self.meta_api_version or self.meta_graph_api_version
+
+    @property
+    def meta_conversion_action_types_list(self) -> list[str]:
+        """Get the configured Meta conversion action types as an ordered list."""
+        return [
+            action_type.strip()
+            for action_type in self.meta_conversion_action_types.split(",")
+            if action_type.strip()
+        ]
 
     # -------------------------------------------------------------------------
     # Measurement & Verification (GA4 read-only + GTM tag deployment)
@@ -534,6 +694,15 @@ class Settings(BaseSettings):
 
             if paddle_issues:
                 issues.extend(paddle_issues)
+
+        # Fabricated ad metrics must never reach a paying tenant. This is a
+        # production-only rejection: local development and the demo seed set
+        # USE_MOCK_AD_DATA=true deliberately.
+        if self.use_mock_ad_data and self.is_production:
+            issues.append(
+                "USE_MOCK_AD_DATA must be false in production "
+                "(it writes fabricated campaign metrics into tenant data)"
+            )
 
         if issues:
             if self.is_production:

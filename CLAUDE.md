@@ -68,6 +68,71 @@ DEGRADED_THRESHOLD = 40     # Yellow - alert + hold
 # Never auto-execute when signal_health < 70
 ```
 
+## Meta Insights Ingestion (read-only)
+Campaign performance is pulled from the Meta Marketing API **Ads Insights** endpoint. This is the only
+real ad-platform ingestion in the product, and it is **GET-only** — it can never create, edit, pause or
+delete anything in an ad account. Scope: `ads_read` (`ads_management` belongs to the separate,
+deliberately unwired autopilot write path in `app/tasks/apply_actions_queue.py` — do not touch it).
+
+`GET /<version>/act_<id>/insights` with `level=campaign`, `time_increment=1` and a JSON `time_range`;
+pagination follows `paging.next` via `paging.cursors.after` (cursors are returned on the last page too).
+Hitting the `META_INSIGHTS_MAX_PAGES` cap while Meta still has pages raises `MetaInsightsTruncatedError`
+— an incomplete window is never returned as a short successful one. Rows are upserted into
+`campaign_metrics` by `(campaign_id, date)` — the last `META_INSIGHTS_LOOKBACK_DAYS` days are re-pulled
+every run because Meta restates conversions after the fact.
+
+Conversions and revenue come from the `actions` / `action_values` arrays keyed by the action types in
+`META_CONVERSION_ACTION_TYPES`. The winning type is resolved **once** against `actions` (first configured
+type present wins, so overlapping types never double count) and the revenue for that same type is then
+read from `action_values` — a count from one type is never paired with a value from another. Keep a type
+the accounts actually report: `offsite_conversion.fb_pixel_purchase` is web-pixel only, `omni_purchase`
+is Meta's documented grouped type. `video_views` comes from the `video_view` action type (3-second
+views), not from `video_p25_watched_actions`. Money is `Decimal` from Meta's decimal strings to the
+integer column, never `float`; the `*_cents` columns hold hundredths of the account's **major** unit for
+every currency, which is why they are `BigInteger` (migration `0002_widen_money_columns` — int4 capped a
+VND campaign at ~US$860).
+
+Nothing is ever written that was not read from Meta, and `last_synced_at` advances only for a window that
+actually returned rows. No usable credential (no connection, not `connected`, missing/expired token, no
+ad account, blank `external_id`) → nothing written, `campaigns.sync_error` records why, `last_synced_at`
+untouched so freshness degrades honestly, task returns `skipped` with the reason. Zero rows → `no_rows`,
+not `success` (indistinguishable from a wrong `external_id`). Truncated pull → `failed` /
+`insights_truncated`, no retry. Error code 190 → connection marked `disconnected`
+(`last_error`/`error_count`); throttling codes 4/17/32/341/613/80000+ or a bare HTTP 429 → Celery retry
+with the back-off from `X-Business-Use-Case-Usage`, falling back to `Retry-After`. The token travels in
+`Authorization: Bearer`, never in a query string, log line or exception message.
+
+`META_GRAPH_API_VERSION` is the **single** Graph API version constant: the insights client, the CAPI and
+WhatsApp connectors (`app/services/capi/platform_connectors.py`), offline conversions, CDP audience sync
+and the OAuth flow all read it. Never hardcode a `v<N>.0` literal in a Meta caller. `META_API_VERSION`
+remains only as a deprecated OAuth-only override; leave it unset.
+
+**Key files**
+- `backend/app/services/meta/insights_client.py` (thin async httpx client, `MetaInsightRow`,
+  `MetaAPIError` / `MetaTokenError` / `MetaRateLimitError`)
+- `backend/app/services/meta/insights_ingestion.py` (credential resolution, mapping, money conversion,
+  `(campaign_id, date)` upsert)
+- `backend/app/workers/tasks/sync.py` (`sync_campaign_data`, `sync_all_campaigns`)
+- `backend/migrations/versions/20260904_000000_0002_widen_money_columns.py` (money columns to int8;
+  existing deployments must run `alembic upgrade head`, it rewrites `campaigns` / `campaign_metrics`)
+- Tests: `backend/tests/unit/test_meta_insights.py`, `backend/tests/unit/test_mock_ad_data_guard.py`
+- `backend/app/stratum/adapters/meta_adapter.py` imports `facebook_business`, which is **not installed
+  and not a dependency** — the module cannot be imported. It is reference material only; do not revive it
+  and do not add the SDK.
+
+**Global env (the ONLY META_INSIGHTS_*/META_GRAPH_* variables; tokens and ad accounts are per tenant in
+`tenant_platform_connection` / `tenant_ad_account`)**
+```
+META_GRAPH_API_VERSION=v23.0
+META_INSIGHTS_LOOKBACK_DAYS=7
+META_INSIGHTS_REQUEST_TIMEOUT_SECONDS=30
+META_INSIGHTS_MAX_PAGES=25
+META_CONVERSION_ACTION_TYPES=offsite_conversion.fb_pixel_purchase,omni_purchase,purchase
+```
+
+`USE_MOCK_AD_DATA` still switches in the local mock generator for development; it is rejected outright
+when `APP_ENV=production`.
+
 ## Measurement Integrations (read-only)
 Stratum AI **acts only on Meta channels** (Facebook, Instagram, WhatsApp). Google Analytics 4 and
 Google Tag Manager are restored strictly as **"Measurement & Verification"** integrations
@@ -187,6 +252,9 @@ Docs: `docs/integrations/billing-paddle.md`, `SERVER_DEPLOYMENT_GUIDE.md` (Step 
 - Merge without passing CI
 - Treat GA4/GTM as ad channels (no Google Ads, Customer Match, gclid, write scopes, Google OAuth); never put ga4/gtm in AdPlatform/SyncPlatform/Platform enums or TenantPlatformConnection
 - Add any payment provider other than Paddle Billing, add a Paddle SDK dependency, or load Paddle.js in public static HTML
+- Make any non-GET call to the Meta Marketing API from the insights path, add the `facebook_business`
+  SDK, or wire up `app/tasks/apply_actions_queue.py` (its executor is a simulator)
+- Report a successful campaign sync, or leave `last_synced_at` fresh, when no metrics were written
 
 ## Git Workflow
 - Branch: `feature/STRAT-123-description`

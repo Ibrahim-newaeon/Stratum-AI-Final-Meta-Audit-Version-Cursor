@@ -71,7 +71,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - ML_PROVIDER=local
-      - USE_MOCK_AD_DATA=${USE_MOCK_AD_DATA:-true}
+      # These editions default to APP_ENV=production, which rejects mock data.
+      - USE_MOCK_AD_DATA=false
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - PII_ENCRYPTION_KEY=${PII_ENCRYPTION_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
@@ -125,7 +126,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - ML_PROVIDER=local
-      - USE_MOCK_AD_DATA=${USE_MOCK_AD_DATA:-true}
+      # These editions default to APP_ENV=production, which rejects mock data.
+      - USE_MOCK_AD_DATA=false
       - PIPEDRIVE_API_TOKEN=${PIPEDRIVE_API_TOKEN:-}
       - HUBSPOT_API_KEY=${HUBSPOT_API_KEY:-}
       # Paddle Billing (optional)
@@ -145,7 +147,10 @@ services:
         condition: service_healthy
     networks:
       - stratum_pro_network
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    # -Q must list every queue in celery_app.TASK_ROUTES/BEAT_SCHEDULE
+    # (app.workers.celery_app.CELERY_QUEUES); without it the worker drains
+    # only Celery's built-in "celery" queue and nothing scheduled runs.
+    command: celery -A app.workers.celery_app worker -Q cdp,celery,default,intel,ml,rules,sync --loglevel=info --concurrency=4
 
   # ===========================================================================
   # Celery Beat Scheduler

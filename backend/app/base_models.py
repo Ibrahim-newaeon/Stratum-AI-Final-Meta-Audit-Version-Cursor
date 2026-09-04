@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     )
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -387,23 +388,30 @@ class Campaign(Base, TimestampMixin, SoftDeleteMixin, TenantMixin):
     )
     objective: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    # Budget & Spend (stored in cents to avoid floating point issues)
-    daily_budget_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    lifetime_budget_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    total_spend_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Budget & Spend. These columns hold *hundredths of the ad account's major
+    # unit* for every currency (see app/services/meta/insights_ingestion.py:
+    # every reader divides by 100 with no currency awareness). That x100 is
+    # what forces BigInteger: int4 caps at 21,474,836 major units, which is
+    # ~US$21M but only ~US$860 in VND and ~US$16k in KRW, and a zero-decimal
+    # advertiser would hit "integer out of range" on an ordinary campaign.
+    daily_budget_cents: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    lifetime_budget_cents: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    total_spend_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
 
     # Performance Metrics (Aggregated)
     impressions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     clicks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     conversions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    revenue_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
-    # Computed Metrics (stored for query performance)
+    # Computed Metrics (stored for query performance). The cost-per-* columns
+    # are derived from total_spend_cents by calculate_metrics(), so they carry
+    # the same currency scaling and the same overflow exposure.
     ctr: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Click-through rate
-    cpc_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Cost per click
-    cpm_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Cost per mille
-    cpa_cents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Cost per acquisition
+    cpc_cents: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # Cost per click
+    cpm_cents: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # Cost per mille
+    cpa_cents: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)  # Cost per acquisition
     roas: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Return on ad spend
 
     # Targeting (Denormalized for analytics)
@@ -492,8 +500,10 @@ class CampaignMetric(Base, TenantMixin):
     impressions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     clicks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     conversions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    spend_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    revenue_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Hundredths of the ad account's major unit; BigInteger for the same
+    # zero-decimal-currency reason as Campaign.total_spend_cents.
+    spend_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Engagement
     video_views: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
