@@ -13,9 +13,11 @@ and the sync task therefore never ran - fixing that would have activated it.
 Two things are pinned here:
 
 1. The flag defaults to off and is rejected outright when APP_ENV=production.
-2. With the flag off the sync tasks write nothing. There is no real ad-platform
-   ingestion behind them, so they must log and skip rather than fall through to
-   a bare commit that reports a successful sync.
+2. With the flag off the sync tasks never fabricate. ``app/workers/tasks/sync.py``
+   now pulls read-only Meta Marketing API insights instead; the legacy, shadowed
+   ``app/workers/tasks.py`` still skips. Either way, a tenant without a usable
+   Meta credential gets no rows and no claim of success - not a bare commit that
+   publishes "sync_complete" for metrics that were never touched.
 """
 
 import functools
@@ -148,14 +150,28 @@ class _FakeResult:
         """Return the single ORM object, or None."""
         return self._obj
 
+    def scalars(self):
+        """Return a scalar view (nothing on this path returns a list)."""
+        return self
+
+    def first(self):
+        """Return the single ORM object, or None."""
+        return self._obj
+
 
 class FakeSyncSession:
-    """Synchronous session stand-in that records every write."""
+    """Synchronous session stand-in that records every write.
+
+    Only ``select(Campaign)`` resolves. Every other lookup - the tenant's Meta
+    platform connection, its enabled ad accounts - comes back empty, which is
+    exactly the state of a tenant that has never connected Meta.
+    """
 
     def __init__(self, campaign):
         self.campaign = campaign
         self.added: list[object] = []
         self.commits = 0
+        self.rollbacks = 0
 
     def __enter__(self):
         return self
@@ -163,9 +179,20 @@ class FakeSyncSession:
     def __exit__(self, *exc_info):
         return False
 
+    @staticmethod
+    def _selects_campaign(statement) -> bool:
+        """Report whether the statement selects the Campaign entity itself."""
+        for description in statement.column_descriptions:
+            entity = description.get("entity")
+            if entity is None or description.get("expr") is not entity:
+                continue
+            if getattr(entity, "__name__", "") == "Campaign":
+                return True
+        return False
+
     def execute(self, statement):
-        """Return the campaign for any lookup this task performs."""
-        return _FakeResult(self.campaign)
+        """Return the campaign for a campaign lookup, nothing for anything else."""
+        return _FakeResult(self.campaign if self._selects_campaign(statement) else None)
 
     def add(self, obj):
         """Record an attempted insert."""
@@ -175,14 +202,20 @@ class FakeSyncSession:
         """Record an attempted commit."""
         self.commits += 1
 
+    def rollback(self):
+        """Record a rollback."""
+        self.rollbacks += 1
+
 
 class FakeCampaign:
-    """Just enough campaign for the skip path."""
+    """Just enough campaign for the refusal paths."""
 
     id = 42
     tenant_id = 1
     name = "Test Campaign"
     external_id = "ext-42"
+    account_id = "act_123456789"
+    currency = "USD"
     start_date = None
     last_synced_at = None
     sync_error = None
@@ -214,56 +247,110 @@ def _load_module(module_path: str):
     return importlib.import_module(module_path)
 
 
-@pytest.mark.parametrize(
-    "module_path",
-    ["app.workers.tasks.sync", "app.workers.tasks"],
-)
-class TestSyncSkipsWithoutMockData:
-    """Both sync implementations must skip rather than pretend to succeed."""
+def _run_sync_task(monkeypatch, module_path):
+    """
+    Run ``sync_campaign_data`` with the flag off against a recording session.
 
-    def _run(self, monkeypatch, module_path):
-        """Run sync_campaign_data against a recording session."""
-        module = _load_module(module_path)
-        campaign = FakeCampaign()
-        session = FakeSyncSession(campaign)
-        published: list[tuple] = []
+    Returns:
+        ``(result, session, published)``.
+    """
+    module = _load_module(module_path)
+    campaign = FakeCampaign()
+    session = FakeSyncSession(campaign)
+    published: list[tuple] = []
 
-        monkeypatch.setattr(settings, "use_mock_ad_data", False)
-        monkeypatch.setattr(module, "SyncSessionLocal", lambda: session)
-        publisher = "publish_event" if module_path.endswith(".sync") else "_publish_event"
-        monkeypatch.setattr(
-            module, publisher, lambda *args, **kwargs: published.append((args, kwargs))
-        )
+    monkeypatch.setattr(settings, "use_mock_ad_data", False)
+    monkeypatch.setattr(module, "SyncSessionLocal", lambda: session)
+    publisher = "publish_event" if module_path.endswith(".sync") else "_publish_event"
+    monkeypatch.setattr(
+        module, publisher, lambda *args, **kwargs: published.append((args, kwargs))
+    )
 
-        result = module.sync_campaign_data(campaign.tenant_id, campaign.id)
-        return result, session, published
+    result = module.sync_campaign_data(campaign.tenant_id, campaign.id)
+    return result, session, published
 
-    def test_writes_no_campaign_metric_row(self, monkeypatch, module_path):
+
+class TestLegacySyncSkipsWithoutMockData:
+    """``app/workers/tasks.py`` has no real ingestion and must say so.
+
+    It is shadowed by the ``app/workers/tasks/`` package and therefore never
+    imported at runtime, so it was left on the skip branch rather than
+    duplicating the Meta ingestion into dead code.
+    """
+
+    MODULE = "app.workers.tasks"
+
+    def test_writes_no_campaign_metric_row(self, monkeypatch):
         """The whole point: not one fabricated metric reaches the database."""
-        result, session, _ = self._run(monkeypatch, module_path)
+        result, session, _ = _run_sync_task(monkeypatch, self.MODULE)
 
         assert session.added == []
         assert session.commits == 0
         assert result["status"] == "skipped"
         assert result["reason"] == "real_ad_platform_sync_unavailable"
 
-    def test_does_not_claim_the_campaign_was_synced(self, monkeypatch, module_path):
+    def test_does_not_claim_the_campaign_was_synced(self, monkeypatch):
         """
         The old code fell through to commit() and published "sync_complete"
         for a campaign whose metrics were never touched.
         """
-        _, session, published = self._run(monkeypatch, module_path)
+        _, session, published = _run_sync_task(monkeypatch, self.MODULE)
 
         assert published == []
         assert session.campaign.last_synced_at is None
 
-    def test_warns_so_the_skip_is_visible(self, monkeypatch, module_path, caplog):
+    def test_warns_so_the_skip_is_visible(self, monkeypatch, caplog):
         """A silent skip is almost as bad as a fabricated row."""
         import logging
 
         with caplog.at_level(logging.WARNING):
-            self._run(monkeypatch, module_path)
+            _run_sync_task(monkeypatch, self.MODULE)
 
         assert any(
             "USE_MOCK_AD_DATA" in record.getMessage() for record in caplog.records
         ), "skipping the sync must be logged as a warning"
+
+
+class TestRealSyncRefusesWithoutCredentials:
+    """``app/workers/tasks/sync.py`` now pulls real Meta insights.
+
+    With the mock flag off it goes to the Meta Marketing API instead of
+    skipping - but a tenant with no Meta connection still must not produce a
+    single row, and must not report success. Fabricating data and *pretending*
+    to have synced are two separate defects; this pins the second one.
+    """
+
+    MODULE = "app.workers.tasks.sync"
+
+    def test_writes_no_campaign_metric_row(self, monkeypatch):
+        """No credential, no data - never an invented row."""
+        result, session, _ = _run_sync_task(monkeypatch, self.MODULE)
+
+        assert session.added == []
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no_meta_connection"
+
+    def test_does_not_claim_the_campaign_was_synced(self, monkeypatch):
+        """last_synced_at must stay unset so freshness degrades honestly."""
+        _, session, published = _run_sync_task(monkeypatch, self.MODULE)
+
+        assert published == []
+        assert session.campaign.last_synced_at is None
+
+    def test_records_why_on_the_campaign(self, monkeypatch):
+        """The operator has to be able to see why the campaign is stale."""
+        _, session, _ = _run_sync_task(monkeypatch, self.MODULE)
+
+        assert session.campaign.sync_error
+        assert "Meta platform connection" in session.campaign.sync_error
+
+    def test_warns_so_the_refusal_is_visible(self, monkeypatch, caplog):
+        """A silent refusal is almost as bad as a fabricated row."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            _run_sync_task(monkeypatch, self.MODULE)
+
+        assert any(
+            "Cannot sync campaign" in record.getMessage() for record in caplog.records
+        ), "refusing the sync must be logged as a warning"

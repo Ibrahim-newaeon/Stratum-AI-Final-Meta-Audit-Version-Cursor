@@ -17,6 +17,8 @@ from typing import Any, Optional
 
 import httpx
 
+from app.core.config import settings
+
 from .base import (
     AudienceConfig,
     AudienceSyncResult,
@@ -36,8 +38,12 @@ class MetaAudienceConnector(BaseAudienceConnector):
 
     PLATFORM_NAME = "meta"
     BATCH_SIZE = 10000  # Meta recommends batches of 10,000
-    API_VERSION = "v18.0"
     BASE_URL = "https://graph.facebook.com"
+
+    @property
+    def API_VERSION(self) -> str:
+        """Graph API version, from config so one knob moves every Meta caller."""
+        return settings.meta_graph_api_version
 
     def __init__(
         self, access_token: str, ad_account_id: str, app_secret: Optional[str] = None, **kwargs
