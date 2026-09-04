@@ -193,6 +193,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
             "credit_card",
             "ssn",
             "social_security",
+            # Meta's signed_request IS the credential on the App Review privacy
+            # callbacks - there is no separate header or bearer token - so it
+            # must never be persisted verbatim. Those callbacks accept only
+            # form bodies, which this middleware does not parse, but a JSON
+            # caller must not be able to get one into the audit trail either.
+            "signed_request",
         }
 
         sanitized = {}

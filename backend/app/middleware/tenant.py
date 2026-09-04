@@ -58,6 +58,18 @@ PUBLIC_ENDPOINTS = {
     # from the event payload (custom_data.tenant_id / paddle_customer_id) and
     # never reads request.state.tenant_id.
     "/api/v1/webhooks/paddle",
+    # Meta App Review privacy callbacks. Public because Meta calls them
+    # server-to-server with no Authorization header, but not unauthenticated:
+    # each POST carries a signed_request that app.services.meta.signed_request
+    # verifies (HMAC-SHA256 over the raw payload, keyed with the app secret) in
+    # constant time before anything is touched, and the handlers resolve the
+    # tenant from the connection matching the signed Meta user id rather than
+    # from request.state. The status page authenticates with the 128-bit
+    # confirmation code itself and discloses only that one request's status.
+    # App Review will not grant ads_read/ads_management without the first two.
+    "/api/v1/meta/deauthorize",
+    "/api/v1/meta/data-deletion",
+    "/api/v1/meta/data-deletion/status",
     # Marketing site content. These are the endpoints cms.py documents as
     # "(public endpoint)": they are tenant-independent, read only rows with
     # status PUBLISHED and never touch request.state. They are reached from the

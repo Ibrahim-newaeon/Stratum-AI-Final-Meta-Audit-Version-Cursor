@@ -141,8 +141,53 @@ USE_MOCK_AD_DATA=true   # Local development only - see the note below
 META_APP_ID=
 META_APP_SECRET=
 META_ACCESS_TOKEN=
+
+# Public origin of THIS API. Required in every deployed environment: it builds
+# the Meta OAuth redirect_uri AND the status URL the Data Deletion callback
+# hands back to Meta. The default is http://localhost:8000, which is a dead
+# link for Meta and for the person following it, so set it deliberately.
+OAUTH_REDIRECT_BASE_URL=https://<api-host>
 # ... (see .env.example for full list)
 ```
+
+#### Meta App Review callbacks (required before `ads_read` / `ads_management` is granted)
+
+Meta App Review rejects an app for the ads permissions unless both privacy callbacks are configured and
+publicly reachable. Both are served by the API, so build them from the **production API host** - the same
+origin as `OAUTH_REDIRECT_BASE_URL`, which the deletion callback also uses to construct the status URL it
+hands back to Meta:
+
+| Meta app dashboard field | Value |
+|---|---|
+| **Deauthorize Callback URL** | `https://<api-host>/api/v1/meta/deauthorize` |
+| **Data Deletion Request URL** | `https://<api-host>/api/v1/meta/data-deletion` |
+
+Both are public paths that authenticate with Meta's `signed_request` (HMAC-SHA256 keyed with
+`META_APP_SECRET`), so `META_APP_SECRET` must be set in the API's environment or they answer `503` and
+process nothing. Set `OAUTH_REDIRECT_BASE_URL` as well: the deletion callback builds the status URL it
+returns to Meta from it, and falls back to the origin the request arrived on only because the shipped
+default is loopback. Verify after deploying:
+
+```bash
+# 400 "Invalid signed_request" proves the route is public and reached its own signature check
+curl -s -X POST https://<api-host>/api/v1/meta/deauthorize -d 'signed_request=bad.request'
+curl -s -X POST https://<api-host>/api/v1/meta/data-deletion -d 'signed_request=bad.request'
+# 404 with the generic message proves the public status page is reachable
+curl -s "https://<api-host>/api/v1/meta/data-deletion/status?code=doesnotexist"
+```
+
+Then use Meta's own "Send test request" / "Test callback" buttons on those dashboard fields. The `url`
+in the deletion response must be an https link on your API host - if it comes back pointing at
+`localhost`, `OAUTH_REDIRECT_BASE_URL` is unset and the API is behind a proxy that is not forwarding the
+public host.
+
+**Scope.** The deletion callback erases what Meta gave us for that person: the platform connection, its
+stored access tokens, and the app-scoped Meta user id. It does **not** deactivate the Stratum AI login
+that authorised the connection - a Meta-side click must not lock a tenant out of its own workspace.
+Erasing an account is the authenticated `POST /api/v1/gdpr/anonymize` flow.
+
+Full behaviour, the Meta-user-to-connection mapping and what deletion erases:
+[docs/integrations/README.md](docs/integrations/README.md#meta-app-review-callbacks-required-for-ads_read--ads_management).
 
 ### Step 7: Configure Measurement & Verification (optional, read-only)
 
