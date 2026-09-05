@@ -728,20 +728,27 @@ async def get_tenant_users(
     )
     users = list(users_result.scalars().all())
 
-    # Whether the member-management endpoints would actually act on *this*
-    # tenant. `POST /users/invite` and `PATCH|DELETE /users/{id}` resolve their
-    # tenant from the caller's token and take no target, so for any tenant but
-    # the caller's own they would change the wrong one. Answered here rather
-    # than compared in the browser: it is an authorization question, the server
-    # is the only place that knows both halves, and a client that guessed wrong
-    # would offer controls that quietly edit somebody else.
+    # Whether this caller may change *this* tenant's members. Answered here
+    # rather than compared in the browser: it is an authorization question, the
+    # server is the only place that knows both halves, and a client that guessed
+    # wrong would offer controls that fail - or, before the member-management
+    # endpoints could be aimed at a tenant at all, quietly edited somebody else.
+    #
+    # The predicate is `require_admin`'s, in the form that answers instead of
+    # raising: the platform role administers any tenant, an ADMIN only its own,
+    # and every other role none. Keeping the two in step matters - this is what
+    # the UI shows controls on, and the endpoints are what actually enforce it.
     caller_tenant_id = getattr(request.state, "tenant_id", None)
+    caller_role = getattr(request.state, "role", None)
+    can_manage_members = caller_role == UserRole.SUPERADMIN.value or (
+        caller_role == UserRole.ADMIN.value and caller_tenant_id == tenant_id
+    )
 
     return APIResponse(
         success=True,
         data={
             "tenant_id": tenant_id,
-            "can_manage_members": caller_tenant_id == tenant_id,
+            "can_manage_members": can_manage_members,
             "user_count": len(users),
             "max_users": tenant.max_users,
             "slots_available": tenant.max_users - len(users),
