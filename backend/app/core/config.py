@@ -300,6 +300,20 @@ class Settings(BaseSettings):
     meta_app_id: Optional[str] = Field(default=None, description="Meta/Facebook App ID")
     meta_app_secret: Optional[str] = Field(default=None, description="Meta/Facebook App Secret")
     meta_access_token: Optional[str] = Field(default=None)
+    # Stratum's OWN marketing pixel, used only to send landing-page waitlist
+    # leads back to Meta. Landing-page subscribers are first-party leads with
+    # no tenant (see LandingPageSubscriber - a tenant only exists later, via
+    # converted_to_tenant_id), so there is no tenant credential to scope this
+    # to. Tenant Conversions API credentials are supplied per request and are
+    # never read from the environment.
+    meta_pixel_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Meta Pixel ID for Stratum's own marketing site. Used with "
+            "META_ACCESS_TOKEN to send landing-page Lead events to the "
+            "Conversions API. Unset disables that send."
+        ),
+    )
     # DEPRECATED override kept so an existing META_API_VERSION env var is not
     # silently ignored. Leave it unset: the OAuth flow then follows
     # meta_graph_api_version like every other Meta caller. Its old default
