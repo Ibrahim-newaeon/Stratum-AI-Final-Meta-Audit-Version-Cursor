@@ -237,14 +237,14 @@ def _build_template_components(
     components = []
 
     # header_type is stored as free text and the model documents it uppercase
-    # ("IMAGE", "VIDEO", ...), so compare case-insensitively.
-    if media_url and (template.header_type or "").lower() in ("image", "video", "document"):
+    # ("IMAGE", "VIDEO", ...), so normalize once and use that, rather than
+    # lower-casing an Optional[str] a second time inside the branch.
+    header_type = (template.header_type or "").lower()
+    if media_url and header_type in ("image", "video", "document"):
         components.append(
             {
                 "type": "header",
-                "parameters": [
-                    {"type": template.header_type.lower(), "url": media_url}
-                ],
+                "parameters": [{"type": header_type, "url": media_url}],
             }
         )
 

@@ -879,7 +879,7 @@ async def send_message(
     # A scheduled message is left for the beat task to pick up at its time;
     # dispatching here as well would send it immediately.
     if message.scheduled_at is None:
-        await _dispatch(db, [message], _queue_one(tenant_id, message.id))
+        await _dispatch(db, [message], _queue_one(message.tenant_id, message.id))
         logger.info(f"Queued WhatsApp message {message.id} for contact {contact.id}")
     else:
         logger.info(f"Scheduled WhatsApp message {message.id} for {message.scheduled_at}")
@@ -962,7 +962,7 @@ async def send_broadcast(
     await db.commit()
 
     if messages_queued:
-        await _dispatch(db, messages, _queue_broadcast(tenant_id, message_ids))
+        await _dispatch(db, messages, _queue_broadcast(template.tenant_id, message_ids))
 
     logger.info(
         f"Broadcast queued: {messages_queued} messages to {len(broadcast_data.contact_ids)} contacts"
