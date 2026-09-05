@@ -37,6 +37,14 @@ export {
   useTenant,
 } from './admin';
 
+// Account manager portfolio hooks
+export { useTenantPortfolio, portfolioApi } from './portfolio';
+export type {
+  TenantPortfolioRow,
+  TenantPortfolioResponse,
+  TenantPortfolioParams,
+} from './portfolio';
+
 // Superadmin Analytics hooks
 export {
   usePlatformOverview,

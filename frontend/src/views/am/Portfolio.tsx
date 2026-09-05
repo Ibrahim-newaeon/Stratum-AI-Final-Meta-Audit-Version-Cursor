@@ -2,26 +2,28 @@
  * Account Manager Portfolio View
  *
  * Primary goal: Reduce firefighting, explain performance, drive renewals
- * Shows all assigned tenants with EMQ status, incidents, and health indicators
+ * Shows all assigned tenants with signal health, incidents, and health indicators
  *
  * Every per-tenant metric here used to be generated with `Math.random()` and
  * attached to the *real* tenant list, so a named customer was shown an invented
  * EMQ score, an invented autopilot mode, an invented budget at risk and an
  * invented ROAS - re-rolled on every mount - and the view then sorted and
- * filtered on them. There is no batched per-tenant EMQ endpoint yet, so rather
- * than keep the fabrication this view now shows "not measured" and says so.
+ * filtered on them. They now come from `GET /tenants/portfolio`, one batched
+ * call that measures each metric from the table that owns it.
+ *
+ * The contract that replaced the fabrication survives: a metric with no source
+ * for a tenant arrives as `null` and renders as a dash. It is never coerced to
+ * `0`, because a zero is a claim - no spend, no held budget, no incidents - and
+ * "we did not measure this" is not that claim. Where a `0` does arrive it is a
+ * real count and is shown as one.
  */
 
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import {
-  type AutopilotMode,
-  AutopilotModeBanner,
-  BudgetAtRiskChip,
-  ConfidenceBandBadge,
-} from '@/components/shared';
-import { useTenants } from '@/api/hooks';
+import { BudgetAtRiskChip, ConfidenceBandBadge } from '@/components/shared';
+import { type TenantPortfolioRow, useTenantPortfolio } from '@/api/hooks';
+import type { SignalHealthStatus, TrustGateDecision } from '@/api/dashboard';
 import {
   ArrowTrendingDownIcon,
   ArrowTrendingUpIcon,
@@ -34,66 +36,121 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 
-// 'no_data' is a distinct state from a bad score: nothing was measured, which
-// is neither healthy nor critical, and must never be rendered as a number.
-type EmqStatus = 'ok' | 'risk' | 'degraded' | 'critical' | 'no_data';
-type SortField = 'name' | 'emq' | 'budgetAtRisk' | 'renewalDate';
+type SortField = 'name' | 'signalHealth' | 'budgetAtRisk' | 'renewalDate' | 'spend';
 
-// Every measured field is nullable, and null means "not measured" rather than
-// zero. A `0` here would read as a real, terrible reading.
-interface TenantPortfolioItem {
-  id: string;
-  name: string;
-  industry: string;
-  emqScore: number | null;
-  emqStatus: EmqStatus;
-  emqTrend: number | null;
-  autopilotMode: AutopilotMode | null;
-  budgetAtRisk: number | null;
-  activeIncidents: number | null;
-  incidentOpenTime: number | null; // hours
-  monthlySpend: number | null;
-  roas: number | null;
-  roasTrend: number | null;
-  renewalDate: Date | null;
-  plan: string | null;
-  lastContact: Date | null;
-  notes: string | null;
+// How many tenants one page of the portfolio covers. The endpoint caps at 100.
+const PAGE_SIZE = 100;
+
+const DASH = '—';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RENEWAL_SOON_DAYS = 30;
+
+// `insufficient_data` is a distinct state from a bad score: nothing could be
+// measured, which is neither healthy nor critical, and must never be rendered
+// as a number. Its label says so rather than borrowing a band name.
+const STATUS_LABELS: Record<SignalHealthStatus, string> = {
+  healthy: 'healthy',
+  degraded: 'degraded',
+  critical: 'critical',
+  insufficient_data: 'not measured',
+};
+
+const STATUS_COLORS: Record<SignalHealthStatus, string> = {
+  healthy: 'text-success bg-success/10',
+  degraded: 'text-orange-400 bg-orange-400/10',
+  critical: 'text-danger bg-danger/10',
+  insufficient_data: 'text-text-muted bg-white/5',
+};
+
+// The trust gate's own verdict, in the gate's vocabulary. The portfolio shows
+// this rather than an "autopilot mode" because the gate is what actually
+// governs whether an action runs, and a mode label would promise degrees of
+// automation ("scaling capped at +10%") that the gate does not implement.
+const GATE_LABELS: Record<TrustGateDecision, string> = {
+  pass: 'Autopilot: PASS',
+  hold: 'Autopilot: HOLD',
+  block: 'Autopilot: BLOCK',
+};
+
+const GATE_COLORS: Record<TrustGateDecision, string> = {
+  pass: 'text-success bg-success/5 border-success/20',
+  hold: 'text-warning bg-warning/5 border-warning/20',
+  block: 'text-danger bg-danger/5 border-danger/20',
+};
+
+/** Whether the tenant was measured and found wanting - not merely unmeasured. */
+function isMeasuredRisk(tenant: TenantPortfolioRow): boolean {
+  return (
+    tenant.signal_health_status === 'degraded' || tenant.signal_health_status === 'critical'
+  );
+}
+
+/**
+ * Compare two possibly-unmeasured values, always sinking the unmeasured ones.
+ *
+ * An unmeasured metric has no place in the ordering at all - sorting it as a
+ * zero would put a tenant nobody has measured at the top of "worst signal
+ * health" or the bottom of "highest spend" and make the list lie by omission.
+ */
+function compareNullable(
+  a: number | null,
+  b: number | null,
+  direction: 'asc' | 'desc'
+): number {
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
+  return direction === 'asc' ? a - b : b - a;
+}
+
+function parseDate(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatMoney(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function formatCompactMoney(value: number | null): string {
+  if (value === null) return DASH;
+  if (Math.abs(value) >= 1000) return `$${(value / 1000).toFixed(0)}k`;
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function formatDaysUntil(value: string | null): string {
+  const date = parseDate(value);
+  if (!date) return DASH;
+  const days = Math.floor((date.getTime() - Date.now()) / DAY_MS);
+  if (days < 0) return 'Overdue';
+  if (days === 0) return 'Today';
+  if (days === 1) return '1 day';
+  return `${days} days`;
+}
+
+function formatSince(value: string | null): string {
+  const date = parseDate(value);
+  if (!date) return DASH;
+  const days = Math.floor((Date.now() - date.getTime()) / DAY_MS);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return `${days}d ago`;
+}
+
+function formatSigned(value: number, digits = 0): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
 }
 
 export default function Portfolio() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<EmqStatus | 'all'>('all');
-  const [sortField, setSortField] = useState<SortField>('emq');
+  const [statusFilter, setStatusFilter] = useState<SignalHealthStatus | 'all'>('all');
+  const [sortField, setSortField] = useState<SortField>('signalHealth');
   const [showAtRiskOnly, setShowAtRiskOnly] = useState(false);
 
-  const { data: tenantsData } = useTenants();
+  const { data, isLoading, isError } = useTenantPortfolio({ limit: PAGE_SIZE });
 
-  // Real tenant identity from the API; every metric is "not measured".
-  //
-  // There is no batched per-tenant signal health endpoint yet, and inventing
-  // the numbers - which is what this did - is worse than admitting the gap:
-  // the view sorts, filters and raises "priority alerts" on these fields.
-  // `industry` is the same case: the tenant record does not carry one.
-  const tenants: TenantPortfolioItem[] = (tenantsData ?? []).map((t) => ({
-    id: String(t.id),
-    name: t.name,
-    industry: 'Unknown',
-    emqScore: null,
-    emqStatus: 'no_data' as EmqStatus,
-    emqTrend: null,
-    autopilotMode: null,
-    budgetAtRisk: null,
-    activeIncidents: null,
-    incidentOpenTime: null,
-    monthlySpend: null,
-    roas: null,
-    roasTrend: null,
-    renewalDate: null,
-    plan: null,
-    lastContact: null,
-    notes: null,
-  }));
+  const tenants = useMemo(() => data?.tenants ?? [], [data]);
+  const spendWindowDays = data?.spend_window_days ?? null;
 
   const filteredTenants = useMemo(() => {
     let result = [...tenants];
@@ -101,23 +158,23 @@ export default function Portfolio() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
-        (t) => t.name.toLowerCase().includes(query) || t.industry.toLowerCase().includes(query)
+        (t) =>
+          t.name.toLowerCase().includes(query) ||
+          (t.industry ?? '').toLowerCase().includes(query)
       );
     }
 
     if (statusFilter !== 'all') {
-      result = result.filter((t) => t.emqStatus === statusFilter);
+      result = result.filter((t) => t.signal_health_status === statusFilter);
     }
 
     if (showAtRiskOnly) {
-      // "At risk" means measured and not ok. A tenant nobody has measured is
-      // not at risk; it is unknown, and sweeping it in here would turn an
+      // "At risk" means measured and not healthy. A tenant nobody could measure
+      // is not at risk; it is unknown, and sweeping it in here would turn an
       // absence of data into an alert.
       result = result.filter(
         (t) =>
-          (t.emqStatus !== 'ok' && t.emqStatus !== 'no_data') ||
-          (t.budgetAtRisk ?? 0) > 0 ||
-          (t.activeIncidents ?? 0) > 0
+          isMeasuredRisk(t) || (t.budget_at_risk ?? 0) > 0 || (t.active_incidents ?? 0) > 0
       );
     }
 
@@ -125,13 +182,19 @@ export default function Portfolio() {
       switch (sortField) {
         case 'name':
           return a.name.localeCompare(b.name);
-        case 'emq':
-          // Unmeasured tenants sort last rather than as a zero score.
-          return (a.emqScore ?? Number.POSITIVE_INFINITY) - (b.emqScore ?? Number.POSITIVE_INFINITY);
+        case 'signalHealth':
+          // Worst measured score first; unmeasured tenants sort last.
+          return compareNullable(a.signal_health_score, b.signal_health_score, 'asc');
         case 'budgetAtRisk':
-          return (b.budgetAtRisk ?? 0) - (a.budgetAtRisk ?? 0);
+          return compareNullable(a.budget_at_risk, b.budget_at_risk, 'desc');
+        case 'spend':
+          return compareNullable(a.monthly_spend, b.monthly_spend, 'desc');
         case 'renewalDate':
-          return (a.renewalDate?.getTime() ?? 0) - (b.renewalDate?.getTime() ?? 0);
+          return compareNullable(
+            parseDate(a.renewal_date)?.getTime() ?? null,
+            parseDate(b.renewal_date)?.getTime() ?? null,
+            'asc'
+          );
         default:
           return 0;
       }
@@ -140,54 +203,32 @@ export default function Portfolio() {
     return result;
   }, [tenants, searchQuery, statusFilter, sortField, showAtRiskOnly]);
 
-  const getStatusColor = (status: EmqStatus) => {
-    switch (status) {
-      case 'ok':
-        return 'text-success bg-success/10';
-      case 'risk':
-        return 'text-warning bg-warning/10';
-      case 'degraded':
-        return 'text-orange-400 bg-orange-400/10';
-      case 'critical':
-        return 'text-danger bg-danger/10';
-      case 'no_data':
-        return 'text-text-muted bg-white/5';
-    }
-  };
+  // Portfolio stats. Each total counts only the tenants it could measure and
+  // says how many it could not, rather than summing nulls as zeroes.
+  const stats = useMemo(() => {
+    const pricedBudgets = tenants.filter((t) => t.budget_at_risk !== null);
+    const renewals = tenants.map((t) => parseDate(t.renewal_date));
+    return {
+      total: tenants.length,
+      healthy: tenants.filter((t) => t.signal_health_status === 'healthy').length,
+      atRisk: tenants.filter(isMeasuredRisk).length,
+      critical: tenants.filter((t) => t.signal_health_status === 'critical').length,
+      notMeasured: tenants.filter((t) => t.signal_health_status === 'insufficient_data')
+        .length,
+      budgetAtRisk: pricedBudgets.reduce((sum, t) => sum + (t.budget_at_risk ?? 0), 0),
+      budgetUnpriced: tenants.length - pricedBudgets.length,
+      mrr: tenants.reduce((sum, t) => sum + t.mrr, 0),
+      upcomingRenewals: renewals.filter(
+        (date) => date !== null && date.getTime() - Date.now() < RENEWAL_SOON_DAYS * DAY_MS
+      ).length,
+      unknownRenewals: renewals.filter((date) => date === null).length,
+    };
+  }, [tenants]);
 
-  const formatDaysUntil = (date: Date | null) => {
-    if (!date) return '-';
-    const days = Math.floor((date.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
-    if (days < 0) return 'Overdue';
-    if (days === 0) return 'Today';
-    if (days === 1) return '1 day';
-    return `${days} days`;
-  };
-
-  const formatLastContact = (date: Date | null) => {
-    if (!date) return 'Never';
-    const days = Math.floor((Date.now() - date.getTime()) / (24 * 60 * 60 * 1000));
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Yesterday';
-    return `${days}d ago`;
-  };
-
-  // Portfolio stats
-  const stats = {
-    total: tenants.length,
-    healthy: tenants.filter((t) => t.emqStatus === 'ok').length,
-    atRisk: tenants.filter((t) => t.emqStatus !== 'ok' && t.emqStatus !== 'no_data').length,
-    critical: tenants.filter((t) => t.emqStatus === 'critical').length,
-    notMeasured: tenants.filter((t) => t.emqStatus === 'no_data').length,
-    totalBudgetAtRisk: tenants.reduce((sum, t) => sum + (t.budgetAtRisk ?? 0), 0),
-    totalMRR: tenants.reduce(
-      (sum, t) => sum + (t.plan === 'Enterprise' ? 1999 : t.plan === 'Pro' ? 499 : 0),
-      0
-    ),
-    upcomingRenewals: tenants.filter(
-      (t) => t.renewalDate && t.renewalDate.getTime() - Date.now() < 30 * 24 * 60 * 60 * 1000
-    ).length,
-  };
+  const criticalTenants = useMemo(
+    () => tenants.filter((t) => t.signal_health_status === 'critical'),
+    [tenants]
+  );
 
   return (
     <div className="space-y-6">
@@ -195,7 +236,10 @@ export default function Portfolio() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">My Portfolio</h1>
-          <p className="text-text-muted">Manage your assigned tenants</p>
+          <p className="text-text-muted">
+            Manage your assigned tenants
+            {spendWindowDays !== null && ` · spend and ROAS over the last ${spendWindowDays} days`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -208,8 +252,15 @@ export default function Portfolio() {
         </div>
       </div>
 
+      {isError && (
+        <div className="rounded-xl bg-danger/5 border border-danger/20 p-4 text-danger">
+          Could not load the portfolio. Nothing is shown rather than a stale or invented
+          list; retry in a moment.
+        </div>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">Total Tenants</div>
           <div className="text-2xl font-bold text-white">{stats.total}</div>
@@ -233,21 +284,35 @@ export default function Portfolio() {
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">Budget at Risk</div>
           <div className="text-2xl font-bold text-danger">
-            ${stats.totalBudgetAtRisk.toLocaleString()}
+            {stats.budgetUnpriced === stats.total && stats.total > 0
+              ? DASH
+              : formatMoney(stats.budgetAtRisk)}
           </div>
+          {stats.budgetUnpriced > 0 && (
+            <div className="text-xs text-text-muted mt-1">
+              {stats.budgetUnpriced} not measured
+            </div>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">Portfolio MRR</div>
-          <div className="text-2xl font-bold text-white">${stats.totalMRR.toLocaleString()}</div>
+          <div className="text-2xl font-bold text-white">{formatMoney(stats.mrr)}</div>
         </div>
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
-          <div className="text-text-muted text-sm mb-1">Renewals (30d)</div>
+          <div className="text-text-muted text-sm mb-1">
+            Renewals ({RENEWAL_SOON_DAYS}d)
+          </div>
           <div className="text-2xl font-bold text-warning">{stats.upcomingRenewals}</div>
+          {stats.unknownRenewals > 0 && (
+            <div className="text-xs text-text-muted mt-1">
+              {stats.unknownRenewals} unknown
+            </div>
+          )}
         </div>
       </div>
 
       {/* Priority Alerts */}
-      {stats.critical > 0 && (
+      {criticalTenants.length > 0 && (
         <div
           data-tour="priority-alerts"
           className="rounded-xl bg-danger/5 border border-danger/20 p-4"
@@ -257,27 +322,28 @@ export default function Portfolio() {
             <span className="font-semibold text-danger">Priority Alerts</span>
           </div>
           <div className="space-y-2">
-            {tenants
-              .filter((t) => t.emqStatus === 'critical')
-              .map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-danger/10"
-                >
-                  <div>
-                    <span className="font-medium text-white">{t.name}</span>
-                    <span className="text-sm text-text-muted ml-2">
-                      EMQ {t.emqScore ?? 'not measured'} | {t.activeIncidents ?? 0} incidents open
-                    </span>
-                  </div>
-                  <Link
-                    to={`/dashboard/am/tenant/${t.id}`}
-                    className="px-3 py-1 rounded-lg bg-danger/20 text-danger hover:bg-danger/30 text-sm transition-colors"
-                  >
-                    View Now
-                  </Link>
+            {criticalTenants.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between p-3 rounded-lg bg-danger/10"
+              >
+                <div>
+                  <span className="font-medium text-white">{t.name}</span>
+                  <span className="text-sm text-text-muted ml-2">
+                    Signal health {t.signal_health_score ?? DASH}
+                    {t.active_incidents !== null &&
+                      ` | ${t.active_incidents} incident${t.active_incidents === 1 ? '' : 's'} open`}
+                    {t.incident_open_hours !== null && ` (${t.incident_open_hours}h)`}
+                  </span>
                 </div>
-              ))}
+                <Link
+                  to={`/dashboard/am/tenant/${t.id}`}
+                  className="px-3 py-1 rounded-lg bg-danger/20 text-danger hover:bg-danger/30 text-sm transition-colors"
+                >
+                  View Now
+                </Link>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -299,14 +365,14 @@ export default function Portfolio() {
           <FunnelIcon className="w-4 h-4 text-text-muted" />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as EmqStatus | 'all')}
+            onChange={(e) => setStatusFilter(e.target.value as SignalHealthStatus | 'all')}
             className="px-3 py-2 rounded-lg bg-surface-secondary border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-stratum-500"
           >
             <option value="all">All Status</option>
-            <option value="ok">Healthy</option>
-            <option value="risk">At Risk</option>
+            <option value="healthy">Healthy</option>
             <option value="degraded">Degraded</option>
             <option value="critical">Critical</option>
+            <option value="insufficient_data">Not measured</option>
           </select>
         </div>
 
@@ -315,9 +381,10 @@ export default function Portfolio() {
           onChange={(e) => setSortField(e.target.value as SortField)}
           className="px-3 py-2 rounded-lg bg-surface-secondary border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-stratum-500"
         >
-          <option value="emq">Sort by EMQ</option>
+          <option value="signalHealth">Sort by Signal Health</option>
           <option value="name">Sort by Name</option>
           <option value="budgetAtRisk">Sort by Budget at Risk</option>
+          <option value="spend">Sort by Spend</option>
           <option value="renewalDate">Sort by Renewal</option>
         </select>
 
@@ -342,17 +409,17 @@ export default function Portfolio() {
             key={tenant.id}
             className={cn(
               'p-4 rounded-xl border transition-all hover:border-white/20',
-              tenant.emqStatus === 'critical'
+              tenant.signal_health_status === 'critical'
                 ? 'bg-danger/5 border-danger/20'
                 : 'bg-surface-secondary border-white/10'
             )}
           >
             <div className="flex items-start gap-4">
-              {/* EMQ Score - "not measured" is rendered as a dash, never a 0 */}
-              <div className="flex flex-col items-center p-3 rounded-xl bg-surface-tertiary min-w-[80px]">
-                {tenant.emqScore === null ? (
+              {/* Signal health - "not measured" is a dash, never a 0 */}
+              <div className="flex flex-col items-center p-3 rounded-xl bg-surface-tertiary min-w-[92px]">
+                {tenant.signal_health_score === null ? (
                   <>
-                    <span className="text-3xl font-bold text-text-muted">—</span>
+                    <span className="text-3xl font-bold text-text-muted">{DASH}</span>
                     <span className="text-[10px] text-text-muted text-center mt-1">
                       Not measured
                     </span>
@@ -362,47 +429,51 @@ export default function Portfolio() {
                     <span
                       className={cn(
                         'text-3xl font-bold',
-                        tenant.emqScore >= 80
+                        tenant.signal_health_status === 'healthy'
                           ? 'text-success'
-                          : tenant.emqScore >= 60
+                          : tenant.signal_health_status === 'degraded'
                             ? 'text-warning'
                             : 'text-danger'
                       )}
                     >
-                      {tenant.emqScore}
+                      {Math.round(tenant.signal_health_score)}
                     </span>
-                    <ConfidenceBandBadge score={tenant.emqScore} size="sm" />
+                    <ConfidenceBandBadge score={tenant.signal_health_score} size="sm" />
                   </>
                 )}
-                {tenant.emqTrend !== null && (
-                  <div
-                    className={cn(
-                      'flex items-center gap-1 text-xs mt-1',
-                      tenant.emqTrend >= 0 ? 'text-success' : 'text-danger'
+                {tenant.emq_score !== null && (
+                  <div className="flex items-center gap-1 text-xs text-text-muted mt-1">
+                    <span>EMQ {Math.round(tenant.emq_score)}</span>
+                    {tenant.emq_trend !== null && (
+                      <span
+                        className={cn(
+                          'flex items-center gap-0.5',
+                          tenant.emq_trend >= 0 ? 'text-success' : 'text-danger'
+                        )}
+                      >
+                        {tenant.emq_trend >= 0 ? (
+                          <ArrowTrendingUpIcon className="w-3 h-3" />
+                        ) : (
+                          <ArrowTrendingDownIcon className="w-3 h-3" />
+                        )}
+                        {formatSigned(tenant.emq_trend)}
+                      </span>
                     )}
-                  >
-                    {tenant.emqTrend >= 0 ? (
-                      <ArrowTrendingUpIcon className="w-3 h-3" />
-                    ) : (
-                      <ArrowTrendingDownIcon className="w-3 h-3" />
-                    )}
-                    {tenant.emqTrend >= 0 ? '+' : ''}
-                    {tenant.emqTrend}
                   </div>
                 )}
               </div>
 
               {/* Main Info */}
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-3 mb-2">
                   <h3 className="font-semibold text-white text-lg">{tenant.name}</h3>
                   <span
                     className={cn(
                       'px-2 py-0.5 rounded-full text-xs',
-                      getStatusColor(tenant.emqStatus)
+                      STATUS_COLORS[tenant.signal_health_status]
                     )}
                   >
-                    {tenant.emqStatus === 'no_data' ? 'not measured' : tenant.emqStatus}
+                    {STATUS_LABELS[tenant.signal_health_status]}
                   </span>
                   {tenant.plan && (
                     <span className="px-2 py-0.5 rounded bg-surface-tertiary text-text-muted text-xs">
@@ -411,27 +482,57 @@ export default function Portfolio() {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-4 text-sm">
-                  <span className="text-text-muted">{tenant.industry}</span>
-                  {tenant.autopilotMode && (
-                    <AutopilotModeBanner mode={tenant.autopilotMode} compact />
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="text-text-muted">{tenant.industry ?? 'Industry not set'}</span>
+
+                  {/* The gate's own verdict. `gate_health_date` is null exactly
+                      when it had no snapshot to grade, which is "no data" -
+                      nothing is wrong, nothing is known yet. */}
+                  {tenant.gate_decision && (
+                    <span
+                      title={tenant.gate_reason ?? undefined}
+                      className={cn(
+                        'inline-flex items-center px-2.5 py-1 rounded-lg border text-xs font-medium',
+                        tenant.gate_health_date === null
+                          ? 'text-text-muted bg-white/5 border-white/10'
+                          : GATE_COLORS[tenant.gate_decision]
+                      )}
+                    >
+                      {tenant.gate_health_date === null
+                        ? 'Autopilot: no data'
+                        : GATE_LABELS[tenant.gate_decision]}
+                    </span>
                   )}
-                  {(tenant.budgetAtRisk ?? 0) > 0 && (
-                    <BudgetAtRiskChip amount={tenant.budgetAtRisk as number} />
+
+                  {(tenant.budget_at_risk ?? 0) > 0 && (
+                    <BudgetAtRiskChip amount={tenant.budget_at_risk as number} size="sm" />
                   )}
-                  {(tenant.activeIncidents ?? 0) > 0 && (
+                  {tenant.budget_at_risk === null && tenant.queued_actions > 0 && (
+                    <span className="text-text-muted text-xs">
+                      {tenant.queued_actions} action{tenant.queued_actions === 1 ? '' : 's'} held,
+                      budget not measured
+                    </span>
+                  )}
+
+                  {(tenant.active_incidents ?? 0) > 0 && (
                     <span className="flex items-center gap-1 text-warning">
                       <ExclamationTriangleIcon className="w-4 h-4" />
-                      {tenant.activeIncidents} incident{(tenant.activeIncidents ?? 0) > 1 ? 's' : ''}
-                      {tenant.incidentOpenTime && (
-                        <span className="text-text-muted">({tenant.incidentOpenTime}h)</span>
+                      {tenant.active_incidents} incident
+                      {tenant.active_incidents === 1 ? '' : 's'}
+                      {tenant.incident_open_hours !== null && (
+                        <span className="text-text-muted">({tenant.incident_open_hours}h)</span>
                       )}
                     </span>
                   )}
                 </div>
 
-                {tenant.notes && (
-                  <p className="mt-2 text-sm text-text-muted italic">{tenant.notes}</p>
+                {/* What could not be measured, in the service's own words, so
+                    the account manager can act on the gap instead of guessing
+                    why the score is missing. */}
+                {tenant.missing_inputs.length > 0 && (
+                  <p className="mt-2 text-xs text-text-muted">
+                    {tenant.missing_inputs.join(' ')}
+                  </p>
                 )}
               </div>
 
@@ -439,19 +540,18 @@ export default function Portfolio() {
               <div className="flex items-center gap-6 text-sm">
                 <div className="text-right">
                   <div className="text-text-muted">ROAS</div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-end gap-1">
                     <span className="text-white font-medium">
-                      {tenant.roas === null ? '—' : `${tenant.roas.toFixed(1)}x`}
+                      {tenant.roas === null ? DASH : `${tenant.roas.toFixed(1)}x`}
                     </span>
-                    {tenant.roasTrend !== null && (
+                    {tenant.roas_trend !== null && (
                       <span
                         className={cn(
                           'text-xs',
-                          tenant.roasTrend >= 0 ? 'text-success' : 'text-danger'
+                          tenant.roas_trend >= 0 ? 'text-success' : 'text-danger'
                         )}
                       >
-                        {tenant.roasTrend >= 0 ? '+' : ''}
-                        {tenant.roasTrend.toFixed(1)}
+                        {formatSigned(tenant.roas_trend, 1)}
                       </span>
                     )}
                   </div>
@@ -459,9 +559,7 @@ export default function Portfolio() {
                 <div className="text-right">
                   <div className="text-text-muted">Spend</div>
                   <div className="text-white font-medium">
-                    {tenant.monthlySpend === null
-                      ? '—'
-                      : `$${(tenant.monthlySpend / 1000).toFixed(0)}k`}
+                    {formatCompactMoney(tenant.monthly_spend)}
                   </div>
                 </div>
                 <div className="text-right">
@@ -469,18 +567,21 @@ export default function Portfolio() {
                   <div
                     className={cn(
                       'font-medium',
-                      tenant.renewalDate &&
-                        tenant.renewalDate.getTime() - Date.now() < 30 * 24 * 60 * 60 * 1000
-                        ? 'text-warning'
-                        : 'text-white'
+                      (() => {
+                        const renewal = parseDate(tenant.renewal_date);
+                        return renewal &&
+                          renewal.getTime() - Date.now() < RENEWAL_SOON_DAYS * DAY_MS
+                          ? 'text-warning'
+                          : 'text-white';
+                      })()
                     )}
                   >
-                    {formatDaysUntil(tenant.renewalDate)}
+                    {formatDaysUntil(tenant.renewal_date)}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-text-muted">Last Contact</div>
-                  <div className="text-white">{formatLastContact(tenant.lastContact)}</div>
+                  <div className="text-text-muted">Last login</div>
+                  <div className="text-white">{formatSince(tenant.last_login_at)}</div>
                 </div>
               </div>
 
@@ -496,9 +597,15 @@ export default function Portfolio() {
           </div>
         ))}
 
-        {filteredTenants.length === 0 && (
+        {isLoading && (
+          <div className="text-center py-12 text-text-muted">Loading your portfolio...</div>
+        )}
+
+        {!isLoading && !isError && filteredTenants.length === 0 && (
           <div className="text-center py-12 text-text-muted">
-            No tenants found matching your filters.
+            {tenants.length === 0
+              ? 'No tenants are assigned to you.'
+              : 'No tenants found matching your filters.'}
           </div>
         )}
       </div>
