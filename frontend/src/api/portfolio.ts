@@ -47,6 +47,12 @@ export interface TenantPortfolioRow {
   emq_trend: number | null;
   /** The Meta channel the scores represent. */
   channel: string | null;
+  /**
+   * Channels with no score of their own. The representative channel does not
+   * speak for these, so a tenant delivering on one channel only is not shown as
+   * unqualified "healthy".
+   */
+  unscored_channels: string[];
   /** One entry per component that could not be measured, and why (English). */
   missing_inputs: string[];
   /** Stable codes for the same gaps. */
@@ -59,11 +65,15 @@ export interface TenantPortfolioRow {
   gate_health_date: string | null;
 
   /**
-   * Daily budget of the campaigns whose autopilot actions are queued and
-   * unapplied. Null when actions are held but none could be priced.
+   * Daily budget of the campaigns with unapplied autopilot actions. Null when
+   * actions are outstanding but none of them could be priced.
    */
   budget_at_risk: number | null;
-  queued_actions: number;
+  /**
+   * Actions autopilot has proposed and not applied: waiting on a human, or
+   * released and withheld by the trust gate.
+   */
+  unapplied_actions: number;
   /** Unresolved pacing alerts. 0 is a real count, not a missing value. */
   active_incidents: number | null;
   /** Hours the oldest unresolved alert has been open; null when there is none. */
@@ -85,7 +95,10 @@ export interface TenantPortfolioRow {
 
 export interface TenantPortfolioResponse {
   tenants: TenantPortfolioRow[];
+  /** Tenants visible to this caller in total - not the length of this page. */
   total: number;
+  /** How many of `total` this page carries. */
+  returned: number;
   /** How many days the spend, ROAS and ROAS-trend figures cover. */
   spend_window_days: number;
 }

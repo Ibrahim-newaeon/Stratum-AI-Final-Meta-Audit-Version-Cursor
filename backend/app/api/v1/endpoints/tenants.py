@@ -60,6 +60,10 @@ class TenantPortfolioRow(BaseModel):
     emq_score: float | None = Field(default=None, ge=0, le=100)
     emq_trend: float | None = None
     channel: str | None = None
+    # Channels with no score of their own. The representative channel does not
+    # speak for these - naming them keeps the row from reading healthier than
+    # the tenant's own dashboard.
+    unscored_channels: list[str] = []
     missing_inputs: list[str] = []
     missing_input_codes: list[str] = []
 
@@ -70,10 +74,12 @@ class TenantPortfolioRow(BaseModel):
     gate_reason: str | None = None
     gate_health_date: date | None = None
 
-    # Daily budget of the campaigns whose autopilot actions are queued and
-    # unapplied. ``None`` when actions are held but none could be priced.
+    # Daily budget of the campaigns with unapplied autopilot actions. ``None``
+    # when actions are outstanding but none of them could be priced.
     budget_at_risk: float | None = None
-    queued_actions: int = 0
+    # Actions autopilot has proposed and not applied: waiting on a human, or
+    # released and withheld by the trust gate.
+    unapplied_actions: int = 0
     active_incidents: int | None = None
     incident_open_hours: float | None = None
 
@@ -90,7 +96,14 @@ class TenantPortfolioResponse(BaseModel):
     """The portfolio rows and the window the performance figures cover."""
 
     tenants: list[TenantPortfolioRow]
+    # Tenants visible to this caller in total, not the length of this page: the
+    # view sums MRR and counts tenants from what it received, so a page length
+    # reported as a total would under-report both on a deployment with more
+    # tenants than the page size.
     total: int
+    # How many of `total` this response carries, so the caller can tell a
+    # complete portfolio from a first page.
+    returned: int
     spend_window_days: int
 
 
@@ -215,7 +228,9 @@ def require_admin(request: Request, target_tenant_id: int | None = None) -> int:
     )
 
 
-def require_platform_admin(request: Request, target_tenant_id: int | None = None) -> int:
+def require_platform_admin(
+    request: Request, target_tenant_id: int | None = None
+) -> int:
     """
     Verify the caller holds the cross-tenant platform role (SUPERADMIN).
 
@@ -387,6 +402,13 @@ async def get_tenant_portfolio(
     named customer list.
     """
     query = _visible_tenants_query(request, search=search)
+
+    # The real number of tenants this caller can see, so the view's totals are
+    # not silently the page's totals.
+    total = await db.scalar(
+        select(func.count()).select_from(query.order_by(None).subquery())
+    )
+
     result = await db.execute(query.order_by(Tenant.name).offset(skip).limit(limit))
     tenants = list(result.scalars().all())
 
@@ -410,13 +432,14 @@ async def get_tenant_portfolio(
                     emq_score=row.emq_score,
                     emq_trend=row.emq_trend,
                     channel=row.channel,
+                    unscored_channels=row.unscored_channels,
                     missing_inputs=row.missing_inputs,
                     missing_input_codes=row.missing_input_codes,
                     gate_decision=row.gate_decision,
                     gate_reason=row.gate_reason,
                     gate_health_date=row.gate_health_date,
                     budget_at_risk=row.budget_at_risk,
-                    queued_actions=row.queued_actions,
+                    unapplied_actions=row.unapplied_actions,
                     active_incidents=row.active_incidents,
                     incident_open_hours=row.incident_open_hours,
                     monthly_spend=row.monthly_spend,
@@ -426,7 +449,8 @@ async def get_tenant_portfolio(
                 )
                 for row in rows
             ],
-            total=len(rows),
+            total=int(total or 0),
+            returned=len(rows),
             spend_window_days=SPEND_WINDOW_DAYS,
         ),
     )
@@ -472,7 +496,9 @@ async def get_tenant(
     )
 
 
-@router.post("", response_model=APIResponse[TenantResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=APIResponse[TenantResponse], status_code=status.HTTP_201_CREATED
+)
 async def create_tenant(
     request: Request,
     tenant_data: TenantCreate,
@@ -682,7 +708,9 @@ async def get_tenant_users(
 
     # Get user count
     count_result = await db.execute(
-        select(func.count(User.id)).where(User.tenant_id == tenant_id, User.is_deleted == False)
+        select(func.count(User.id)).where(
+            User.tenant_id == tenant_id, User.is_deleted == False
+        )
     )
     user_count = count_result.scalar()
 

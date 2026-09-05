@@ -684,6 +684,7 @@ async def check_signal_health(db: AsyncSession, tenant_id: int) -> SignalHealthG
 async def check_signal_health_for_tenants(
     db: AsyncSession,
     tenant_ids: Sequence[int],
+    today: date | None = None,
 ) -> dict[int, SignalHealthGateResult]:
     """
     Evaluate the trust gate for many tenants at once.
@@ -702,6 +703,10 @@ async def check_signal_health_for_tenants(
         db: Async database session
         tenant_ids: Tenants to evaluate; the caller must already have
             authorised every one of them
+        today: Optional clock override for the staleness rule, so a caller that
+            fixes its own clock grades snapshots against the same date it
+            measures over. Defaults to the current UTC date, which is what
+            :func:`check_signal_health` uses.
 
     Returns:
         ``{tenant_id: result}`` covering every requested tenant
@@ -710,7 +715,7 @@ async def check_signal_health_for_tenants(
         return {}
 
     unique_ids = list(dict.fromkeys(int(tenant_id) for tenant_id in tenant_ids))
-    today = datetime.now(UTC).date()
+    today = today or datetime.now(UTC).date()
 
     # Same rule as the single-tenant path: rows dated in the future are invalid
     # rather than newest, so they can never hide the real current snapshot.

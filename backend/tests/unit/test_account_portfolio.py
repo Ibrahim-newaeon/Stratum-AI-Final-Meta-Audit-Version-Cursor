@@ -27,6 +27,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import settings
 from app.models import UserRole
 from app.services.account_portfolio import (
     SPEND_WINDOW_DAYS,
@@ -38,6 +39,7 @@ from app.services.signal_health import (
     compute_tenant_signal_health,
 )
 from app.services.signal_health.model import SignalHealthWindow
+from app.stratum.core.trust_gate import GateDecision
 
 TENANT = 1
 OTHER_TENANT = 2
@@ -76,6 +78,30 @@ def metric(tenant_id: int, *, days_ago: int, spend_cents: int, revenue_cents: in
         date=TODAY - timedelta(days=days_ago),
         spend_cents=spend_cents,
         revenue_cents=revenue_cents,
+    )
+
+
+def health_row(tenant_id: int, channel: str, row_date, *, emq: float = 90.0):
+    """
+    One persisted ``fact_signal_health_daily`` row.
+
+    Carries every column the trust gate's scorer reads, not just the two the
+    EMQ trend needs. Seeding partial rows was survivable only while the gate
+    never reached them - it graded against wall-clock ``today`` while these
+    tests fix the clock, so every row looked stale and the scoring branch was
+    dead. It is reachable now, so the rows have to be real.
+    """
+    from app.models.trust_layer import SignalHealthStatus
+
+    return SimpleNamespace(
+        tenant_id=tenant_id,
+        platform=channel,
+        date=row_date,
+        emq_score=emq,
+        event_loss_pct=1.0,
+        freshness_minutes=5,
+        api_error_rate=0.0,
+        status=SignalHealthStatus.OK,
     )
 
 
@@ -149,6 +175,7 @@ class PortfolioSession:
         campaigns=(),
         logins=None,
         health_rows=(),
+        enforcement=None,
     ) -> None:
         """Seed the store with rows belonging to several tenants."""
         self.deliveries = list(deliveries)
@@ -161,6 +188,7 @@ class PortfolioSession:
         self.campaigns = list(campaigns)
         self.logins = logins or {}
         self.health_rows = list(health_rows)
+        self.enforcement = enforcement or {}
         self.statements: list[str] = []
 
     @staticmethod
@@ -331,7 +359,7 @@ class PortfolioSession:
             for row in rows:
                 grouped[row.tenant_id] = grouped.get(row.tenant_id, 0) + 1
             return _Result(
-                SimpleNamespace(tenant_id=tenant_id, queued_actions=count)
+                SimpleNamespace(tenant_id=tenant_id, unapplied_actions=count)
                 for tenant_id, count in grouped.items()
             )
 
@@ -345,11 +373,28 @@ class PortfolioSession:
 
         if "max(fact_signal_health_daily.date)" in sql:
             rows = self._scoped(self.health_rows, params)
+            bound = next(
+                (
+                    value
+                    for key, value in params.items()
+                    if key.startswith("date_") and isinstance(value, date)
+                ),
+                None,
+            )
+            if bound is not None:
+                # A row dated after "today" is invalid, not newest.
+                rows = [row for row in rows if row.date <= bound]
             grouped: dict[int, date] = {}
             for row in rows:
                 grouped[row.tenant_id] = max(
                     grouped.get(row.tenant_id, row.date), row.date
                 )
+            if "GROUP BY" not in sql:
+                # The single-tenant form filters to one tenant and reads a
+                # bare scalar; the batched one groups and reads (id, date) rows.
+                single = params.get("tenant_id_1")
+                newest = grouped.get(single)
+                return _Result([newest] if newest is not None else [])
             return _Result((t, d) for t, d in grouped.items())
 
         if (
@@ -364,11 +409,27 @@ class PortfolioSession:
             )
 
         if "fact_signal_health_daily" in sql:
-            # The gate reads whole rows for the newest date it found.
-            return _Result(self.health_rows)
+            # The gate reads whole rows for the newest date it found. Scoped
+            # like every other branch: returning the whole store here left the
+            # gate's tenant filter assumed rather than proven, which is the one
+            # thing this harness exists to establish.
+            rows = self._scoped(self.health_rows, params)
+            dates = {
+                value
+                for key, value in params.items()
+                if key.startswith("date_") and isinstance(value, date)
+            }
+            if dates:
+                rows = [row for row in rows if row.date in dates]
+            return _Result(rows)
 
         if "tenant_enforcement_settings" in sql:
-            return _Result([])
+            wanted = self._tenants(params) or list(self.enforcement)
+            return _Result(
+                SimpleNamespace(tenant_id=t, default_mode=self.enforcement[t])
+                for t in wanted
+                if t in self.enforcement
+            )
 
         raise AssertionError(f"unexpected query: {sql}")
 
@@ -496,7 +557,7 @@ async def test_an_empty_deployment_reports_nulls_rather_than_zeroes():
     # Measured zeroes, not absences.
     assert row.active_incidents == 0
     assert row.incident_open_hours is None
-    assert row.queued_actions == 0
+    assert row.unapplied_actions == 0
     assert row.budget_at_risk == 0.0
 
 
@@ -621,7 +682,7 @@ async def test_budget_at_risk_prices_the_campaigns_whose_actions_are_held():
 
     (row,) = await build_tenant_portfolio(session, [tenant_row(TENANT)], now=NOW)
 
-    assert row.queued_actions == 3
+    assert row.unapplied_actions == 3
     assert row.budget_at_risk == 4000.0
 
 
@@ -642,7 +703,7 @@ async def test_budget_at_risk_is_null_when_held_actions_cannot_be_priced():
 
     (row,) = await build_tenant_portfolio(session, [tenant_row(TENANT)], now=NOW)
 
-    assert row.queued_actions == 1
+    assert row.unapplied_actions == 1
     assert row.budget_at_risk is None
 
 
@@ -737,23 +798,11 @@ async def test_emq_trend_differences_two_recorded_snapshots():
         last_synced_at={TENANT: NOW - timedelta(minutes=5)},
         connections={TENANT: connection()},
         health_rows=[
-            SimpleNamespace(
-                tenant_id=TENANT,
-                platform=channel,
-                date=TODAY - timedelta(days=1),
-                emq_score=80.0,
-                status=None,
-            )
+            health_row(TENANT, channel, TODAY - timedelta(days=1), emq=80.0)
             for channel in ("facebook", "instagram", "whatsapp")
         ]
         + [
-            SimpleNamespace(
-                tenant_id=TENANT,
-                platform=channel,
-                date=TODAY - timedelta(days=2),
-                emq_score=72.0,
-                status=None,
-            )
+            health_row(TENANT, channel, TODAY - timedelta(days=2), emq=72.0)
             for channel in ("facebook", "instagram", "whatsapp")
         ],
     )
@@ -771,13 +820,7 @@ async def test_emq_trend_is_null_with_only_one_snapshot():
         last_synced_at={TENANT: NOW - timedelta(minutes=5)},
         connections={TENANT: connection()},
         health_rows=[
-            SimpleNamespace(
-                tenant_id=TENANT,
-                platform=channel,
-                date=TODAY - timedelta(days=1),
-                emq_score=80.0,
-                status=None,
-            )
+            health_row(TENANT, channel, TODAY - timedelta(days=1), emq=80.0)
             for channel in ("facebook", "instagram", "whatsapp")
         ],
     )
@@ -836,13 +879,7 @@ def _populated_session(tenant_ids):
         ],
         logins={t: NOW - timedelta(days=1) for t in tenant_ids},
         health_rows=[
-            SimpleNamespace(
-                tenant_id=t,
-                platform=channel,
-                date=TODAY - timedelta(days=offset),
-                emq_score=80.0 - offset,
-                status=None,
-            )
+            health_row(t, channel, TODAY - timedelta(days=offset), emq=80.0 - offset)
             for t in tenant_ids
             for channel in ("facebook", "instagram", "whatsapp")
             for offset in (1, 2)
@@ -917,3 +954,257 @@ def test_a_tenant_scoped_caller_is_pinned_to_their_own_tenant_id():
     query = _visible_tenants_query(_caller(UserRole.ADMIN.value, 7))
 
     assert dict(query.compile().params)["id_1"] == 7
+
+
+# =============================================================================
+# The batched trust gate must be exactly as strict as the single-tenant one
+# =============================================================================
+# Every case asserts the batched decision *equals* the single-tenant decision
+# for the same stored state. Equality rather than two independent "looks
+# reasonable" assertions, because the failure that matters is the batched path
+# being one notch more permissive somewhere: an account manager's row must not
+# imply an automation will run that the tenant's own gate would hold or block.
+
+
+# The single-tenant gate has no clock override - it is deliberately left
+# untouched by this change - so the equality cases below run both sides against
+# the wall clock. That is what makes them a true comparison rather than two
+# different questions.
+GATE_TODAY = datetime.now(UTC).date()
+
+
+def _gate_store(**overrides):
+    """Keyword arguments for a session the gate can be evaluated against."""
+    store = {
+        "onboarding": {},
+        "enforcement": {},
+        "health_rows": [],
+    }
+    store.update(overrides)
+    return store
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("label", "age_days"),
+    [
+        ("a snapshot from today", 0),
+        ("a snapshot at the staleness limit", settings.trust_gate_max_health_age_days),
+        (
+            "a snapshot past the staleness limit",
+            settings.trust_gate_max_health_age_days + 1,
+        ),
+        ("a snapshot dated in the future", -1),
+    ],
+)
+async def test_the_batched_gate_decides_what_the_single_tenant_gate_decides(
+    label: str, age_days: int
+):
+    """
+    Batched and single-tenant decisions match, case for case.
+
+    Covers PASS, the staleness branch and the future-dated rule in one sweep -
+    a row dated in the future is invalid rather than newest, so it must not
+    keep the gate open until the calendar catches up.
+    """
+    from app.tasks.apply_actions_queue import (
+        check_signal_health,
+        check_signal_health_for_tenants,
+    )
+
+    rows = [
+        health_row(TENANT, channel, GATE_TODAY - timedelta(days=age_days))
+        for channel in ("facebook", "instagram", "whatsapp")
+    ]
+
+    single = await check_signal_health(
+        PortfolioSession(**_gate_store(health_rows=rows)), TENANT
+    )
+    batched = await check_signal_health_for_tenants(
+        PortfolioSession(**_gate_store(health_rows=rows)), [TENANT]
+    )
+
+    assert batched[TENANT].decision is single.decision, label
+    assert batched[TENANT].health_date == single.health_date, label
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_with_no_snapshot_is_blocked():
+    """
+    Absence of data is not health: no snapshot is a BLOCK.
+
+    The batched path reaches this the way the single-tenant one does - the
+    tenant simply produces no row in the grouped max(date) result, so
+    ``evaluate_signal_health`` is handed ``health_date=None``.
+    """
+    from app.tasks.apply_actions_queue import check_signal_health_for_tenants
+
+    gates = await check_signal_health_for_tenants(
+        PortfolioSession(**_gate_store()), [TENANT]
+    )
+
+    assert gates[TENANT].decision is GateDecision.BLOCK
+    assert gates[TENANT].health_date is None
+
+
+@pytest.mark.asyncio
+async def test_a_stale_snapshot_never_passes():
+    """
+    An old row is not evidence. It holds or blocks; it never passes.
+
+    ``trust_gate_stale_health_decision`` chooses between HOLD and BLOCK and is
+    documented as never 'pass', so this asserts the property rather than the
+    configured value.
+    """
+    from app.tasks.apply_actions_queue import check_signal_health_for_tenants
+
+    stale = GATE_TODAY - timedelta(days=settings.trust_gate_max_health_age_days + 5)
+    rows = [
+        health_row(TENANT, channel, stale)
+        for channel in ("facebook", "instagram", "whatsapp")
+    ]
+
+    gates = await check_signal_health_for_tenants(
+        PortfolioSession(**_gate_store(health_rows=rows)), [TENANT]
+    )
+
+    assert gates[TENANT].decision is not GateDecision.PASS
+
+
+@pytest.mark.asyncio
+async def test_every_requested_tenant_gets_a_decision():
+    """
+    No tenant silently drops out of the result.
+
+    A tenant missing from the mapping renders with no gate chip at all, which
+    reads as "nothing to worry about" rather than as the BLOCK that a tenant
+    with no snapshot has earned.
+    """
+    from app.tasks.apply_actions_queue import check_signal_health_for_tenants
+
+    rows = [health_row(TENANT, "facebook", GATE_TODAY)]
+    wanted = [TENANT, OTHER_TENANT, 99]
+
+    gates = await check_signal_health_for_tenants(
+        PortfolioSession(**_gate_store(health_rows=rows)), wanted
+    )
+
+    assert set(gates) == set(wanted)
+    assert gates[OTHER_TENANT].decision is GateDecision.BLOCK
+    assert gates[99].decision is GateDecision.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_one_tenants_snapshot_cannot_decide_another_tenants_gate():
+    """
+    The batched row read is filtered by tenant, not merely grouped by it.
+
+    A healthy tenant's rows leaking into an unmeasured tenant's evaluation
+    would turn a BLOCK into a PASS - the one direction that matters.
+    """
+    from app.tasks.apply_actions_queue import check_signal_health_for_tenants
+
+    rows = [
+        health_row(OTHER_TENANT, channel, GATE_TODAY)
+        for channel in ("facebook", "instagram", "whatsapp")
+    ]
+
+    gates = await check_signal_health_for_tenants(
+        PortfolioSession(**_gate_store(health_rows=rows)), [TENANT]
+    )
+
+    assert set(gates) == {TENANT}
+    assert gates[TENANT].decision is GateDecision.BLOCK
+    assert gates[TENANT].health_date is None
+
+
+@pytest.mark.asyncio
+async def test_the_enforcement_mode_can_only_tighten_the_decision():
+    """
+    A tenant with no enforcement row defaults to advisory, as the gate does.
+
+    Enforcement may only ever tighten an outcome, so a batched default that
+    differed from ``get_tenant_enforcement_mode``'s would be a way to report a
+    looser decision than the tenant is actually subject to.
+    """
+    from app.models.autopilot import EnforcementMode
+    from app.tasks.apply_actions_queue import check_signal_health_for_tenants
+
+    rows = [
+        health_row(TENANT, channel, GATE_TODAY)
+        for channel in ("facebook", "instagram", "whatsapp")
+    ] + [
+        health_row(OTHER_TENANT, channel, GATE_TODAY)
+        for channel in ("facebook", "instagram", "whatsapp")
+    ]
+
+    gates = await check_signal_health_for_tenants(
+        PortfolioSession(
+            **_gate_store(
+                health_rows=rows,
+                enforcement={OTHER_TENANT: EnforcementMode.HARD_BLOCK.value},
+            )
+        ),
+        [TENANT, OTHER_TENANT],
+    )
+
+    assert gates[TENANT].enforcement_mode == EnforcementMode.ADVISORY.value
+    assert gates[OTHER_TENANT].enforcement_mode == EnforcementMode.HARD_BLOCK.value
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_whose_channels_are_dark_says_so_on_the_row():
+    """
+    One scorable channel does not speak for the dark ones beside it.
+
+    A tenant delivering on facebook only was published as an unqualified
+    "healthy" while its own dashboard listed the channels with no data - a
+    cleaner picture for the account manager than for the customer, and cleaner
+    in the flattering direction.
+    """
+    session = PortfolioSession(
+        deliveries=[delivery(TENANT) for _ in range(50)],
+        last_synced_at={TENANT: NOW - timedelta(minutes=5)},
+        connections={TENANT: connection()},
+    )
+
+    (row,) = await build_tenant_portfolio(session, [tenant_row(TENANT)], now=NOW)
+
+    assert row.signal_health_score is not None
+    assert row.unscored_channels == ["whatsapp"]
+    # Named as a channel, not folded into missing_inputs - that field is about
+    # the components of one channel's score, which is a different fact.
+    assert not any("whatsapp" in text for text in row.missing_inputs)
+
+
+@pytest.mark.asyncio
+async def test_budget_at_risk_counts_the_actions_the_gate_is_withholding():
+    """
+    An action the trust gate is holding is not invisible to budget at risk.
+
+    The executor selects ``approved`` rows, and when the gate holds or blocks
+    one it records the reason on ``error`` and leaves the status at
+    ``approved``. Filtering on ``queued`` alone therefore skipped exactly the
+    actions the gate was withholding, and a tenant whose whole approved queue
+    was blocked reported a measured "nothing at stake".
+    """
+    session = PortfolioSession(
+        queued_actions=[
+            SimpleNamespace(
+                tenant_id=TENANT,
+                entity_type="campaign",
+                entity_id="ext-1",
+                status="approved",
+            )
+        ],
+        campaigns=[
+            SimpleNamespace(
+                tenant_id=TENANT, id=11, external_id="ext-1", daily_budget_cents=250_000
+            )
+        ],
+    )
+
+    (row,) = await build_tenant_portfolio(session, [tenant_row(TENANT)], now=NOW)
+
+    assert row.unapplied_actions == 1
+    assert row.budget_at_risk == 2500.0

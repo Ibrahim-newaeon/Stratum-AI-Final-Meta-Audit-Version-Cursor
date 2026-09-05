@@ -21,7 +21,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { BudgetAtRiskChip, ConfidenceBandBadge } from '@/components/shared';
+import { BudgetAtRiskChip } from '@/components/shared';
 import { type TenantPortfolioRow, useTenantPortfolio } from '@/api/hooks';
 import type { SignalHealthStatus, TrustGateDecision } from '@/api/dashboard';
 import {
@@ -151,6 +151,11 @@ export default function Portfolio() {
 
   const tenants = useMemo(() => data?.tenants ?? [], [data]);
   const spendWindowDays = data?.spend_window_days ?? null;
+  // The server's count of every tenant this caller can see. The tiles below sum
+  // what arrived, so on a deployment with more tenants than one page they would
+  // under-report both the count and the MRR without saying so.
+  const visibleTotal = data?.total ?? tenants.length;
+  const isTruncated = visibleTotal > tenants.length;
 
   const filteredTenants = useMemo(() => {
     let result = [...tenants];
@@ -172,9 +177,16 @@ export default function Portfolio() {
       // "At risk" means measured and not healthy. A tenant nobody could measure
       // is not at risk; it is unknown, and sweeping it in here would turn an
       // absence of data into an alert.
+      // `budget_at_risk === null` means automation is being held and none of it
+      // could be priced. Coercing that to 0 dropped exactly the tenant whose
+      // held automation we know about out of the at-risk list, so the count of
+      // outstanding actions is the predicate, not the amount.
       result = result.filter(
         (t) =>
-          isMeasuredRisk(t) || (t.budget_at_risk ?? 0) > 0 || (t.active_incidents ?? 0) > 0
+          isMeasuredRisk(t) ||
+          (t.budget_at_risk ?? 0) > 0 ||
+          t.unapplied_actions > 0 ||
+          (t.active_incidents ?? 0) > 0
       );
     }
 
@@ -237,7 +249,7 @@ export default function Portfolio() {
         <div>
           <h1 className="text-2xl font-bold text-white">My Portfolio</h1>
           <p className="text-text-muted">
-            Manage your assigned tenants
+            Every tenant you can see
             {spendWindowDays !== null && ` · spend and ROAS over the last ${spendWindowDays} days`}
           </p>
         </div>
@@ -263,7 +275,10 @@ export default function Portfolio() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">Total Tenants</div>
-          <div className="text-2xl font-bold text-white">{stats.total}</div>
+          <div className="text-2xl font-bold text-white">{visibleTotal}</div>
+          {isTruncated && (
+            <div className="text-xs text-text-muted mt-1">showing {stats.total}</div>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">Healthy</div>
@@ -297,6 +312,11 @@ export default function Portfolio() {
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">Portfolio MRR</div>
           <div className="text-2xl font-bold text-white">{formatMoney(stats.mrr)}</div>
+          {isTruncated && (
+            <div className="text-xs text-text-muted mt-1">
+              first {stats.total} of {visibleTotal}
+            </div>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="text-text-muted text-sm mb-1">
@@ -426,6 +446,14 @@ export default function Portfolio() {
                   </>
                 ) : (
                   <>
+                    {/* Coloured by the status the server banded, not by a
+                        threshold of our own. ConfidenceBandBadge used to sit
+                        here, but its bands are hardcoded 90/60 and documented
+                        as EMQ, while this composite is graded at the deployment
+                        thresholds or the tenant's own onboarding overrides - so
+                        a tenant at 75 showed a green "healthy" chip beside an
+                        amber "Directional", and one that raised its threshold
+                        to 95 showed "degraded" beside "Reliable". */}
                     <span
                       className={cn(
                         'text-3xl font-bold',
@@ -438,11 +466,18 @@ export default function Portfolio() {
                     >
                       {Math.round(tenant.signal_health_score)}
                     </span>
-                    <ConfidenceBandBadge score={tenant.signal_health_score} size="sm" />
+                    <span className="text-[10px] text-text-muted mt-0.5">Signal health</span>
                   </>
                 )}
                 {tenant.emq_score !== null && (
-                  <div className="flex items-center gap-1 text-xs text-text-muted mt-1">
+                  <div
+                    className="flex items-center gap-1 text-xs text-text-muted mt-1"
+                    title={
+                      tenant.emq_trend === null
+                        ? 'EMQ over the live delivery window'
+                        : 'EMQ over the live delivery window; the change is between the two most recent daily snapshots, which cover different periods'
+                    }
+                  >
                     <span>EMQ {Math.round(tenant.emq_score)}</span>
                     {tenant.emq_trend !== null && (
                       <span
@@ -507,10 +542,10 @@ export default function Portfolio() {
                   {(tenant.budget_at_risk ?? 0) > 0 && (
                     <BudgetAtRiskChip amount={tenant.budget_at_risk as number} size="sm" />
                   )}
-                  {tenant.budget_at_risk === null && tenant.queued_actions > 0 && (
+                  {tenant.budget_at_risk === null && tenant.unapplied_actions > 0 && (
                     <span className="text-text-muted text-xs">
-                      {tenant.queued_actions} action{tenant.queued_actions === 1 ? '' : 's'} held,
-                      budget not measured
+                      {tenant.unapplied_actions} action
+                      {tenant.unapplied_actions === 1 ? '' : 's'} held, budget not measured
                     </span>
                   )}
 
@@ -534,6 +569,16 @@ export default function Portfolio() {
                     {tenant.missing_inputs.join(' ')}
                   </p>
                 )}
+
+                {/* A scored tenant whose other channels are dark still has a
+                    gap worth seeing; the score speaks for one channel only. */}
+                {tenant.signal_health_score !== null &&
+                  tenant.unscored_channels.length > 0 && (
+                    <p className="mt-1 text-xs text-text-muted">
+                      Score covers {tenant.channel} only - no signal data yet for{' '}
+                      {tenant.unscored_channels.join(', ')}.
+                    </p>
+                  )}
               </div>
 
               {/* Metrics */}
@@ -604,7 +649,7 @@ export default function Portfolio() {
         {!isLoading && !isError && filteredTenants.length === 0 && (
           <div className="text-center py-12 text-text-muted">
             {tenants.length === 0
-              ? 'No tenants are assigned to you.'
+              ? 'No tenants are visible to you.'
               : 'No tenants found matching your filters.'}
           </div>
         )}

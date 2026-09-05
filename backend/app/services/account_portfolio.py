@@ -74,6 +74,23 @@ EMQ_TREND_LOOKBACK_DAYS = 30
 # only entity whose budget this module can price from Campaign.daily_budget_cents.
 ACTION_ENTITY_CAMPAIGN = "campaign"
 
+# The statuses that mean autopilot has proposed an action and it has not been
+# applied. Both belong here, and reading only ``queued`` was wrong in the one
+# direction that matters: the executor selects ``approved`` rows
+# (``app.tasks.apply_actions_queue``), and when the trust gate holds or blocks
+# one it records the reason on ``error`` and leaves the status at ``approved``.
+# So the actions the gate is actively withholding are exactly the ones a
+# ``queued``-only filter cannot see, and a tenant whose whole approved queue was
+# blocked reported a measured "nothing at stake".
+#
+# ``applying`` is excluded deliberately: that row's write may already have
+# reached Meta, so it is being reconciled rather than withheld. ``applied``,
+# ``failed`` and ``dismissed`` are terminal.
+UNAPPLIED_ACTION_STATUSES: tuple[str, ...] = (
+    ActionStatus.QUEUED.value,
+    ActionStatus.APPROVED.value,
+)
+
 
 @dataclass(frozen=True)
 class TenantPortfolioMetrics:
@@ -102,6 +119,11 @@ class TenantPortfolioMetrics:
     emq_score: float | None
     emq_trend: float | None
     channel: str | None
+    # Channels with no score of their own. The representative channel does not
+    # speak for these, so they are named rather than left implicit - otherwise a
+    # tenant with one healthy channel and two dark ones reads as unqualified
+    # "healthy", which is a cleaner picture than its own dashboard shows.
+    unscored_channels: list[str] = field(default_factory=list)
     missing_inputs: list[str] = field(default_factory=list)
     missing_input_codes: list[str] = field(default_factory=list)
 
@@ -117,7 +139,7 @@ class TenantPortfolioMetrics:
 
     # Operations.
     budget_at_risk: float | None = None
-    queued_actions: int = 0
+    unapplied_actions: int = 0
     active_incidents: int | None = None
     incident_open_hours: float | None = None
 
@@ -315,14 +337,16 @@ async def _read_budget_at_risk(
     db: AsyncSession, tenant_ids: Sequence[int]
 ) -> dict[int, tuple[int, float | None]]:
     """
-    Price the automation each tenant currently has queued and unapplied.
+    Price the automation each tenant has proposed and not applied.
 
     "Budget at risk" is the daily budget of the campaigns that autopilot has
-    proposed an action for and has not been allowed to apply. Two queries: how
-    many actions are queued at all, and the summed daily budget of the distinct
+    proposed an action for and has not applied - whether it is still waiting on
+    a human (``queued``) or has been released and is being withheld by the trust
+    gate (``approved`` with the refusal recorded on ``error``). Two queries: how
+    many such actions exist, and the summed daily budget of the distinct
     campaigns those actions name.
 
-    A queued action is matched to a campaign on
+    An action is matched to a campaign on
     ``fact_actions_queue.entity_id == campaigns.external_id`` within the same
     tenant - ``entity_id`` is the platform's own id, which is what
     ``external_id`` holds. Campaigns are counted once however many actions
@@ -335,33 +359,34 @@ async def _read_budget_at_risk(
         tenant_ids: Tenants to price for.
 
     Returns:
-        ``{tenant_id: (queued_action_count, priced_daily_budget_or_None)}``.
-        The budget is ``None`` when actions are queued but none of them could
-        be priced - something is being held and we cannot say how much - and
-        tenants with no queued actions are absent, which the caller reports as
-        a measured zero.
+        ``{tenant_id: (unapplied_action_count, priced_daily_budget_or_None)}``.
+        The budget is ``None`` when actions are outstanding but none of them
+        could be priced - something is being held and we cannot say how much -
+        and tenants with no outstanding actions are absent, which the caller
+        reports as a measured zero.
     """
     if not tenant_ids:
         return {}
 
     ids = list(tenant_ids)
-    queued = FactActionsQueue.status == ActionStatus.QUEUED.value
+    unapplied = FactActionsQueue.status.in_(UNAPPLIED_ACTION_STATUSES)
 
     counts_result = await db.execute(
         select(
             FactActionsQueue.tenant_id.label("tenant_id"),
-            func.count(FactActionsQueue.id).label("queued_actions"),
+            func.count(FactActionsQueue.id).label("unapplied_actions"),
         )
-        .where(and_(FactActionsQueue.tenant_id.in_(ids), queued))
+        .where(and_(FactActionsQueue.tenant_id.in_(ids), unapplied))
         .group_by(FactActionsQueue.tenant_id)
     )
     counts = {
-        int(row.tenant_id): int(row.queued_actions or 0) for row in counts_result.all()
+        int(row.tenant_id): int(row.unapplied_actions or 0)
+        for row in counts_result.all()
     }
     if not counts:
         return {}
 
-    # Distinct so that three queued actions on one campaign do not charge its
+    # Distinct so that three outstanding actions on one campaign do not charge its
     # budget three times.
     targeted = (
         select(
@@ -380,7 +405,7 @@ async def _read_budget_at_risk(
         .where(
             and_(
                 FactActionsQueue.tenant_id.in_(list(counts)),
-                queued,
+                unapplied,
                 FactActionsQueue.entity_type == ACTION_ENTITY_CAMPAIGN,
                 Campaign.daily_budget_cents.isnot(None),
             )
@@ -404,8 +429,8 @@ async def _read_budget_at_risk(
     }
 
     return {
-        tenant_id: (queued_actions, priced.get(tenant_id))
-        for tenant_id, queued_actions in counts.items()
+        tenant_id: (unapplied_actions, priced.get(tenant_id))
+        for tenant_id, unapplied_actions in counts.items()
     }
 
 
@@ -567,12 +592,14 @@ async def build_tenant_portfolio(
     today = now.date()
     tenant_ids = [int(tenant.id) for tenant in tenants]
 
-    # The clock override has to reach the measurement window too, or the trust
-    # numbers would be measured over a different period than everything else.
+    # The clock override reaches the measurement window and the gate as well,
+    # or the trust numbers would be measured over a different period than
+    # everything else on the row - and the gate's staleness rule, which is the
+    # part most worth testing, could never be exercised against a fixed clock.
     health = await compute_portfolio_signal_health(
         db, tenant_ids, window=default_window(now)
     )
-    gates = await check_signal_health_for_tenants(db, tenant_ids)
+    gates = await check_signal_health_for_tenants(db, tenant_ids, today=today)
     industries = await _read_industries(db, tenant_ids)
     spend = await _read_spend(db, tenant_ids, today)
     incidents = await _read_incidents(db, tenant_ids)
@@ -593,6 +620,20 @@ async def build_tenant_portfolio(
         missing_inputs = (
             list(dict.fromkeys(representative.missing_inputs)) if representative else []
         )
+        # A scorable channel does not speak for the dark ones beside it. Without
+        # this the worst *scorable* channel is published alone, so a tenant with
+        # facebook at 95 and no instagram or whatsapp traffic at all read as an
+        # unqualified "healthy" - a cleaner picture than the tenant's own
+        # dashboard shows, and cleaner in the flattering direction. The
+        # dashboard names them (app/api/v1/endpoints/dashboard.py), so this does
+        # too.
+        unscored = sorted(
+            channel for channel, item in computations.items() if item.insufficient_data
+        )
+        # Published as ``unscored_channels`` rather than appended to
+        # ``missing_inputs``: that field names the *components* of one channel's
+        # score that could not be measured, and a dark channel is a different
+        # fact. Folding one into the other stated the same gap twice on the card.
 
         window = spend.get(tenant_id)
         current_spend = (
@@ -610,7 +651,7 @@ async def build_tenant_portfolio(
         )
 
         open_alerts, oldest_alert = incidents.get(tenant_id, (0, None))
-        queued_actions, priced_budget = budgets.get(tenant_id, (0, 0.0))
+        unapplied_actions, priced_budget = budgets.get(tenant_id, (0, 0.0))
 
         rows.append(
             TenantPortfolioMetrics(
@@ -639,6 +680,7 @@ async def build_tenant_portfolio(
                     else None
                 ),
                 channel=representative.channel if representative else None,
+                unscored_channels=unscored,
                 missing_inputs=missing_inputs,
                 missing_input_codes=(
                     representative.missing_input_codes if representative else []
@@ -647,7 +689,7 @@ async def build_tenant_portfolio(
                 gate_reason=gate.reason if gate else None,
                 gate_health_date=gate.health_date if gate else None,
                 budget_at_risk=priced_budget,
-                queued_actions=queued_actions,
+                unapplied_actions=unapplied_actions,
                 active_incidents=open_alerts,
                 incident_open_hours=(
                     round((now - oldest_alert).total_seconds() / 3600, 1)
