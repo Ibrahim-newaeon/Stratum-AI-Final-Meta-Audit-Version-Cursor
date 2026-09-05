@@ -6,7 +6,8 @@
 
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useCreateUser, useDeleteUser, useTenantUsers, useUpdateUser } from '@/api/admin';
+import { useDeleteUser, useInviteUser, useUpdateUser, useUsers } from '@/api/admin';
+import type { AssignableUserRole, User } from '@/api/admin';
 import { useToast } from '@/components/ui/use-toast';
 import {
   ArrowLeftIcon,
@@ -21,17 +22,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
 
-interface TeamMember {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-}
-
-const ROLES = [
+const ROLES: { value: AssignableUserRole; label: string; description: string }[] = [
   { value: 'admin', label: 'Admin', description: 'Full access to all features' },
   { value: 'manager', label: 'Manager', description: 'Manage campaigns and team' },
   { value: 'analyst', label: 'Analyst', description: 'View reports and analytics' },
@@ -46,29 +37,33 @@ export default function TeamManagement() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TeamTab>('members');
 
-  const tenantIdNum = tenantId ? parseInt(tenantId, 10) : 0;
-
-  const { data: usersData, isLoading, refetch } = useTenantUsers(tenantIdNum);
-  const createUserMutation = useCreateUser();
+  // The API derives the tenant from the authenticated request; the `tenantId`
+  // route param is for navigation only and is never sent as authorization.
+  const { data: usersData, isLoading, refetch } = useUsers();
+  const inviteUserMutation = useInviteUser();
   const updateUserMutation = useUpdateUser();
   const deleteUserMutation = useDeleteUser();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<TeamMember | null>(null);
-  const [newUser, setNewUser] = useState({
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [newUser, setNewUser] = useState<{
+    email: string;
+    name: string;
+    role: AssignableUserRole;
+  }>({
     email: '',
     name: '',
     role: 'viewer',
   });
 
-  const users: TeamMember[] = usersData || [];
+  const users: User[] = usersData || [];
 
   const filteredUsers = users.filter(
     (user) =>
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.name?.toLowerCase().includes(searchQuery.toLowerCase())
+      user.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleInvite = async () => {
@@ -82,14 +77,12 @@ export default function TeamManagement() {
     }
 
     try {
-      // Generate a temporary password for invite flow - user will reset via email
-      const tempPassword = `Temp${Math.random().toString(36).slice(-8)}!`;
-      await createUserMutation.mutateAsync({
-        tenantId: tenantIdNum,
+      // The API creates the account and emails the invite link. It issues the
+      // temporary credential itself - the client never mints one.
+      await inviteUserMutation.mutateAsync({
         email: newUser.email,
-        name: newUser.name || newUser.email.split('@')[0],
-        password: tempPassword,
-        role: newUser.role as 'superadmin' | 'admin' | 'user' | 'viewer',
+        full_name: newUser.name || newUser.email.split('@')[0],
+        role: newUser.role,
       });
       toast({
         title: 'Success',
@@ -107,11 +100,11 @@ export default function TeamManagement() {
     }
   };
 
-  const handleUpdateRole = async (userId: number, newRole: string) => {
+  const handleUpdateRole = async (userId: number, newRole: AssignableUserRole) => {
     try {
       await updateUserMutation.mutateAsync({
         id: userId,
-        data: { role: newRole as 'superadmin' | 'admin' | 'user' | 'viewer' },
+        data: { role: newRole },
       });
       toast({
         title: 'Success',
@@ -284,11 +277,11 @@ export default function TeamManagement() {
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                         <span className="text-sm font-medium text-primary">
-                          {user.name?.[0]?.toUpperCase() || user.email[0].toUpperCase()}
+                          {user.full_name?.[0]?.toUpperCase() || user.email[0].toUpperCase()}
                         </span>
                       </div>
                       <div>
-                        <p className="font-medium">{user.name || 'No name'}</p>
+                        <p className="font-medium">{user.full_name || 'No name'}</p>
                         <p className="text-sm text-muted-foreground">{user.email}</p>
                       </div>
                     </div>
@@ -296,7 +289,9 @@ export default function TeamManagement() {
                   <td className="px-6 py-4">
                     <select
                       value={user.role}
-                      onChange={(e) => handleUpdateRole(user.id, e.target.value)}
+                      onChange={(e) =>
+                        handleUpdateRole(user.id, e.target.value as AssignableUserRole)
+                      }
                       className={cn(
                         'px-3 py-1 rounded-full text-xs font-medium border-0 cursor-pointer',
                         getRoleBadgeColor(user.role)
@@ -311,7 +306,7 @@ export default function TeamManagement() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      {user.isActive ? (
+                      {user.is_active ? (
                         <>
                           <CheckCircleIcon className="h-5 w-5 text-green-500" />
                           <span className="text-sm text-green-600 dark:text-green-400">Active</span>
@@ -325,7 +320,7 @@ export default function TeamManagement() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">
-                    {formatDate(user.lastLoginAt)}
+                    {formatDate(user.last_login_at)}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
@@ -340,7 +335,7 @@ export default function TeamManagement() {
                         <PencilIcon className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => handleRemoveUser(user.id, user.name || user.email)}
+                        onClick={() => handleRemoveUser(user.id, user.full_name || user.email)}
                         className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 transition-colors"
                         title="Remove member"
                       >
@@ -413,7 +408,9 @@ export default function TeamManagement() {
                 <label className="block text-sm font-medium mb-2">Role</label>
                 <select
                   value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, role: e.target.value as AssignableUserRole })
+                  }
                   className="w-full px-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   {ROLES.map((role) => (
@@ -433,10 +430,10 @@ export default function TeamManagement() {
               </button>
               <button
                 onClick={handleInvite}
-                disabled={createUserMutation.isPending}
+                disabled={inviteUserMutation.isPending}
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                {createUserMutation.isPending ? 'Inviting...' : 'Send Invite'}
+                {inviteUserMutation.isPending ? 'Inviting...' : 'Send Invite'}
               </button>
             </div>
           </div>
@@ -463,8 +460,8 @@ export default function TeamManagement() {
                 <label className="block text-sm font-medium mb-2">Full Name</label>
                 <input
                   type="text"
-                  value={selectedUser.name || ''}
-                  onChange={(e) => setSelectedUser({ ...selectedUser, name: e.target.value })}
+                  value={selectedUser.full_name || ''}
+                  onChange={(e) => setSelectedUser({ ...selectedUser, full_name: e.target.value })}
                   className="w-full px-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
@@ -472,7 +469,12 @@ export default function TeamManagement() {
                 <label className="block text-sm font-medium mb-2">Role</label>
                 <select
                   value={selectedUser.role}
-                  onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedUser({
+                      ...selectedUser,
+                      role: e.target.value as AssignableUserRole,
+                    })
+                  }
                   className="w-full px-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   {ROLES.map((role) => (
@@ -492,7 +494,10 @@ export default function TeamManagement() {
               </button>
               <button
                 onClick={async () => {
-                  await handleUpdateRole(selectedUser.id, selectedUser.role);
+                  await handleUpdateRole(
+                    selectedUser.id,
+                    selectedUser.role as AssignableUserRole
+                  );
                   setShowEditModal(false);
                 }}
                 disabled={updateUserMutation.isPending}
