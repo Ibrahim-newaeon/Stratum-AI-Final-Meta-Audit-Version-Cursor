@@ -372,9 +372,9 @@ class SalesforceSyncService:
         status = (lead.get("Status") or "").lower()
         if "converted" in status:
             profile.lifecycle_stage = LifecycleStage.CUSTOMER.value
-        elif "qualified" in status:
-            profile.lifecycle_stage = LifecycleStage.ENGAGED.value
-        elif email:
+        elif "qualified" in status or email:
+            # LifecycleStage has no "engaged" rung: a qualified lead is
+            # identified but has not purchased, which is KNOWN.
             profile.lifecycle_stage = LifecycleStage.KNOWN.value
 
         profile.last_seen_at = datetime.now(UTC)

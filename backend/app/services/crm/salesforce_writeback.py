@@ -29,6 +29,7 @@ from app.models.crm import (
     CRMProvider,
     Touchpoint,
 )
+from app.services.crm.identity_matching import calculate_attribution_confidence
 from app.services.crm.salesforce_client import SalesforceClient
 
 logger = get_logger(__name__)
@@ -322,7 +323,7 @@ class SalesforceWritebackService:
         # Build query for contacts to sync
         conditions = [
             CRMContact.tenant_id == self.tenant_id,
-            CRMContact.provider_contact_id.isnot(None),
+            CRMContact.crm_contact_id.isnot(None),
         ]
 
         if contact_id:
@@ -378,13 +379,12 @@ class SalesforceWritebackService:
 
                     # Update contact in Salesforce
                     response = await self.client.update_contact(
-                        contact.provider_contact_id,
+                        contact.crm_contact_id,
                         properties,
                     )
 
                     if response and response.get("success"):
                         synced += 1
-                        contact.last_synced_at = datetime.now(UTC)
                     else:
                         failed += 1
                         errors.append(
@@ -444,7 +444,7 @@ class SalesforceWritebackService:
         # Build query for deals to sync
         conditions = [
             CRMDeal.tenant_id == self.tenant_id,
-            CRMDeal.provider_deal_id.isnot(None),
+            CRMDeal.crm_deal_id.isnot(None),
         ]
 
         if deal_id:
@@ -499,13 +499,12 @@ class SalesforceWritebackService:
 
                     # Update opportunity in Salesforce
                     response = await self.client.update_opportunity(
-                        deal.provider_deal_id,
+                        deal.crm_deal_id,
                         properties,
                     )
 
                     if response and response.get("success"):
                         synced += 1
-                        deal.last_synced_at = datetime.now(UTC)
                     else:
                         failed += 1
                         errors.append(
@@ -606,7 +605,7 @@ class SalesforceWritebackService:
         result = await self.db.execute(
             select(Touchpoint)
             .where(Touchpoint.contact_id == contact_id)
-            .order_by(Touchpoint.touchpoint_time)
+            .order_by(Touchpoint.event_ts)
         )
         touchpoints = result.scalars().all()
 
@@ -616,19 +615,19 @@ class SalesforceWritebackService:
         first_touch = touchpoints[0]
         last_touch = touchpoints[-1]
 
-        total_spend = sum((tp.attributed_spend_cents or 0) / 100 for tp in touchpoints)
+        total_spend = sum((tp.cost_cents or 0) / 100 for tp in touchpoints)
 
         return {
-            "platform": last_touch.platform,
+            "platform": last_touch.source,
             "campaign_id": last_touch.campaign_id,
             "campaign_name": last_touch.campaign_name,
-            "first_touch_source": f"{first_touch.platform}:{first_touch.campaign_name}"
+            "first_touch_source": f"{first_touch.source}:{first_touch.campaign_name}"
             if first_touch.campaign_name
-            else first_touch.platform,
-            "last_touch_source": f"{last_touch.platform}:{last_touch.campaign_name}"
+            else first_touch.source,
+            "last_touch_source": f"{last_touch.source}:{last_touch.campaign_name}"
             if last_touch.campaign_name
-            else last_touch.platform,
-            "confidence": max((tp.match_confidence or 0) * 100 for tp in touchpoints),
+            else last_touch.source,
+            "confidence": round(calculate_attribution_confidence(touchpoints) * 100, 1),
             "total_spend": round(total_spend, 2) if total_spend > 0 else None,
             "touchpoints_count": len(touchpoints),
         }
@@ -642,15 +641,15 @@ class SalesforceWritebackService:
             return {}
 
         touchpoints = []
-        if deal.primary_contact_id:
+        if deal.contact_id:
             tp_result = await self.db.execute(
                 select(Touchpoint)
-                .where(Touchpoint.contact_id == deal.primary_contact_id)
-                .order_by(Touchpoint.touchpoint_time)
+                .where(Touchpoint.contact_id == deal.contact_id)
+                .order_by(Touchpoint.event_ts)
             )
             touchpoints = tp_result.scalars().all()
 
-        total_spend = sum((tp.attributed_spend_cents or 0) / 100 for tp in touchpoints)
+        total_spend = sum((tp.cost_cents or 0) / 100 for tp in touchpoints)
 
         deal_amount = (deal.amount_cents or 0) / 100
         revenue_roas = deal_amount / total_spend if total_spend > 0 else None
@@ -659,21 +658,21 @@ class SalesforceWritebackService:
         profit_roas = None
         net_profit = None
 
-        if deal.amount_cents and deal.probability and deal.probability >= 0.5:
+        if deal.amount_cents and deal.is_won:
             cogs = deal_amount * 0.7
             gross_profit = deal_amount - cogs
             net_profit = gross_profit - total_spend
             profit_roas = gross_profit / total_spend if total_spend > 0 else None
 
         days_to_close = None
-        if touchpoints and deal.closed_at:
-            first_touch_date = touchpoints[0].touchpoint_time.date()
-            days_to_close = (deal.closed_at.date() - first_touch_date).days
+        if touchpoints and deal.close_date:
+            first_touch_date = touchpoints[0].event_ts.date()
+            days_to_close = (deal.close_date - first_touch_date).days
 
         primary_tp = touchpoints[-1] if touchpoints else None
 
         return {
-            "platform": primary_tp.platform if primary_tp else None,
+            "platform": primary_tp.source if primary_tp else None,
             "campaign_name": primary_tp.campaign_name if primary_tp else None,
             "attribution_model": deal.attribution_model.value
             if deal.attribution_model
@@ -719,7 +718,7 @@ class SalesforceWritebackService:
             "provider": "salesforce",
             "provider_account_id": connection.provider_account_id,
             "provider_account_name": connection.provider_account_name,
-            "is_sandbox": (connection.raw_properties or {}).get("is_sandbox", False),
+            "is_sandbox": (connection.provider_metadata or {}).get("is_sandbox", False),
             "last_sync_at": connection.last_sync_at.isoformat()
             if connection.last_sync_at
             else None,
