@@ -17,7 +17,7 @@ Database models for audit-recommended services:
 import enum
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime
@@ -28,6 +28,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -137,7 +140,7 @@ class EMQMeasurement(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_emq_tenant_date", "tenant_id", "measurement_date"),
@@ -203,8 +206,8 @@ class OfflineConversionBatch(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_offline_batch_tenant", "tenant_id", "created_at"),
@@ -253,8 +256,8 @@ class OfflineConversion(Base):
     uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    batch = relationship("OfflineConversionBatch", foreign_keys=[batch_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    batch: Mapped["OfflineConversionBatch | None"] = relationship("OfflineConversionBatch", foreign_keys=[batch_id])
 
     __table_args__ = (
         Index("ix_offline_conv_tenant", "tenant_id", "event_time"),
@@ -322,8 +325,8 @@ class ModelExperiment(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_model_exp_tenant", "tenant_id"),
@@ -395,7 +398,7 @@ class ConversionLatency(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_conv_latency_tenant", "tenant_id", "event_time"),
@@ -434,7 +437,7 @@ class ConversionLatencyStats(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_latency_stats_tenant", "tenant_id", "period_date"),
@@ -484,7 +487,7 @@ class Creative(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_creative_tenant", "tenant_id"),
@@ -541,8 +544,8 @@ class CreativePerformance(Base):
     )
 
     # Relationships
-    creative = relationship("Creative", foreign_keys=[creative_id])
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    creative: Mapped["Creative"] = relationship("Creative", foreign_keys=[creative_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_creative_perf_tenant", "tenant_id", "date"),
@@ -589,9 +592,9 @@ class CreativeFatigueAlert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    creative = relationship("Creative", foreign_keys=[creative_id])
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    acknowledged_by = relationship("User", foreign_keys=[acknowledged_by_user_id])
+    creative: Mapped["Creative"] = relationship("Creative", foreign_keys=[creative_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    acknowledged_by: Mapped["User | None"] = relationship("User", foreign_keys=[acknowledged_by_user_id])
 
     __table_args__ = (
         Index("ix_fatigue_alert_tenant", "tenant_id", "created_at"),
@@ -646,7 +649,7 @@ class IndustryBenchmark(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_benchmark_tenant", "tenant_id", "date"),
@@ -713,9 +716,9 @@ class BudgetReallocationPlan(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    approved_by = relationship("User", foreign_keys=[approved_by_user_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    approved_by: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by_user_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_realloc_plan_tenant", "tenant_id", "created_at"),
@@ -757,7 +760,7 @@ class BudgetReallocationChange(Base):
     execution_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    plan = relationship("BudgetReallocationPlan", foreign_keys=[plan_id])
+    plan: Mapped["BudgetReallocationPlan"] = relationship("BudgetReallocationPlan", foreign_keys=[plan_id])
 
     __table_args__ = (Index("ix_realloc_change_plan", "plan_id"),)
 
@@ -809,7 +812,7 @@ class AudienceRecord(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_audience_tenant", "tenant_id"),
@@ -842,9 +845,9 @@ class AudienceOverlapRecord(Base):
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    audience_1 = relationship("AudienceRecord", foreign_keys=[audience_id_1])
-    audience_2 = relationship("AudienceRecord", foreign_keys=[audience_id_2])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    audience_1: Mapped["AudienceRecord"] = relationship("AudienceRecord", foreign_keys=[audience_id_1])
+    audience_2: Mapped["AudienceRecord"] = relationship("AudienceRecord", foreign_keys=[audience_id_2])
 
     __table_args__ = (
         Index("ix_overlap_tenant", "tenant_id"),
@@ -907,7 +910,7 @@ class CustomerLTVPrediction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_ltv_pred_tenant", "tenant_id", "predicted_at"),
@@ -947,7 +950,7 @@ class LTVCohortAnalysis(Base):
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_ltv_cohort_tenant", "tenant_id"),
@@ -1004,7 +1007,7 @@ class ModelRetrainingJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant | None"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_retrain_job_tenant", "tenant_id", "created_at"),
