@@ -13,15 +13,13 @@ and the sync task therefore never ran - fixing that would have activated it.
 Two things are pinned here:
 
 1. The flag defaults to off and is rejected outright when APP_ENV=production.
-2. With the flag off the sync tasks never fabricate. ``app/workers/tasks/sync.py``
-   now pulls read-only Meta Marketing API insights instead; the legacy, shadowed
-   ``app/workers/tasks.py`` still skips. Either way, a tenant without a usable
-   Meta credential gets no rows and no claim of success - not a bare commit that
-   publishes "sync_complete" for metrics that were never touched.
+2. With the flag off the sync task never fabricates. ``app/workers/tasks/sync.py``
+   pulls read-only Meta Marketing API insights instead, so a tenant without a
+   usable Meta credential gets no rows and no claim of success - not a bare
+   commit that publishes "sync_complete" for metrics that were never touched.
 """
 
-import functools
-import importlib.util
+import importlib
 import pathlib
 import re
 from typing import ClassVar
@@ -221,32 +219,6 @@ class FakeCampaign:
     sync_error = None
 
 
-LEGACY_TASKS_PATH = (
-    pathlib.Path(__file__).resolve().parents[2] / "app" / "workers" / "tasks.py"
-)
-
-
-@functools.cache
-def _load_module(module_path: str):
-    """
-    Import one of the two sync implementations, once.
-
-    ``app/workers/tasks.py`` is shadowed by the ``app/workers/tasks/`` package,
-    so ``import app.workers.tasks`` never reaches it. It is loaded from its path
-    here so its copy of the flag branch is covered too. The result is cached:
-    re-executing the module would register its Celery tasks again and leave the
-    task proxies bound to the first copy, past the monkeypatched session.
-    """
-    if module_path == "app.workers.tasks":
-        spec = importlib.util.spec_from_file_location(
-            "legacy_workers_tasks", LEGACY_TASKS_PATH
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    return importlib.import_module(module_path)
-
-
 def _run_sync_task(monkeypatch, module_path):
     """
     Run ``sync_campaign_data`` with the flag off against a recording session.
@@ -254,61 +226,21 @@ def _run_sync_task(monkeypatch, module_path):
     Returns:
         ``(result, session, published)``.
     """
-    module = _load_module(module_path)
+    module = importlib.import_module(module_path)
     campaign = FakeCampaign()
     session = FakeSyncSession(campaign)
     published: list[tuple] = []
 
     monkeypatch.setattr(settings, "use_mock_ad_data", False)
     monkeypatch.setattr(module, "SyncSessionLocal", lambda: session)
-    publisher = "publish_event" if module_path.endswith(".sync") else "_publish_event"
     monkeypatch.setattr(
-        module, publisher, lambda *args, **kwargs: published.append((args, kwargs))
+        module,
+        "publish_event",
+        lambda *args, **kwargs: published.append((args, kwargs)),
     )
 
     result = module.sync_campaign_data(campaign.tenant_id, campaign.id)
     return result, session, published
-
-
-class TestLegacySyncSkipsWithoutMockData:
-    """``app/workers/tasks.py`` has no real ingestion and must say so.
-
-    It is shadowed by the ``app/workers/tasks/`` package and therefore never
-    imported at runtime, so it was left on the skip branch rather than
-    duplicating the Meta ingestion into dead code.
-    """
-
-    MODULE = "app.workers.tasks"
-
-    def test_writes_no_campaign_metric_row(self, monkeypatch):
-        """The whole point: not one fabricated metric reaches the database."""
-        result, session, _ = _run_sync_task(monkeypatch, self.MODULE)
-
-        assert session.added == []
-        assert session.commits == 0
-        assert result["status"] == "skipped"
-        assert result["reason"] == "real_ad_platform_sync_unavailable"
-
-    def test_does_not_claim_the_campaign_was_synced(self, monkeypatch):
-        """
-        The old code fell through to commit() and published "sync_complete"
-        for a campaign whose metrics were never touched.
-        """
-        _, session, published = _run_sync_task(monkeypatch, self.MODULE)
-
-        assert published == []
-        assert session.campaign.last_synced_at is None
-
-    def test_warns_so_the_skip_is_visible(self, monkeypatch, caplog):
-        """A silent skip is almost as bad as a fabricated row."""
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            _run_sync_task(monkeypatch, self.MODULE)
-
-        assert any(
-            "USE_MOCK_AD_DATA" in record.getMessage() for record in caplog.records
-        ), "skipping the sync must be logged as a warning"
 
 
 class TestRealSyncRefusesWithoutCredentials:

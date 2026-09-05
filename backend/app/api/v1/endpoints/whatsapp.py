@@ -782,6 +782,51 @@ async def delete_template(
 # =============================================================================
 # Message Endpoints
 # =============================================================================
+def _queue_one(tenant_id: int, message_id: int):
+    """Return a callable that enqueues one send."""
+
+    def enqueue():
+        from app.workers.tasks import send_whatsapp_message
+
+        send_whatsapp_message.delay(message_id=message_id, tenant_id=tenant_id)
+
+    return enqueue
+
+
+def _queue_broadcast(tenant_id: int, message_ids: list[int]):
+    """Return a callable that enqueues one fan-out task for a broadcast."""
+
+    def enqueue():
+        from app.workers.tasks import send_whatsapp_broadcast
+
+        send_whatsapp_broadcast.delay(message_ids=message_ids, tenant_id=tenant_id)
+
+    return enqueue
+
+
+async def _dispatch(db: AsyncSession, messages: list[WhatsAppMessage], enqueue) -> None:
+    """
+    Hand committed message rows to the worker, or mark them failed.
+
+    The rows are committed before this runs so the worker can read them. If the
+    broker is unreachable they would otherwise sit PENDING with no scheduled_at
+    forever - nothing dispatches those - so record the failure on the rows
+    instead of leaving them silently stuck.
+    """
+    try:
+        enqueue()
+    except Exception as e:
+        logger.error(f"Failed to queue {len(messages)} WhatsApp message(s): {e}")
+        for message in messages:
+            message.status = WhatsAppMessageStatus.FAILED
+            message.error_message = f"could not be queued for sending: {e}"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Message queue is unavailable; nothing was sent",
+        ) from e
+
+
 @router.post("/messages/send", response_model=APIResponse[WhatsAppMessageResponse])
 async def send_message(
     request: Request,
@@ -831,21 +876,13 @@ async def send_message(
     await db.commit()
     await db.refresh(message)
 
-    # Queue for async sending via Celery worker
-    from app.workers.tasks import send_whatsapp_message
-
-    send_whatsapp_message.delay(
-        tenant_id=tenant_id,
-        message_id=message.id,
-        contact_phone=contact.phone_number,
-        message_type=message_data.message_type,
-        template_name=message_data.template_name,
-        template_variables=message_data.template_variables,
-        content=message_data.content,
-        media_url=message_data.media_url,
-    )
-
-    logger.info(f"Queued WhatsApp message {message.id} for contact {contact.id}")
+    # A scheduled message is left for the beat task to pick up at its time;
+    # dispatching here as well would send it immediately.
+    if message.scheduled_at is None:
+        await _dispatch(db, [message], _queue_one(tenant_id, message.id))
+        logger.info(f"Queued WhatsApp message {message.id} for contact {contact.id}")
+    else:
+        logger.info(f"Scheduled WhatsApp message {message.id} for {message.scheduled_at}")
 
     return APIResponse(
         success=True,
@@ -888,7 +925,7 @@ async def send_broadcast(
     )
     contacts = contacts_result.scalars().all()
 
-    messages_queued = 0
+    messages: list[WhatsAppMessage] = []
     failed_contacts = []
 
     for contact in contacts:
@@ -901,35 +938,31 @@ async def send_broadcast(
         message = WhatsAppMessage(
             tenant_id=tenant_id,
             contact_id=contact.id,
+            template_id=template.id,
             message_type="template",
             template_name=broadcast_data.template_name,
             template_variables=broadcast_data.template_variables,
             status=WhatsAppMessageStatus.PENDING,
         )
         db.add(message)
+        messages.append(message)
 
         # Update contact stats
         contact.message_count += 1
         contact.last_message_at = datetime.now(UTC)
 
-        messages_queued += 1
+    messages_queued = len(messages)
 
-    await db.commit()
-
-    # Queue messages for async sending
-    if messages_queued > 0:
-        from app.workers.tasks import send_whatsapp_broadcast
-
-        send_whatsapp_broadcast.delay(
-            tenant_id=tenant_id,
-            template_name=broadcast_data.template_name,
-            template_variables=broadcast_data.template_variables,
-            contact_ids=[c.id for c in contacts if c.opt_in_status == WhatsAppOptInStatus.OPTED_IN],
-        )
-
-    # Update template usage count
+    # Update template usage count. Flush first so every row has the id the
+    # worker is about to be handed, then commit once: the worker must be able
+    # to read these rows before anything is enqueued.
     template.usage_count += messages_queued
+    await db.flush()
+    message_ids = [m.id for m in messages]
     await db.commit()
+
+    if messages_queued:
+        await _dispatch(db, messages, _queue_broadcast(tenant_id, message_ids))
 
     logger.info(
         f"Broadcast queued: {messages_queued} messages to {len(broadcast_data.contact_ids)} contacts"

@@ -82,6 +82,7 @@ from app.workers.tasks.sync import (
 )
 from app.workers.tasks.whatsapp import (
     process_scheduled_whatsapp_messages,
+    send_whatsapp_broadcast,
     send_whatsapp_message,
 )
 
@@ -104,6 +105,7 @@ __all__ = [
     "process_audit_log_queue",
     # WhatsApp tasks
     "send_whatsapp_message",
+    "send_whatsapp_broadcast",
     "process_scheduled_whatsapp_messages",
     # ML tasks
     "run_live_predictions",

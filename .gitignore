@@ -2,8 +2,11 @@
 node_modules/
 __pycache__/
 *.pyc
-.venv/
-venv/
+# No trailing slash: a directory-only pattern does not match a symlink named
+# .venv. That is how one got committed as backend/.venv and then clobbered a
+# real environment on every checkout that materialized it.
+.venv
+venv
 
 # Build outputs
 dist/
