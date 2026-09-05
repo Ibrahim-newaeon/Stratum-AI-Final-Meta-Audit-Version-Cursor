@@ -42,6 +42,8 @@ from app.api.v1.endpoints import (
     landing_cms,
     # Measurement & Verification (GA4 read-only baseline + GTM tag deployment)
     measurement,
+    # Meta App Review privacy callbacks (public, signed_request-verified)
+    meta_callbacks,
     meta_capi,
     mfa,
     ml_training,
@@ -403,6 +405,13 @@ api_router.include_router(
 api_router.include_router(
     paddle_webhook.router,
     tags=["Paddle Webhooks"],
+)
+
+# Meta App Review privacy callbacks (public, signed_request-verified):
+# Deauthorize Callback, Data Deletion Request Callback and its status page.
+api_router.include_router(
+    meta_callbacks.router,
+    tags=["Meta App Review Callbacks"],
 )
 
 # MFA (Two-Factor Authentication)

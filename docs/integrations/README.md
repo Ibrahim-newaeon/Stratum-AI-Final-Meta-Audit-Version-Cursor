@@ -23,6 +23,79 @@ in their own tables (`tenant_ga4_integrations`, `tenant_gtm_integrations`) behin
 - WhatsApp Cloud API for messaging and conversation attribution.
 - CDP Audience Sync pushes segments to Meta Custom Audiences (Facebook, Instagram, WhatsApp).
 
+### Meta App Review callbacks (required for `ads_read` / `ads_management`)
+
+App Review will **not** approve the app for `ads_read` or `ads_management` until both callbacks below
+are configured and reachable, so this is a hard prerequisite for every customer's real Meta data.
+
+Paste these two URLs into the Meta app dashboard, built from the **production API host** (the same
+origin as `OAUTH_REDIRECT_BASE_URL`, because the API - not the SPA - serves them). Set that variable in
+every deployed environment: its shipped default is `http://localhost:8000`, and the deletion callback
+builds the status URL it returns to Meta from it. When it is unset or still loopback the callback falls
+back to the origin the request arrived on rather than handing Meta a dead link, but the fallback depends
+on the proxy forwarding the public host, so configure it deliberately.
+
+| Meta app dashboard field | URL | What it does |
+|---|---|---|
+| **Deauthorize Callback URL** (App settings > Basic, and Facebook Login > Settings) | `https://<api-host>/api/v1/meta/deauthorize` | Meta calls it when a person removes the app from their Facebook settings, without ever opening Stratum. The matching `tenant_platform_connection` rows are set to `disconnected`, `access_token_encrypted` / `refresh_token_encrypted` / `token_ref` are cleared, and one audit row is written per connection. |
+| **Data Deletion Request URL** (App settings > Basic > Data Deletion Instructions > "Data deletion callback URL") | `https://<api-host>/api/v1/meta/data-deletion` | Meta calls it when a person requests deletion of their data. It runs the erasure, files a `meta_data_deletion_request` row, and answers with exactly `{"url": ..., "confirmation_code": ...}` - the response shape Meta requires. A repeat request for the same Meta user within 24 hours returns the code already on file instead of filing another. |
+
+The `url` it returns points at the public status page,
+`GET https://<api-host>/api/v1/meta/data-deletion/status?code=<confirmation_code>`, which Meta requires
+to keep showing a human-readable explanation of that request's state. It renders HTML for a browser and
+JSON otherwise, reports only that one code's status, and answers an identical generic 404 for any code it
+does not hold, so it cannot be used to discover which codes exist.
+
+**Authentication.** All three are public (`PUBLIC_ENDPOINTS` in `backend/app/middleware/tenant.py`,
+which the router guard in `backend/app/api/v1/guards.py` defers to) because Meta calls them
+server-to-server with no `Authorization` header. They are not unauthenticated: each POST carries a
+`signed_request` that `backend/app/services/meta/signed_request.py` verifies before any row is touched -
+base64url `"<sig>.<payload>"`, HMAC-SHA256 over the **raw encoded payload string** keyed with
+`META_APP_SECRET`, compared with `hmac.compare_digest`, and any `algorithm` other than `HMAC-SHA256`
+rejected. The status page is authenticated by its 128-bit confirmation code. The app secret is never
+logged, stored or echoed in an error.
+
+A verified request must also be **fresh**: `issued_at` has to sit within 300 seconds of now (the same
+tolerance the Paddle webhook applies), and a non-zero `expires` must not be in the past. A
+`signed_request` is not a Meta-only secret - anyone who has authorised the app can obtain one for their
+own app-scoped id from the JS SDK - so without that bound a captured or self-minted string would replay
+forever. Only form-encoded bodies are read, deliberately: `AuditMiddleware` json-parses and stores the
+body of every POST, so a JSON branch would persist the credential into the audit trail (`signed_request`
+is on that middleware's redaction list too).
+
+**How a Meta user maps to a connection.** Meta identifies the person only by the app-scoped user id
+(ASID) inside the signed request, so `tenant_platform_connection.platform_user_id` stores it, written at
+OAuth time from `GET /me` (`backend/app/services/oauth/meta.py`). Connections made **before** revision
+`0003_meta_privacy_callbacks` carry `NULL` and cannot be matched; the callbacks answer
+`200 {"status": "no_connection"}` for them and the tenant must reconnect Meta to become matchable. The
+ASID cannot be backfilled without each tenant's live token, so the migration deliberately does not try.
+
+**What deletion erases, and what it deliberately does not.** The callback deletes what Stratum AI
+obtained **through Meta** for the person Meta names: the `tenant_platform_connection` row(s) they
+authorised are set to `disconnected`, `access_token_encrypted` / `refresh_token_encrypted` / `token_ref`
+are cleared, and `platform_user_id` - the app-scoped Meta id itself - is dropped. Each severance is
+audited under the confirmation code.
+
+It does **not** anonymise the Stratum AI account that authorised the connection. That account is an
+email/password account of the tenant's own, usually an administrator's; it is not Meta-derived data, and
+anonymising it deactivates the login irreversibly. A click inside Facebook - by anyone who has ever
+connected, possibly across several tenants at once - must not be able to lock a paying customer out of
+its own workspace with no notice and no undo. Account erasure stays behind the authenticated
+`POST /api/v1/gdpr/anonymize`, which calls `backend/app/services/gdpr_erasure.py` (anonymises the `users`
+row, deletes `notification_preferences` and `api_keys`, nulls `ip_address` / `user_agent` on
+`audit_logs`). Campaign, metric and billing history are not personal data and are retained.
+
+Because of that scope, the public status page distinguishes the two completed outcomes: a request that
+matched a connection says the connection was disconnected and its tokens erased, and a request that
+matched nothing says plainly that no data was found for that Meta account - which is exactly the
+"legitimate justification" Meta's data-deletion page asks the status URL to give. It never claims an
+erasure that did not happen, including for the pre-migration connections described above.
+
+Meta retries any non-2xx, so an unknown Meta user is answered 200 - nothing is held for them and a retry
+could never change that - while genuine database failures answer 5xx so Meta does retry. A deletion whose
+erasure fails is recorded as `failed` and surfaces on the status page rather than being reported as
+success.
+
 ### Meta insights ingestion (read-only)
 
 Campaign performance comes from the Meta Marketing API **Ads Insights** endpoint. This is the only real

@@ -99,6 +99,13 @@ class TenantPlatformConnection(Base):
     scopes = Column(JSONB, nullable=True, default=list)
     granted_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
+    # The platform's own id for the person who authorised the app. For Meta this
+    # is the app-scoped user id (ASID) read from /me at OAuth time. It is the
+    # ONLY thing Meta sends in its Deauthorize and Data Deletion callbacks, so
+    # without it those callbacks cannot tell which connection to sever. Indexed
+    # but not unique: one Meta user may connect several tenants.
+    platform_user_id = Column(String(64), nullable=True, index=True)
+
     # Timestamps
     connected_at = Column(DateTime(timezone=True), nullable=True)
     last_refreshed_at = Column(DateTime(timezone=True), nullable=True)

@@ -216,6 +216,27 @@ class OAuthService(ABC):
         return decrypt_pii(encrypted)
 
     # =========================================================================
+    # Optional Methods (Platform-specific, safe defaults)
+    # =========================================================================
+
+    async def fetch_authorized_user_id(self, access_token: str) -> str | None:
+        """
+        Return the platform's own id for the person who just authorised the app.
+
+        Platforms that send privacy callbacks identify the person by this id and
+        by nothing else, so it has to be stored on the connection at OAuth time
+        or those callbacks can never be resolved. The default returns ``None``
+        for platforms that neither expose nor need one.
+
+        Args:
+            access_token: Freshly issued access token for the authorising user
+
+        Returns:
+            The platform user id as a string, or None when unavailable
+        """
+        return None
+
+    # =========================================================================
     # Abstract Methods (Platform-specific)
     # =========================================================================
 

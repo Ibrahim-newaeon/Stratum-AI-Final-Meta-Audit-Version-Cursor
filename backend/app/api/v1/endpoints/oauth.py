@@ -271,6 +271,18 @@ async def oauth_callback(
             f"{frontend_url}/connect?platform={platform.value}&error=token_exchange_failed&message=Failed to complete authorization"
         )
 
+    # The platform's own id for the authorising person. Meta's Deauthorize and
+    # Data Deletion callbacks carry nothing else to identify the connection by,
+    # so it is read once here and stored; a failure returns None and never
+    # breaks the connection itself.
+    platform_user_id = await oauth_service.fetch_authorized_user_id(tokens.access_token)
+    if platform_user_id is None:
+        logger.warning(
+            "oauth_platform_user_id_missing",
+            platform=platform.value,
+            tenant_id=oauth_state.tenant_id,
+        )
+
     # Store or update connection
     try:
         result = await db.execute(
@@ -300,6 +312,15 @@ async def oauth_callback(
             connection.last_error = None
             connection.error_count = 0
             connection.granted_by_user_id = oauth_state.user_id
+            # Written unconditionally, including when /me failed and this is
+            # None. The row is unique per (tenant, platform), so a reconnect by
+            # a different person reuses it: keeping the previous holder's
+            # platform user id here while overwriting granted_by_user_id above
+            # would bind one person's Meta identity to another person's Stratum
+            # account, and a privacy callback for the first would then act on
+            # the second. An unmatched connection is harmless (the callbacks
+            # answer 200 "no_connection"); a mismatched one is not.
+            connection.platform_user_id = platform_user_id
         else:
             # Create new connection
             connection = TenantPlatformConnection(
@@ -315,6 +336,7 @@ async def oauth_callback(
                 connected_at=now,
                 last_refreshed_at=now,
                 granted_by_user_id=oauth_state.user_id,
+                platform_user_id=platform_user_id,
             )
             db.add(connection)
 
