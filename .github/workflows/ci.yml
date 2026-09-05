@@ -11,7 +11,16 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on pull requests only: a new push to a PR makes the
+  # previous run's result worthless, so paying for it is waste.
+  #
+  # Never cancel a push run. Every commit that lands on main (or develop) is a
+  # deploy and rollback candidate, and merges land in bursts that share the
+  # `refs/heads/main` group - so cancel-in-progress would routinely leave the
+  # intermediate commit with no Backend CI verdict at all, testing only
+  # whichever merge happened to be last. That is exactly what happened to
+  # 8f39c23, whose Backend CI was cancelled by the merge five minutes behind it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHON_VERSION: "3.11"

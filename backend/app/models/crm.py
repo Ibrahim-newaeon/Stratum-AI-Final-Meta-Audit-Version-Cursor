@@ -106,6 +106,11 @@ class CRMConnection(Base):
     # Scopes granted
     scopes: Mapped[str | None] = mapped_column(Text, nullable=True)  # Comma-separated scopes
 
+    # Provider-specific connection metadata needed to talk to this account:
+    # Salesforce instance_url, Pipedrive api_domain, and similar. Not the raw
+    # CRM record - that is raw_properties on CRMContact/CRMDeal.
+    provider_metadata = Column(JSONB, nullable=True)
+
     # Connection status
     status: Mapped[CRMConnectionStatus] = mapped_column(
         SQLEnum(CRMConnectionStatus), nullable=False, default=CRMConnectionStatus.PENDING
