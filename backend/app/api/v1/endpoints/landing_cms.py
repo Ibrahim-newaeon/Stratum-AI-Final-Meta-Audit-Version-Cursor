@@ -30,7 +30,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.base_models import LandingPageSubscriber, SubscriberStatus
-from app.db.session import get_async_session
+from app.core.config import settings
+from app.db.session import AsyncSessionLocal
+from app.services.capi.platform_connectors import ConnectionStatus, MetaCAPIConnector
 
 logger = logging.getLogger("stratum.landing_cms")
 
@@ -202,73 +204,169 @@ def calculate_lead_score(
     return min(score, 100)
 
 
+def build_fbc(fbc: str | None, fbclid: str | None, click_time: datetime) -> str | None:
+    """
+    Return the Meta ``fbc`` click identifier for a lead.
+
+    Meta's format is ``fb.<subdomain index>.<click time in ms>.<fbclid>``, and
+    subdomain index 1 is correct for a single registrable domain. When the
+    browser never handed us the ``_fbc`` cookie we rebuild the value from the
+    raw ``fbclid`` and the signup time, as Meta documents. Sending the bare
+    ``fbclid`` instead - which is what this path used to do - is a malformed
+    identifier that lowers match quality rather than raising it.
+    """
+    if fbc:
+        return fbc
+    if not fbclid:
+        return None
+    return f"fb.1.{int(click_time.timestamp() * 1000)}.{fbclid}"
+
+
+def build_meta_lead_event(subscriber: LandingPageSubscriber) -> dict[str, Any]:
+    """
+    Map a landing page subscriber onto a single Meta CAPI ``Lead`` event.
+
+    Identifiers the subscriber does not carry are dropped rather than sent as
+    nulls, because Meta scores an event on the identifiers actually present.
+    The connector hashes the PII fields (email, phone, external_id) on the way
+    out; ``fbc``/``fbp``/IP/user agent must stay in the clear, and
+    :class:`~app.services.capi.pii_hasher.PIIHasher` already treats them so.
+    """
+    created_at = subscriber.created_at or datetime.now(UTC)
+
+    user_data = {
+        "email": subscriber.email,
+        "phone": subscriber.phone,
+        "external_id": str(subscriber.id),
+        "fbc": build_fbc(subscriber.fbc, subscriber.fbclid, created_at),
+        "fbp": subscriber.fbp,
+        "client_ip_address": subscriber.ip_address,
+        "client_user_agent": subscriber.user_agent,
+    }
+    custom_data = {
+        "lead_type": "landing_page_signup",
+        "utm_source": subscriber.utm_source,
+        "utm_campaign": subscriber.utm_campaign,
+        "lead_score": subscriber.lead_score,
+    }
+
+    event: dict[str, Any] = {
+        "event_name": "Lead",
+        # Deterministic, so re-running this task for the same subscriber
+        # deduplicates against the earlier attempt instead of double counting
+        # the lead, and matches nothing the browser pixel would send.
+        "event_id": f"landing-lead-{subscriber.id}",
+        "event_time": int(created_at.timestamp()),
+        "action_source": "website",
+        "user_data": {key: value for key, value in user_data.items() if value},
+        "parameters": {
+            key: value for key, value in custom_data.items() if value is not None
+        },
+    }
+    if subscriber.landing_url:
+        event["event_source_url"] = subscriber.landing_url
+    return event
+
+
 async def send_conversion_to_platforms(subscriber_id: int, platform: str) -> dict[str, Any]:
     """
-    Send 'Lead' conversion event to ad platforms via CAPI.
+    Send the ``Lead`` conversion event for a landing page signup to Meta CAPI.
 
-    This runs as a background task after the subscriber is created.
+    Runs as a background task after the subscriber is created.
+
+    ``capi_sent`` is set only when Meta actually accepted the event. A skipped
+    or failed attempt records why in ``capi_results`` and leaves the flag as it
+    was, so a lead is never reported as delivered when nothing was sent.
+
+    Credentials are Stratum's own marketing pixel (``META_PIXEL_ID`` /
+    ``META_ACCESS_TOKEN``). Landing page subscribers are Stratum's first-party
+    leads and belong to no tenant - a tenant only exists later, through
+    ``converted_to_tenant_id`` - so there is no TenantPlatformConnection to
+    read here, and no tenant's pixel is ever used for them.
     """
-    results = {}
+    if platform != "meta":
+        logger.info(
+            "CAPI skipped for subscriber %s: no connector for platform %r",
+            subscriber_id,
+            platform,
+        )
+        return {"sent": False, "reason": f"unsupported platform: {platform}"}
+
+    pixel_id = settings.meta_pixel_id
+    access_token = settings.meta_access_token
+    if not pixel_id or not access_token:
+        logger.warning(
+            "CAPI skipped for subscriber %s: META_PIXEL_ID/META_ACCESS_TOKEN not configured",
+            subscriber_id,
+        )
+        return {"sent": False, "reason": "meta pixel credentials not configured"}
 
     try:
-        async with get_async_session() as session:
+        async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(LandingPageSubscriber).where(LandingPageSubscriber.id == subscriber_id)
             )
             subscriber = result.scalar_one_or_none()
+            if subscriber is None:
+                logger.error("CAPI skipped: subscriber %s not found", subscriber_id)
+                return {"sent": False, "reason": "subscriber not found"}
 
-            if not subscriber:
-                return {"error": "Subscriber not found"}
+            event = build_meta_lead_event(subscriber)
 
-            # Try to import and use the events API
-            try:
-                from app.services.capi.platform_connectors import MetaCAPIConnector
+            # connect() is what arms the connector: send_events() refuses to do
+            # anything until it has succeeded. Landing page signups are low
+            # volume, so one connection per lead is cheaper than holding a
+            # long-lived connector whose token may have been rotated.
+            connector = MetaCAPIConnector()
+            connection = await connector.connect(
+                {"pixel_id": pixel_id, "access_token": access_token}
+            )
 
-                # Build user data
-                user_data = {
-                    "email": subscriber.email,
-                    "phone": subscriber.phone,
-                    "external_id": str(subscriber.id),
-                    "fbc": subscriber.fbc or subscriber.fbclid,
-                    "fbp": subscriber.fbp,
-                    "client_ip_address": subscriber.ip_address,
-                    "client_user_agent": subscriber.user_agent,
+            if connection.status != ConnectionStatus.CONNECTED:
+                outcome: dict[str, Any] = {
+                    "sent": False,
+                    "reason": f"meta connection failed: {connection.message}",
                 }
+            else:
+                response = await connector.send_events([event])
+                if response.success:
+                    outcome = {
+                        "sent": True,
+                        "event_id": event["event_id"],
+                        "events_processed": response.events_processed,
+                        "request_id": response.request_id,
+                    }
+                else:
+                    outcome = {
+                        "sent": False,
+                        "reason": "meta rejected the event",
+                        "errors": response.errors,
+                    }
 
-                # Send to appropriate platform
-                if platform == "meta":
-                    pixel_id = os.getenv("META_PIXEL_ID")
-                    access_token = os.getenv("META_ACCESS_TOKEN")
-                    if pixel_id and access_token:
-                        connector = MetaCAPIConnector(pixel_id, access_token)
-                        result = await connector.send_lead_event(
-                            user_data=user_data,
-                            event_source_url=subscriber.landing_url,
-                            custom_data={
-                                "lead_type": "landing_page_signup",
-                                "utm_source": subscriber.utm_source,
-                                "utm_campaign": subscriber.utm_campaign,
-                            },
-                        )
-                        results["meta"] = result
+            outcome["platform"] = "meta"
+            outcome["attempted_at"] = datetime.now(UTC).isoformat()
 
-                # Update subscriber with CAPI results
+            # Only a real acceptance flips the flag, and a later failure never
+            # clears a send that did happen.
+            if outcome["sent"]:
                 subscriber.capi_sent = True
-                subscriber.capi_results = json.dumps(results)
-                subscriber.updated_at = datetime.now(UTC)
-                await session.commit()
-
-                logger.info(f"CAPI sent for lead {subscriber_id}: {results}")
-
-            except ImportError:
-                logger.warning("CAPI connectors not available, skipping conversion send")
-                results["error"] = "CAPI connectors not available"
+            subscriber.capi_results = json.dumps(outcome, default=str)
+            subscriber.updated_at = datetime.now(UTC)
+            await session.commit()
 
     except Exception as e:
-        logger.error(f"CAPI error for subscriber {subscriber_id}: {e}")
-        results["error"] = str(e)
+        # Nothing here can claim a send: capi_sent is only ever set inside the
+        # success branch above, which has already committed if it was reached.
+        logger.exception("CAPI error for subscriber %s", subscriber_id)
+        return {"sent": False, "reason": f"unexpected error: {e}"}
 
-    return results
+    if outcome["sent"]:
+        logger.info("CAPI Lead delivered for subscriber %s: %s", subscriber_id, outcome)
+    else:
+        logger.warning(
+            "CAPI Lead not delivered for subscriber %s: %s", subscriber_id, outcome
+        )
+    return outcome
 
 
 # =============================================================================
@@ -299,7 +397,7 @@ async def create_subscriber(
     Click ID Parameters (captured from URL):
     - fbclid: Meta/Facebook
     """
-    async with get_async_session() as session:
+    async with AsyncSessionLocal() as session:
         # Check if email already exists
         existing = await session.execute(
             select(LandingPageSubscriber).where(
@@ -436,7 +534,7 @@ async def list_subscribers(
 
     Requires Authorization header with admin API key.
     """
-    async with get_async_session() as session:
+    async with AsyncSessionLocal() as session:
         query = select(LandingPageSubscriber)
 
         if status:
@@ -483,7 +581,7 @@ async def get_stats(_: bool = Depends(verify_admin_token)):
 
     Returns counts by status, platform, UTM source, etc.
     """
-    async with get_async_session() as session:
+    async with AsyncSessionLocal() as session:
         # Get all subscribers for calculations
         result = await session.execute(select(LandingPageSubscriber))
         subscribers = result.scalars().all()
@@ -559,7 +657,7 @@ async def export_subscribers(
     """
     Export subscribers as CSV or JSON (admin only).
     """
-    async with get_async_session() as session:
+    async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(LandingPageSubscriber).order_by(LandingPageSubscriber.created_at.desc())
         )
@@ -678,7 +776,7 @@ async def update_subscriber_status(
             status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}"
         )
 
-    async with get_async_session() as session:
+    async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(LandingPageSubscriber).where(LandingPageSubscriber.id == subscriber_id)
         )
