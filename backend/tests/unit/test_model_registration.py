@@ -17,20 +17,25 @@ import pathlib
 
 import pytest
 
-import app.models
-
-MODELS_DIR = pathlib.Path(app.models.__file__).parent
+# Located by path, NOT by importing app.models. A module that declares a table
+# but is unregistered is often also a module that does not import cleanly, and
+# `import app.models` here would turn every assertion below into one
+# collection-time error naming no file - which is exactly the diagnosis this
+# file is supposed to hand you.
+BACKEND_DIR = pathlib.Path(__file__).resolve().parents[2]
+MODELS_DIR = BACKEND_DIR / "app" / "models"
 INIT_PATH = MODELS_DIR / "__init__.py"
 
 # Modules deliberately left unregistered, each with the reason. These are debt,
-# not design: every table they declare is missing from every database.
-# Registering either today raises InvalidRequestError, because both redeclare a
-# table another module already owns (for example `competitor_benchmarks`).
-# Untangling those duplicates is its own change.
-KNOWN_UNREGISTERED: dict[str, str] = {
-    "audit_services": "redeclares competitor_benchmarks, which base_models already owns",
-    "embed_widgets": "not yet reconciled with the embed widget endpoints",
-}
+# not design: every table such a module declares is missing from every database.
+#
+# Empty is the goal state, and it is currently empty. It formerly held
+# audit_services ("redeclares competitor_benchmarks") and embed_widgets; the
+# first no longer collides - that model is now IndustryBenchmark on
+# industry_benchmarks - and both are registered with migrations creating their
+# tables. Add an entry only with a reason, and delete it the moment the module
+# is wired up; test_known_unregistered_list_stays_honest enforces that.
+KNOWN_UNREGISTERED: dict[str, str] = {}
 
 
 def _declared_tables(path: pathlib.Path) -> set[str]:

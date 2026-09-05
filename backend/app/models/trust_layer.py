@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 # =============================================================================
 # Stratum AI - Trust Layer Database Models
 # =============================================================================
@@ -8,25 +10,20 @@ Database models for the Trust Layer:
 """
 
 import enum
-from datetime import datetime
+import uuid
+from datetime import date, datetime
 from uuid import uuid4
 
-from sqlalchemy import (
-    Column,
-    Date,
-    DateTime,
-    Enum as SQLEnum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-)
+from sqlalchemy import Date, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -64,20 +61,20 @@ class FactSignalHealthDaily(Base):
 
     __tablename__ = "fact_signal_health_daily"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
-    platform = Column(String(50), nullable=False)  # meta
-    account_id = Column(String(255), nullable=True)  # Optional, for account-level tracking
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)  # meta
+    account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Optional, for account-level tracking
 
     # Signal health metrics
-    emq_score = Column(Float, nullable=True)  # Event Match Quality (0-100)
-    event_loss_pct = Column(Float, nullable=True)  # Percentage of lost events (0-100)
-    freshness_minutes = Column(Integer, nullable=True)  # Data freshness in minutes
-    api_error_rate = Column(Float, nullable=True)  # API error rate percentage (0-100)
+    emq_score: Mapped[float | None] = mapped_column(Float, nullable=True)  # Event Match Quality (0-100)
+    event_loss_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # Percentage of lost events (0-100)
+    freshness_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Data freshness in minutes
+    api_error_rate: Mapped[float | None] = mapped_column(Float, nullable=True)  # API error rate percentage (0-100)
 
     # Computed status
-    status = Column(
+    status: Mapped[SignalHealthStatus] = mapped_column(
         SQLEnum(
             SignalHealthStatus,
             name="signal_health_status",
@@ -89,18 +86,18 @@ class FactSignalHealthDaily(Base):
     )
 
     # Additional context
-    notes = Column(Text, nullable=True)
-    issues = Column(Text, nullable=True)  # JSON array of issue strings
-    actions = Column(Text, nullable=True)  # JSON array of recommended actions
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issues: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array of issue strings
+    actions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array of recommended actions
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships - use foreign_keys to resolve ambiguity
-    tenant = relationship(
+    tenant: Mapped["Tenant"] = relationship(
         "Tenant", foreign_keys=[tenant_id], back_populates="signal_health_records"
     )
 
@@ -119,26 +116,26 @@ class FactAttributionVarianceDaily(Base):
 
     __tablename__ = "fact_attribution_variance_daily"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
-    platform = Column(String(50), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Revenue comparison
-    ga4_revenue = Column(Float, nullable=False, default=0.0)
-    platform_revenue = Column(Float, nullable=False, default=0.0)
-    revenue_delta_abs = Column(Float, nullable=False, default=0.0)
-    revenue_delta_pct = Column(Float, nullable=False, default=0.0)
+    ga4_revenue: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    platform_revenue: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    revenue_delta_abs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    revenue_delta_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     # Conversion comparison
-    ga4_conversions = Column(Integer, nullable=False, default=0)
-    platform_conversions = Column(Integer, nullable=False, default=0)
-    conversion_delta_abs = Column(Integer, nullable=False, default=0)
-    conversion_delta_pct = Column(Float, nullable=False, default=0.0)
+    ga4_conversions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    platform_conversions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    conversion_delta_abs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    conversion_delta_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     # Confidence and status
-    confidence = Column(Float, nullable=False, default=0.0)  # 0-1
-    status = Column(
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)  # 0-1
+    status: Mapped[AttributionVarianceStatus] = mapped_column(
         SQLEnum(
             AttributionVarianceStatus,
             name="attribution_variance_status",
@@ -150,16 +147,16 @@ class FactAttributionVarianceDaily(Base):
     )
 
     # Additional context
-    notes = Column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships - use foreign_keys to resolve ambiguity
-    tenant = relationship(
+    tenant: Mapped["Tenant"] = relationship(
         "Tenant", foreign_keys=[tenant_id], back_populates="attribution_variance_records"
     )
 
@@ -177,25 +174,25 @@ class SignalHealthHistory(Base):
 
     __tablename__ = "signal_health_history"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Aggregated scores
-    overall_score = Column(Float, nullable=False)  # 0-100
-    emq_score_avg = Column(Float, nullable=True)
-    event_loss_pct_avg = Column(Float, nullable=True)
-    freshness_minutes_avg = Column(Integer, nullable=True)
-    api_error_rate_avg = Column(Float, nullable=True)
+    overall_score: Mapped[float] = mapped_column(Float, nullable=False)  # 0-100
+    emq_score_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    event_loss_pct_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    freshness_minutes_avg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    api_error_rate_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Status counts
-    platforms_ok = Column(Integer, default=0)
-    platforms_risk = Column(Integer, default=0)
-    platforms_degraded = Column(Integer, default=0)
-    platforms_critical = Column(Integer, default=0)
+    platforms_ok: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    platforms_risk: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    platforms_degraded: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    platforms_critical: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
 
     # Computed overall status
-    status = Column(
+    status: Mapped[SignalHealthStatus] = mapped_column(
         SQLEnum(
             SignalHealthStatus,
             name="signal_health_status",
@@ -207,12 +204,12 @@ class SignalHealthHistory(Base):
     )
 
     # Automation state
-    automation_blocked = Column(
+    automation_blocked: Mapped[int | None] = mapped_column(
         Integer, default=0
-    )  # Boolean stored as int for SQLite compatibility
+    , nullable=True)  # Boolean stored as int for SQLite compatibility
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     __table_args__ = (
         Index("ix_signal_health_history_tenant_date", "tenant_id", "date", unique=True),
@@ -227,47 +224,47 @@ class TrustGateAuditLog(Base):
 
     __tablename__ = "trust_gate_audit_log"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Decision context
-    decision_type = Column(String(50), nullable=False)  # execute, hold, block
-    action_type = Column(String(100), nullable=False)  # budget_increase, pause, etc.
-    entity_type = Column(String(50), nullable=False)  # campaign, adset, creative
-    entity_id = Column(String(255), nullable=False)
-    entity_name = Column(String(255), nullable=True)
-    platform = Column(String(50), nullable=True)
+    decision_type: Mapped[str] = mapped_column(String(50), nullable=False)  # execute, hold, block
+    action_type: Mapped[str] = mapped_column(String(100), nullable=False)  # budget_increase, pause, etc.
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # campaign, adset, creative
+    entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Signal health at decision time
-    signal_health_score = Column(Float, nullable=True)
-    signal_health_status = Column(String(20), nullable=True)
+    signal_health_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    signal_health_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Trust gate evaluation
-    gate_passed = Column(Integer, default=0)  # Boolean as int
-    gate_reason = Column(Text, nullable=True)  # JSON with reasons
+    gate_passed: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)  # Boolean as int
+    gate_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON with reasons
 
     # Thresholds used
-    healthy_threshold = Column(Float, nullable=True)
-    degraded_threshold = Column(Float, nullable=True)
+    healthy_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    degraded_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Dry run indicator
-    is_dry_run = Column(Integer, default=0)  # Boolean as int
+    is_dry_run: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)  # Boolean as int
 
     # Action details
-    action_payload = Column(Text, nullable=True)  # JSON
-    action_result = Column(Text, nullable=True)  # JSON
+    action_payload: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    action_result: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
 
     # User context
-    triggered_by_user_id = Column(
+    triggered_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    triggered_by_system = Column(Integer, default=0)  # Boolean as int
+    triggered_by_system: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)  # Boolean as int
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
 
     __table_args__ = (
         Index("ix_trust_gate_audit_tenant_date", "tenant_id", "created_at"),
@@ -284,52 +281,52 @@ class FactActionsQueue(Base):
 
     __tablename__ = "fact_actions_queue"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Action details
-    action_type = Column(
+    action_type: Mapped[str] = mapped_column(
         String(100), nullable=False
     )  # budget_increase, budget_decrease, pause, etc.
-    entity_type = Column(String(50), nullable=False)  # campaign, adset, creative
-    entity_id = Column(String(255), nullable=False)
-    entity_name = Column(String(255), nullable=True)
-    platform = Column(String(50), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # campaign, adset, creative
+    entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Action payload
-    action_json = Column(Text, nullable=False)  # Full action details as JSON
+    action_json: Mapped[str] = mapped_column(Text, nullable=False)  # Full action details as JSON
 
     # Before/after values for audit
-    before_value = Column(Text, nullable=True)  # JSON
-    after_value = Column(Text, nullable=True)  # JSON
+    before_value: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    after_value: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
 
     # Workflow status
-    status = Column(
+    status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="queued"
     )  # queued, approved, applied, failed, dismissed
 
     # Actors
-    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    approved_by_user_id = Column(
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    applied_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    applied_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    approved_at = Column(DateTime(timezone=True), nullable=True)
-    applied_at = Column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Result
-    error = Column(Text, nullable=True)
-    platform_response = Column(Text, nullable=True)  # JSON
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    platform_response: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
 
     # Relationships - use foreign_keys to resolve ambiguity
-    tenant = relationship("Tenant", foreign_keys=[tenant_id], back_populates="actions_queue")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    approved_by = relationship("User", foreign_keys=[approved_by_user_id])
-    applied_by = relationship("User", foreign_keys=[applied_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id], back_populates="actions_queue")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    approved_by: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by_user_id])
+    applied_by: Mapped["User | None"] = relationship("User", foreign_keys=[applied_by_user_id])
 
     __table_args__ = (
         Index("ix_fact_actions_queue_tenant_date", "tenant_id", "date"),

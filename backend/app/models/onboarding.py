@@ -17,13 +17,16 @@ Onboarding Steps:
 
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -208,8 +211,8 @@ class TenantOnboarding(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    completed_by = relationship("User", foreign_keys=[completed_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    completed_by: Mapped["User | None"] = relationship("User", foreign_keys=[completed_by_user_id])
 
     __table_args__ = (Index("ix_tenant_onboarding_status", "status"),)
 

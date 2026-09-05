@@ -10,14 +10,20 @@ These tables provide persistent storage for:
 - Deduplication tracking (optional persistent mode)
 """
 
+import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (BigInteger, DateTime, Float, ForeignKey, Index,
+                        Integer, String, Text)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant
 
 # =============================================================================
 # CAPI Delivery Log
@@ -37,40 +43,40 @@ class CAPIDeliveryLog(Base):
 
     __tablename__ = "capi_delivery_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Event identification
-    platform = Column(String(50), nullable=False)  # meta, whatsapp
-    event_id = Column(String(255), nullable=True)  # External event ID for deduplication
-    event_name = Column(String(100), nullable=False)  # Purchase, Lead, etc.
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)  # meta, whatsapp
+    event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # External event ID for deduplication
+    event_name: Mapped[str] = mapped_column(String(100), nullable=False)  # Purchase, Lead, etc.
 
     # Timing
-    event_time = Column(DateTime(timezone=True), nullable=False)  # Original event timestamp
-    delivery_time = Column(DateTime(timezone=True), nullable=False)  # When we sent it
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # Original event timestamp
+    delivery_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # When we sent it
 
     # Delivery status
-    status = Column(String(20), nullable=False)  # success, failed, retrying, rate_limited
-    latency_ms = Column(Float, nullable=False)  # Delivery latency in milliseconds
-    retry_count = Column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # success, failed, retrying, rate_limited
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False)  # Delivery latency in milliseconds
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Error details (for failed deliveries)
-    error_message = Column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Platform response
-    request_id = Column(String(255), nullable=True)  # Platform's request ID
-    platform_response = Column(JSONB, nullable=True)  # Full platform response
+    request_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Platform's request ID
+    platform_response: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Full platform response
 
     # Event data (hashed for correlation, not storing PII)
-    user_data_hash = Column(String(64), nullable=True)  # SHA256 of user identifiers
-    event_value_cents = Column(BigInteger, nullable=True)  # Event value in cents
-    currency = Column(String(3), nullable=True)  # Currency code
+    user_data_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # SHA256 of user identifiers
+    event_value_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # Event value in cents
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)  # Currency code
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         # Query by tenant and time range
@@ -101,46 +107,46 @@ class CAPIDeadLetterEntry(Base):
 
     __tablename__ = "capi_dead_letter_queue"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Event identification
-    platform = Column(String(50), nullable=False)
-    event_id = Column(String(255), nullable=True)
-    event_name = Column(String(100), nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    event_name: Mapped[str] = mapped_column(String(100), nullable=False)
 
     # Full event data (needed for replay)
-    event_data = Column(JSONB, nullable=False)
+    event_data: Mapped[Any] = mapped_column(JSONB, nullable=False)
 
     # Failure information
-    failure_reason = Column(Text, nullable=False)
-    failure_category = Column(
+    failure_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_category: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # network_error, rate_limited, auth_error, etc.
-    error_message = Column(Text, nullable=False)
-    retry_count = Column(Integer, nullable=False)
-    max_retries = Column(Integer, nullable=False)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Status
-    status = Column(String(20), nullable=False)  # pending, retrying, recovered, expired, discarded
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # pending, retrying, recovered, expired, discarded
 
     # Platform response at failure
-    platform_response = Column(JSONB, nullable=True)
+    platform_response: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Additional context
-    context = Column(JSONB, nullable=True)
+    context: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Timestamps
-    first_failure_at = Column(DateTime(timezone=True), nullable=False)
-    last_failure_at = Column(DateTime(timezone=True), nullable=False)
-    recovered_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    first_failure_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_failure_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         # Query pending entries for retry
@@ -169,23 +175,23 @@ class CAPIEventDedupeRecord(Base):
 
     __tablename__ = "capi_event_dedupe"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Deduplication key
-    dedupe_key = Column(String(255), nullable=False)  # {platform}:{event_id} or MD5 hash
-    platform = Column(String(50), nullable=False)
-    event_id = Column(String(255), nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)  # {platform}:{event_id} or MD5 hash
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # First seen timestamp
-    first_seen_at = Column(DateTime(timezone=True), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Expiration (for cleanup)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Metadata
-    event_name = Column(String(100), nullable=True)
-    event_value_cents = Column(BigInteger, nullable=True)
+    event_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    event_value_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     __table_args__ = (
         # Unique constraint on dedupe key per tenant
@@ -210,45 +216,45 @@ class CAPIDeliveryDailyStats(Base):
 
     __tablename__ = "capi_delivery_daily_stats"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Aggregation period
-    date = Column(DateTime(timezone=True), nullable=False)
-    platform = Column(String(50), nullable=False)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Counts
-    total_events = Column(Integer, default=0, nullable=False)
-    successful_events = Column(Integer, default=0, nullable=False)
-    failed_events = Column(Integer, default=0, nullable=False)
-    retried_events = Column(Integer, default=0, nullable=False)
-    deduplicated_events = Column(Integer, default=0, nullable=False)
+    total_events: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    successful_events: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_events: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retried_events: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    deduplicated_events: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Success rate
-    success_rate_pct = Column(Float, nullable=True)
+    success_rate_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Latency statistics (milliseconds)
-    avg_latency_ms = Column(Float, nullable=True)
-    p50_latency_ms = Column(Float, nullable=True)
-    p95_latency_ms = Column(Float, nullable=True)
-    p99_latency_ms = Column(Float, nullable=True)
-    max_latency_ms = Column(Float, nullable=True)
+    avg_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p50_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p95_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p99_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Value statistics
-    total_value_cents = Column(BigInteger, default=0, nullable=False)
-    avg_value_cents = Column(Integer, nullable=True)
+    total_value_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    avg_value_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Error breakdown
-    error_counts = Column(JSONB, nullable=True)  # {error_category: count}
+    error_counts: Mapped[Any] = mapped_column(JSONB, nullable=True)  # {error_category: count}
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         # Query by date

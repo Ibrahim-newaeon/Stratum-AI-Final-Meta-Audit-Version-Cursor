@@ -16,11 +16,13 @@ from ``secrets`` so it cannot be guessed or enumerated.
 """
 
 import enum
+import uuid
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base
 
@@ -52,44 +54,46 @@ class MetaDataDeletionRequest(Base):
 
     __tablename__ = "meta_data_deletion_request"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     #: Unguessable code handed back to Meta and shown to the person. The only
     #: credential the public status endpoint accepts.
-    confirmation_code = Column(String(64), nullable=False, unique=True, index=True)
+    confirmation_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
 
     #: Meta's app-scoped user id (ASID) from the verified signed_request.
-    meta_user_id = Column(String(64), nullable=False, index=True)
+    meta_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
     #: Tenant whose connection matched, when one did. Null means the Meta user
     #: matched no connection - which is not an error, only nothing to erase.
-    tenant_id = Column(
+    tenant_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    status = Column(
+    status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=DataDeletionStatus.PENDING.value
     )
 
     #: How many platform connections this request severed. Operator counter,
     #: and the one thing the public status page consults - a request that
     #: matched nothing must not be described as having erased something.
-    connections_cleared = Column(Integer, nullable=False, default=0)
+    connections_cleared: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     #: Failure cause for operators. Never contains a token or the app secret.
-    last_error = Column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    requested_at = Column(
+    requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
-    updated_at = Column(
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=datetime.utcnow,
         onupdate=datetime.utcnow,

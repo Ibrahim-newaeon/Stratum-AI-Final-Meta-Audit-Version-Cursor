@@ -20,23 +20,15 @@ Tier Alignment:
 import enum
 import hashlib
 import secrets
+import uuid
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import (BigInteger, Boolean, DateTime, ForeignKey, Index,
+                        Integer, String, Text, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin
 
@@ -95,8 +87,8 @@ class EmbedWidget(Base, TimestampMixin):
 
     __tablename__ = "embed_widgets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -104,44 +96,44 @@ class EmbedWidget(Base, TimestampMixin):
     )
 
     # Widget identification
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Widget type and configuration
-    widget_type = Column(String(50), nullable=False)
-    widget_size = Column(String(50), nullable=False, default=WidgetSize.STANDARD.value)
+    widget_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    widget_size: Mapped[str] = mapped_column(String(50), nullable=False, default=WidgetSize.STANDARD.value)
 
     # Custom dimensions (for CUSTOM size)
-    custom_width = Column(Integer, nullable=True)
-    custom_height = Column(Integer, nullable=True)
+    custom_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    custom_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Branding level (determined by tier)
-    branding_level = Column(String(50), nullable=False, default=BrandingLevel.FULL.value)
+    branding_level: Mapped[str] = mapped_column(String(50), nullable=False, default=BrandingLevel.FULL.value)
 
     # Custom branding (Enterprise only)
-    custom_logo_url = Column(String(512), nullable=True)
-    custom_accent_color = Column(String(7), nullable=True)  # Hex color
-    custom_background_color = Column(String(7), nullable=True)
-    custom_text_color = Column(String(7), nullable=True)
+    custom_logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    custom_accent_color: Mapped[str | None] = mapped_column(String(7), nullable=True)  # Hex color
+    custom_background_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    custom_text_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
 
     # Data source configuration
     # Scope limits what data the widget can access
-    data_scope = Column(JSONB, nullable=False, default=dict)
+    data_scope: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
     # e.g., {"campaigns": ["camp_123"], "ad_accounts": ["acc_456"]}
 
     # Refresh interval (how often widget refreshes data)
-    refresh_interval_seconds = Column(Integer, nullable=False, default=300)  # 5 min default
+    refresh_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)  # 5 min default
 
     # Status
-    is_active = Column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Analytics
-    total_views = Column(BigInteger, nullable=False, default=0)
-    total_unique_domains = Column(Integer, nullable=False, default=0)
-    last_viewed_at = Column(DateTime(timezone=True), nullable=True)
+    total_views: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    total_unique_domains: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    tokens = relationship(
+    tokens: Mapped[list["EmbedToken"]] = relationship(
         "EmbedToken",
         back_populates="widget",
         cascade="all, delete-orphan",
@@ -176,8 +168,8 @@ class EmbedToken(Base, TimestampMixin):
 
     __tablename__ = "embed_tokens"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -185,7 +177,7 @@ class EmbedToken(Base, TimestampMixin):
     )
 
     # Link to widget
-    widget_id = Column(
+    widget_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("embed_widgets.id", ondelete="CASCADE"),
         nullable=False,
@@ -193,37 +185,37 @@ class EmbedToken(Base, TimestampMixin):
     )
 
     # Token identification
-    token_prefix = Column(String(8), nullable=False)  # First 8 chars for identification
-    token_hash = Column(String(64), nullable=False)  # SHA-256 hash of full token
+    token_prefix: Mapped[str] = mapped_column(String(8), nullable=False)  # First 8 chars for identification
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA-256 hash of full token
 
     # Domain binding (CRITICAL for security)
-    allowed_domains = Column(ARRAY(String(255)), nullable=False)
+    allowed_domains: Mapped[list[str]] = mapped_column(ARRAY(String(255)), nullable=False)
     # e.g., ["dashboard.client.com", "*.client.com"]
 
     # Token lifecycle
-    status = Column(String(50), nullable=False, default=TokenStatus.ACTIVE.value)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default=TokenStatus.ACTIVE.value)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Refresh token (for rotation)
-    refresh_token_hash = Column(String(64), nullable=True)
-    refresh_expires_at = Column(DateTime(timezone=True), nullable=True)
+    refresh_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Rate limiting
-    rate_limit_per_minute = Column(Integer, nullable=False, default=60)
-    current_minute_requests = Column(Integer, nullable=False, default=0)
-    current_minute_start = Column(DateTime(timezone=True), nullable=True)
+    rate_limit_per_minute: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    current_minute_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    current_minute_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Usage analytics
-    total_requests = Column(BigInteger, nullable=False, default=0)
-    total_errors = Column(BigInteger, nullable=False, default=0)
+    total_requests: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    total_errors: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     # Security: track last known origins
-    last_origin = Column(String(512), nullable=True)
-    suspicious_activity = Column(Boolean, nullable=False, default=False)
+    last_origin: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    suspicious_activity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
-    widget = relationship("EmbedWidget", back_populates="tokens")
+    widget: Mapped["EmbedWidget"] = relationship("EmbedWidget", back_populates="tokens")
 
     __table_args__ = (
         Index("ix_embed_tokens_tenant", "tenant_id"),
@@ -288,8 +280,8 @@ class EmbedDomainWhitelist(Base, TimestampMixin):
 
     __tablename__ = "embed_domain_whitelist"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -297,19 +289,19 @@ class EmbedDomainWhitelist(Base, TimestampMixin):
     )
 
     # Domain pattern (supports wildcards)
-    domain_pattern = Column(String(255), nullable=False)
+    domain_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
     # e.g., "dashboard.client.com" or "*.client.com"
 
     # Verification status
-    is_verified = Column(Boolean, nullable=False, default=False)
-    verification_token = Column(String(64), nullable=True)
-    verified_at = Column(DateTime(timezone=True), nullable=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verification_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Status
-    is_active = Column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Notes
-    description = Column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_embed_domain_whitelist_tenant", "tenant_id"),
@@ -335,20 +327,20 @@ class EmbedWidgetView(Base):
 
     __tablename__ = "embed_widget_views"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, nullable=False, index=True)
-    widget_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    token_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    widget_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    token_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     # View details (anonymized)
-    view_date = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    origin_domain = Column(String(255), nullable=True)
+    view_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    origin_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Geo (country-level only)
-    country_code = Column(String(2), nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     # Device category
-    device_type = Column(String(50), nullable=True)  # desktop, mobile, tablet
+    device_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # desktop, mobile, tablet
 
     __table_args__ = (
         Index("ix_embed_widget_views_tenant_date", "tenant_id", "view_date"),

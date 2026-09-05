@@ -13,28 +13,22 @@ Models:
 """
 
 import enum
-from datetime import datetime
+import uuid
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    Date,
-    DateTime,
-    Enum as SQLEnum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import BigInteger, Boolean, Date, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import (Float, ForeignKey, Index, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -81,42 +75,42 @@ class ProductCatalog(Base):
 
     __tablename__ = "product_catalog"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Product identification
-    sku = Column(String(100), nullable=False)
-    name = Column(String(500), nullable=False)
-    description = Column(Text, nullable=True)
+    sku: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Categorization
-    category = Column(String(255), nullable=True)
-    subcategory = Column(String(255), nullable=True)
-    brand = Column(String(255), nullable=True)
-    product_type = Column(String(100), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subcategory: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    brand: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Pricing
-    base_price_cents = Column(BigInteger, nullable=True)  # List price
-    currency = Column(String(3), default="USD", nullable=False)
+    base_price_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # List price
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
 
     # Status
-    status = Column(SQLEnum(ProductStatus), default=ProductStatus.ACTIVE, nullable=False)
+    status: Mapped[ProductStatus] = mapped_column(SQLEnum(ProductStatus), default=ProductStatus.ACTIVE, nullable=False)
 
     # External IDs (for matching with platform data)
-    external_ids = Column(JSONB, nullable=True)  # {"shopify_id": "...", "meta_product_id": "..."}
+    external_ids: Mapped[Any] = mapped_column(JSONB, nullable=True)  # {"shopify_id": "...", "meta_product_id": "..."}
 
     # Metadata
-    attributes = Column(JSONB, nullable=True)  # Custom attributes
+    attributes: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Custom attributes
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    margins = relationship("ProductMargin", back_populates="product", cascade="all, delete-orphan")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    margins: Mapped[list["ProductMargin"]] = relationship("ProductMargin", back_populates="product", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_product_catalog_tenant_sku", "tenant_id", "sku"),
@@ -138,49 +132,49 @@ class ProductMargin(Base):
 
     __tablename__ = "product_margins"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    product_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("product_catalog.id", ondelete="CASCADE"), nullable=False
     )
 
     # Effective period
-    effective_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=True)  # Null = current/ongoing
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # Null = current/ongoing
 
     # COGS data
-    cogs_cents = Column(BigInteger, nullable=True)  # Cost of goods sold per unit
-    cogs_percentage = Column(Float, nullable=True)  # COGS as % of revenue (alternative)
+    cogs_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # Cost of goods sold per unit
+    cogs_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)  # COGS as % of revenue (alternative)
 
     # Margin data (derived or specified)
-    margin_type = Column(SQLEnum(MarginType), default=MarginType.FIXED_AMOUNT, nullable=False)
-    margin_cents = Column(BigInteger, nullable=True)  # Profit per unit in cents
-    margin_percentage = Column(Float, nullable=True)  # Gross margin %
+    margin_type: Mapped[MarginType] = mapped_column(SQLEnum(MarginType), default=MarginType.FIXED_AMOUNT, nullable=False)
+    margin_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # Profit per unit in cents
+    margin_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)  # Gross margin %
 
     # Additional costs
-    shipping_cost_cents = Column(BigInteger, default=0)
-    handling_cost_cents = Column(BigInteger, default=0)
-    platform_fee_cents = Column(BigInteger, default=0)  # Marketplace fees
-    payment_processing_cents = Column(BigInteger, default=0)
+    shipping_cost_cents: Mapped[int | None] = mapped_column(BigInteger, default=0, nullable=True)
+    handling_cost_cents: Mapped[int | None] = mapped_column(BigInteger, default=0, nullable=True)
+    platform_fee_cents: Mapped[int | None] = mapped_column(BigInteger, default=0, nullable=True)  # Marketplace fees
+    payment_processing_cents: Mapped[int | None] = mapped_column(BigInteger, default=0, nullable=True)
 
     # Total landed cost
-    total_cogs_cents = Column(BigInteger, nullable=True)  # COGS + shipping + handling + fees
+    total_cogs_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # COGS + shipping + handling + fees
 
     # Source tracking
-    source = Column(SQLEnum(COGSSource), default=COGSSource.MANUAL, nullable=False)
-    source_reference = Column(String(255), nullable=True)  # File name, API endpoint, etc.
+    source: Mapped[COGSSource] = mapped_column(SQLEnum(COGSSource), default=COGSSource.MANUAL, nullable=False)
+    source_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)  # File name, API endpoint, etc.
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
-    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    product = relationship("ProductCatalog", back_populates="margins")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    product: Mapped["ProductCatalog"] = relationship("ProductCatalog", back_populates="margins")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_product_margins_product_date", "product_id", "effective_date"),
@@ -201,40 +195,40 @@ class MarginRule(Base):
 
     __tablename__ = "margin_rules"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Rule identification
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Rule scope (priority: product > campaign > platform > category > default)
-    priority = Column(Integer, default=100, nullable=False)  # Lower = higher priority
-    category = Column(String(255), nullable=True)  # Product category
-    subcategory = Column(String(255), nullable=True)
-    platform = Column(String(50), nullable=True)  # meta
-    campaign_id = Column(String(255), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)  # Lower = higher priority
+    category: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Product category
+    subcategory: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)  # meta
+    campaign_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Margin specification
-    margin_type = Column(SQLEnum(MarginType), default=MarginType.PERCENTAGE, nullable=False)
-    default_margin_percentage = Column(Float, nullable=True)  # e.g., 30% gross margin
-    default_cogs_percentage = Column(Float, nullable=True)  # e.g., 70% COGS
+    margin_type: Mapped[MarginType] = mapped_column(SQLEnum(MarginType), default=MarginType.PERCENTAGE, nullable=False)
+    default_margin_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)  # e.g., 30% gross margin
+    default_cogs_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)  # e.g., 70% COGS
 
     # Tiered margins (for volume-based pricing)
-    tiered_config = Column(JSONB, nullable=True)
+    tiered_config: Mapped[Any] = mapped_column(JSONB, nullable=True)
     # Example: [{"min_units": 0, "max_units": 100, "margin_pct": 25}, {"min_units": 101, "margin_pct": 30}]
 
     # Status
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_margin_rules_tenant_priority", "tenant_id", "priority"),
@@ -255,70 +249,70 @@ class DailyProfitMetrics(Base):
 
     __tablename__ = "daily_profit_metrics"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Scope
-    platform = Column(String(50), nullable=True)
-    campaign_id = Column(String(255), nullable=True)
-    adset_id = Column(String(255), nullable=True)
-    ad_id = Column(String(255), nullable=True)
-    product_id = Column(
+    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    adset_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ad_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("product_catalog.id", ondelete="SET NULL"), nullable=True
     )
 
     # Revenue metrics
-    units_sold = Column(Integer, default=0, nullable=False)
-    gross_revenue_cents = Column(BigInteger, default=0, nullable=False)
-    net_revenue_cents = Column(BigInteger, default=0, nullable=False)  # After discounts/returns
-    average_order_value_cents = Column(BigInteger, nullable=True)
+    units_sold: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    gross_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    net_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)  # After discounts/returns
+    average_order_value_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Cost metrics
-    total_cogs_cents = Column(BigInteger, default=0, nullable=False)
-    product_cogs_cents = Column(BigInteger, default=0, nullable=False)
-    shipping_costs_cents = Column(BigInteger, default=0, nullable=False)
-    platform_fees_cents = Column(BigInteger, default=0, nullable=False)
-    payment_fees_cents = Column(BigInteger, default=0, nullable=False)
+    total_cogs_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    product_cogs_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    shipping_costs_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    platform_fees_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    payment_fees_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Ad spend
-    ad_spend_cents = Column(BigInteger, default=0, nullable=False)
+    ad_spend_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Profit calculations
-    gross_profit_cents = Column(BigInteger, default=0, nullable=False)  # Revenue - COGS
-    contribution_margin_cents = Column(
+    gross_profit_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)  # Revenue - COGS
+    contribution_margin_cents: Mapped[int] = mapped_column(
         BigInteger, default=0, nullable=False
     )  # Gross profit - variable costs
-    net_profit_cents = Column(BigInteger, default=0, nullable=False)  # After ad spend
+    net_profit_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)  # After ad spend
 
     # ROAS metrics
-    revenue_roas = Column(Float, nullable=True)  # Traditional: Revenue / Ad Spend
-    gross_profit_roas = Column(Float, nullable=True)  # Gross Profit / Ad Spend
-    contribution_roas = Column(Float, nullable=True)  # Contribution Margin / Ad Spend
-    net_profit_roas = Column(Float, nullable=True)  # Net Profit / Ad Spend (can be negative)
+    revenue_roas: Mapped[float | None] = mapped_column(Float, nullable=True)  # Traditional: Revenue / Ad Spend
+    gross_profit_roas: Mapped[float | None] = mapped_column(Float, nullable=True)  # Gross Profit / Ad Spend
+    contribution_roas: Mapped[float | None] = mapped_column(Float, nullable=True)  # Contribution Margin / Ad Spend
+    net_profit_roas: Mapped[float | None] = mapped_column(Float, nullable=True)  # Net Profit / Ad Spend (can be negative)
 
     # Margin percentages
-    gross_margin_pct = Column(Float, nullable=True)  # Gross Profit / Revenue
-    contribution_margin_pct = Column(Float, nullable=True)
-    net_margin_pct = Column(Float, nullable=True)
+    gross_margin_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # Gross Profit / Revenue
+    contribution_margin_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_margin_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Data quality
-    cogs_source = Column(SQLEnum(COGSSource), nullable=True)
-    margin_rule_id = Column(
+    cogs_source: Mapped[COGSSource | None] = mapped_column(SQLEnum(COGSSource), nullable=True)
+    margin_rule_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("margin_rules.id", ondelete="SET NULL"), nullable=True
     )
-    is_estimated = Column(Boolean, default=False, nullable=False)  # True if using default margins
+    is_estimated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # True if using default margins
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    product = relationship("ProductCatalog", foreign_keys=[product_id])
-    margin_rule = relationship("MarginRule", foreign_keys=[margin_rule_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    product: Mapped["ProductCatalog | None"] = relationship("ProductCatalog", foreign_keys=[product_id])
+    margin_rule: Mapped["MarginRule | None"] = relationship("MarginRule", foreign_keys=[margin_rule_id])
 
     __table_args__ = (
         Index("ix_daily_profit_tenant_date", "tenant_id", "date"),
@@ -348,58 +342,58 @@ class ProfitROASReport(Base):
 
     __tablename__ = "profit_roas_reports"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Report period
-    report_type = Column(String(50), nullable=False)  # daily, weekly, monthly, custom
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
+    report_type: Mapped[str] = mapped_column(String(50), nullable=False)  # daily, weekly, monthly, custom
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Scope
-    platform = Column(String(50), nullable=True)  # null = all platforms
-    campaign_id = Column(String(255), nullable=True)
-    category = Column(String(255), nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)  # null = all platforms
+    campaign_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Aggregated metrics
-    total_units = Column(Integer, default=0, nullable=False)
-    total_revenue_cents = Column(BigInteger, default=0, nullable=False)
-    total_cogs_cents = Column(BigInteger, default=0, nullable=False)
-    total_ad_spend_cents = Column(BigInteger, default=0, nullable=False)
-    total_gross_profit_cents = Column(BigInteger, default=0, nullable=False)
-    total_net_profit_cents = Column(BigInteger, default=0, nullable=False)
+    total_units: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_cogs_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_ad_spend_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_gross_profit_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_net_profit_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # ROAS metrics
-    revenue_roas = Column(Float, nullable=True)
-    gross_profit_roas = Column(Float, nullable=True)
-    net_profit_roas = Column(Float, nullable=True)
+    revenue_roas: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_profit_roas: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_profit_roas: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Margin metrics
-    avg_gross_margin_pct = Column(Float, nullable=True)
-    avg_net_margin_pct = Column(Float, nullable=True)
+    avg_gross_margin_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_net_margin_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Breakeven analysis
-    breakeven_roas = Column(Float, nullable=True)  # ROAS needed to break even
-    above_breakeven = Column(Boolean, nullable=True)
+    breakeven_roas: Mapped[float | None] = mapped_column(Float, nullable=True)  # ROAS needed to break even
+    above_breakeven: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # Comparison to target
-    target_profit_roas = Column(Float, nullable=True)
-    vs_target_pct = Column(Float, nullable=True)
+    target_profit_roas: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vs_target_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Data quality
-    products_with_cogs = Column(Integer, default=0)
-    products_estimated = Column(Integer, default=0)
-    data_completeness_pct = Column(Float, nullable=True)
+    products_with_cogs: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    products_estimated: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    data_completeness_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Report metadata
-    generated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    generated_by_user_id = Column(
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    generated_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    generated_by = relationship("User", foreign_keys=[generated_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    generated_by: Mapped["User | None"] = relationship("User", foreign_keys=[generated_by_user_id])
 
     __table_args__ = (
         Index("ix_profit_reports_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -419,34 +413,34 @@ class COGSUpload(Base):
 
     __tablename__ = "cogs_uploads"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Upload metadata
-    filename = Column(String(500), nullable=True)
-    file_type = Column(String(50), nullable=False)  # csv, xlsx, api
-    source = Column(SQLEnum(COGSSource), nullable=False)
+    filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=False)  # csv, xlsx, api
+    source: Mapped[COGSSource] = mapped_column(SQLEnum(COGSSource), nullable=False)
 
     # Processing results
-    status = Column(String(50), nullable=False)  # pending, processing, completed, failed
-    rows_processed = Column(Integer, default=0)
-    rows_succeeded = Column(Integer, default=0)
-    rows_failed = Column(Integer, default=0)
-    error_details = Column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)  # pending, processing, completed, failed
+    rows_processed: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    rows_succeeded: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    rows_failed: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    error_details: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Affected date range
-    effective_date = Column(Date, nullable=True)
-    products_updated = Column(Integer, default=0)
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    products_updated: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
 
     # Timestamps
-    uploaded_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    processed_at = Column(DateTime(timezone=True), nullable=True)
-    uploaded_by_user_id = Column(
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    uploaded_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    uploaded_by: Mapped["User | None"] = relationship("User", foreign_keys=[uploaded_by_user_id])
 
     __table_args__ = (Index("ix_cogs_uploads_tenant_date", "tenant_id", "uploaded_at"),)

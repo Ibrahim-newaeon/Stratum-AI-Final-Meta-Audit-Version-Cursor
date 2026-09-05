@@ -12,29 +12,23 @@ Models:
 """
 
 import enum
-from datetime import datetime
+import uuid
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import sqlalchemy as sa
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    Date,
-    DateTime,
-    Enum as SQLEnum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import BigInteger, Boolean, Date, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import (Float, ForeignKey, Index, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -116,20 +110,20 @@ class ReportTemplate(Base):
 
     __tablename__ = "report_templates"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Template identification
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    report_type = Column(SQLEnum(ReportType), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_type: Mapped[ReportType] = mapped_column(SQLEnum(ReportType), nullable=False)
 
     # Status
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_system = Column(Boolean, default=False, nullable=False)  # Built-in templates
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Built-in templates
 
     # Configuration
-    config = Column(JSONB, nullable=False, default={})
+    config: Mapped[Any] = mapped_column(JSONB, nullable=False, default={})
     """
     Config structure varies by report_type:
     {
@@ -144,30 +138,30 @@ class ReportTemplate(Base):
     """
 
     # Output settings
-    default_format = Column(SQLEnum(ReportFormat), default=ReportFormat.PDF, nullable=False)
-    available_formats = Column(ARRAY(String), default=["pdf", "csv"], nullable=False)
+    default_format: Mapped[ReportFormat] = mapped_column(SQLEnum(ReportFormat), default=ReportFormat.PDF, nullable=False)
+    available_formats: Mapped[list[str]] = mapped_column(ARRAY(String), default=["pdf", "csv"], nullable=False)
 
     # Styling
-    template_html = Column(Text, nullable=True)  # Custom HTML template
-    chart_config = Column(JSONB, nullable=True)  # Chart configurations
+    template_html: Mapped[str | None] = mapped_column(Text, nullable=True)  # Custom HTML template
+    chart_config: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Chart configurations
 
     # Metadata
-    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    last_modified_by_user_id = Column(
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_modified_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    last_modified_by = relationship("User", foreign_keys=[last_modified_by_user_id])
-    schedules = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    last_modified_by: Mapped["User | None"] = relationship("User", foreign_keys=[last_modified_by_user_id])
+    schedules: Mapped[list["ScheduledReport"]] = relationship(
         "ScheduledReport", back_populates="template", cascade="all, delete-orphan"
     )
 
@@ -190,47 +184,47 @@ class ScheduledReport(Base):
 
     __tablename__ = "scheduled_reports"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    template_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    template_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("report_templates.id", ondelete="CASCADE"), nullable=False
     )
 
     # Schedule identification
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Status
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_paused = Column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Schedule configuration
-    frequency = Column(SQLEnum(ScheduleFrequency), nullable=False)
-    cron_expression = Column(String(100), nullable=True)  # For custom frequency
-    timezone = Column(String(50), default="UTC", nullable=False)
+    frequency: Mapped[ScheduleFrequency] = mapped_column(SQLEnum(ScheduleFrequency), nullable=False)
+    cron_expression: Mapped[str | None] = mapped_column(String(100), nullable=True)  # For custom frequency
+    timezone: Mapped[str] = mapped_column(String(50), default="UTC", nullable=False)
 
     # For weekly: which day (0=Monday, 6=Sunday)
-    day_of_week = Column(Integer, nullable=True)
+    day_of_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # For monthly: which day (1-31, or -1 for last day)
-    day_of_month = Column(Integer, nullable=True)
+    day_of_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Time to run (hour in 24h format)
-    hour = Column(Integer, default=8, nullable=False)
-    minute = Column(Integer, default=0, nullable=False)
+    hour: Mapped[int] = mapped_column(Integer, default=8, nullable=False)
+    minute: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Report configuration overrides
-    format_override = Column(SQLEnum(ReportFormat), nullable=True)
-    config_override = Column(JSONB, nullable=True)  # Overrides template config
+    format_override: Mapped[ReportFormat | None] = mapped_column(SQLEnum(ReportFormat), nullable=True)
+    config_override: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Overrides template config
 
     # Date range for report (relative)
-    date_range_type = Column(String(50), default="last_30_days", nullable=False)
+    date_range_type: Mapped[str] = mapped_column(String(50), default="last_30_days", nullable=False)
     """
     Options: yesterday, last_7_days, last_30_days, last_month,
              month_to_date, quarter_to_date, year_to_date, custom
     """
 
     # Delivery configuration
-    delivery_channels = Column(ARRAY(String), default=["email"], nullable=False)
-    delivery_config = Column(JSONB, nullable=False, default={})
+    delivery_channels: Mapped[list[str]] = mapped_column(ARRAY(String), default=["email"], nullable=False)
+    delivery_config: Mapped[Any] = mapped_column(JSONB, nullable=False, default={})
     """
     {
         "email": {
@@ -250,26 +244,26 @@ class ScheduledReport(Base):
     """
 
     # Execution tracking
-    last_run_at = Column(DateTime(timezone=True), nullable=True)
-    last_run_status = Column(SQLEnum(ExecutionStatus), nullable=True)
-    next_run_at = Column(DateTime(timezone=True), nullable=True)
-    run_count = Column(Integer, default=0, nullable=False)
-    failure_count = Column(Integer, default=0, nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_status: Mapped[ExecutionStatus | None] = mapped_column(SQLEnum(ExecutionStatus), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Metadata
-    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    template = relationship("ReportTemplate", back_populates="schedules")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    executions = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    template: Mapped["ReportTemplate"] = relationship("ReportTemplate", back_populates="schedules")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    executions: Mapped[list["ReportExecution"]] = relationship(
         "ReportExecution", back_populates="schedule", cascade="all, delete-orphan"
     )
 
@@ -296,57 +290,57 @@ class ReportExecution(Base):
 
     __tablename__ = "report_executions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    template_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("report_templates.id", ondelete="SET NULL"), nullable=True
     )
-    schedule_id = Column(
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("scheduled_reports.id", ondelete="SET NULL"), nullable=True
     )
 
     # Execution details
-    execution_type = Column(String(50), nullable=False)  # scheduled, manual, api
-    status = Column(SQLEnum(ExecutionStatus), nullable=False, default=ExecutionStatus.PENDING)
+    execution_type: Mapped[str] = mapped_column(String(50), nullable=False)  # scheduled, manual, api
+    status: Mapped[ExecutionStatus] = mapped_column(SQLEnum(ExecutionStatus), nullable=False, default=ExecutionStatus.PENDING)
 
     # Timing
-    started_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Float, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Report parameters
-    report_type = Column(SQLEnum(ReportType), nullable=False)
-    format = Column(SQLEnum(ReportFormat), nullable=False)
-    date_range_start = Column(Date, nullable=False)
-    date_range_end = Column(Date, nullable=False)
-    config_used = Column(JSONB, nullable=True)  # Snapshot of config at execution time
+    report_type: Mapped[ReportType] = mapped_column(SQLEnum(ReportType), nullable=False)
+    format: Mapped[ReportFormat] = mapped_column(SQLEnum(ReportFormat), nullable=False)
+    date_range_start: Mapped[date] = mapped_column(Date, nullable=False)
+    date_range_end: Mapped[date] = mapped_column(Date, nullable=False)
+    config_used: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Snapshot of config at execution time
 
     # Output
-    file_path = Column(String(500), nullable=True)  # Path to generated file
-    file_size_bytes = Column(BigInteger, nullable=True)
-    file_url = Column(Text, nullable=True)  # Signed URL for download
-    file_url_expires_at = Column(DateTime(timezone=True), nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Path to generated file
+    file_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    file_url: Mapped[str | None] = mapped_column(Text, nullable=True)  # Signed URL for download
+    file_url_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Report data summary
-    row_count = Column(Integer, nullable=True)
-    metrics_summary = Column(JSONB, nullable=True)  # Quick summary of key metrics
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metrics_summary: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Quick summary of key metrics
 
     # Error tracking
-    error_message = Column(Text, nullable=True)
-    error_details = Column(JSONB, nullable=True)
-    retry_count = Column(Integer, default=0, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_details: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Triggered by
-    triggered_by_user_id = Column(
+    triggered_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    template = relationship("ReportTemplate", foreign_keys=[template_id])
-    schedule = relationship("ScheduledReport", back_populates="executions")
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
-    deliveries = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    template: Mapped["ReportTemplate | None"] = relationship("ReportTemplate", foreign_keys=[template_id])
+    schedule: Mapped["ScheduledReport | None"] = relationship("ScheduledReport", back_populates="executions")
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
+    deliveries: Mapped[list["ReportDelivery"]] = relationship(
         "ReportDelivery", back_populates="execution", cascade="all, delete-orphan"
     )
 
@@ -369,37 +363,37 @@ class ReportDelivery(Base):
 
     __tablename__ = "report_deliveries"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    execution_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    execution_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("report_executions.id", ondelete="CASCADE"), nullable=False
     )
 
     # Delivery details
-    channel = Column(SQLEnum(DeliveryChannel), nullable=False)
-    status = Column(SQLEnum(DeliveryStatus), nullable=False, default=DeliveryStatus.PENDING)
+    channel: Mapped[DeliveryChannel] = mapped_column(SQLEnum(DeliveryChannel), nullable=False)
+    status: Mapped[DeliveryStatus] = mapped_column(SQLEnum(DeliveryStatus), nullable=False, default=DeliveryStatus.PENDING)
 
     # Recipient info
-    recipient = Column(String(500), nullable=False)  # Email, channel name, webhook URL
-    recipient_type = Column(String(50), nullable=True)  # user, group, webhook
+    recipient: Mapped[str] = mapped_column(String(500), nullable=False)  # Email, channel name, webhook URL
+    recipient_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # user, group, webhook
 
     # Timing
-    queued_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    sent_at = Column(DateTime(timezone=True), nullable=True)
-    delivered_at = Column(DateTime(timezone=True), nullable=True)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Delivery metadata
-    message_id = Column(String(255), nullable=True)  # External message ID (email, Slack ts)
-    delivery_response = Column(JSONB, nullable=True)  # Response from delivery service
+    message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # External message ID (email, Slack ts)
+    delivery_response: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Response from delivery service
 
     # Error tracking
-    error_message = Column(Text, nullable=True)
-    retry_count = Column(Integer, default=0, nullable=False)
-    last_retry_at = Column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    execution = relationship("ReportExecution", back_populates="deliveries")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    execution: Mapped["ReportExecution"] = relationship("ReportExecution", back_populates="deliveries")
 
     __table_args__ = (
         Index("ix_report_delivery_execution", "execution_id"),
@@ -420,19 +414,19 @@ class DeliveryChannelConfig(Base):
 
     __tablename__ = "delivery_channel_configs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Channel
-    channel = Column(SQLEnum(DeliveryChannel), nullable=False)
-    name = Column(String(255), nullable=False)  # Friendly name
+    channel: Mapped[DeliveryChannel] = mapped_column(SQLEnum(DeliveryChannel), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)  # Friendly name
 
     # Status
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_verified = Column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Configuration (encrypted sensitive data)
-    config = Column(JSONB, nullable=False)
+    config: Mapped[Any] = mapped_column(JSONB, nullable=False)
     """
     Email:
     {
@@ -467,13 +461,13 @@ class DeliveryChannelConfig(Base):
     """
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_delivery_config_tenant", "tenant_id"),

@@ -13,29 +13,23 @@ Models:
 """
 
 import enum
-from datetime import datetime
+import uuid
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    Date,
-    DateTime,
-    Enum as SQLEnum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import BigInteger, Boolean, Date, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import (Float, ForeignKey, Index, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
 from app.models.crm import AttributionModel
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Daily Attributed Revenue (Pre-calculated)
@@ -52,46 +46,46 @@ class DailyAttributedRevenue(Base):
 
     __tablename__ = "daily_attributed_revenue"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Attribution model used
-    attribution_model = Column(SQLEnum(AttributionModel), nullable=False)
+    attribution_model: Mapped[AttributionModel] = mapped_column(SQLEnum(AttributionModel), nullable=False)
 
     # Dimension (what we're attributing to)
-    dimension_type = Column(String(50), nullable=False)  # platform, campaign, adset, ad
-    dimension_id = Column(String(255), nullable=False)
-    dimension_name = Column(String(500), nullable=True)
+    dimension_type: Mapped[str] = mapped_column(String(50), nullable=False)  # platform, campaign, adset, ad
+    dimension_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    dimension_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Attribution metrics
-    attributed_revenue_cents = Column(BigInteger, default=0, nullable=False)
-    attributed_deals = Column(Float, default=0, nullable=False)  # Fractional for multi-touch
-    attributed_pipeline_cents = Column(BigInteger, default=0, nullable=False)
+    attributed_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    attributed_deals: Mapped[float] = mapped_column(Float, default=0, nullable=False)  # Fractional for multi-touch
+    attributed_pipeline_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Touchpoint metrics
-    touchpoint_count = Column(Integer, default=0, nullable=False)
-    first_touch_count = Column(Integer, default=0, nullable=False)
-    last_touch_count = Column(Integer, default=0, nullable=False)
-    assisted_count = Column(Integer, default=0, nullable=False)
+    touchpoint_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_touch_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_touch_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    assisted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Spend (for ROAS calculations)
-    spend_cents = Column(BigInteger, default=0, nullable=False)
+    spend_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Calculated ROAS
-    attributed_roas = Column(Float, nullable=True)
+    attributed_roas: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Unique contacts reached
-    unique_contacts = Column(Integer, default=0, nullable=False)
+    unique_contacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_daily_attributed_rev_tenant_date", "tenant_id", "date"),
@@ -128,42 +122,42 @@ class ConversionPath(Base):
 
     __tablename__ = "conversion_paths"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Path identifier
-    path_hash = Column(String(64), nullable=False)  # SHA256 of path string
-    path_string = Column(Text, nullable=False)  # e.g., "facebook → instagram → whatsapp"
-    path_type = Column(String(50), nullable=False)  # platform, campaign
+    path_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA256 of path string
+    path_string: Mapped[str] = mapped_column(Text, nullable=False)  # e.g., "facebook → instagram → whatsapp"
+    path_type: Mapped[str] = mapped_column(String(50), nullable=False)  # platform, campaign
 
     # Path structure
-    path_length = Column(Integer, nullable=False)
-    unique_channels = Column(Integer, nullable=False)
-    first_channel = Column(String(100), nullable=True)
-    last_channel = Column(String(100), nullable=True)
+    path_length: Mapped[int] = mapped_column(Integer, nullable=False)
+    unique_channels: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_channel: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_channel: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Period
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Conversion metrics
-    conversions = Column(Integer, default=0, nullable=False)
-    total_revenue_cents = Column(BigInteger, default=0, nullable=False)
-    avg_deal_size_cents = Column(BigInteger, default=0, nullable=False)
+    conversions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    avg_deal_size_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Time metrics (in hours)
-    avg_time_to_conversion = Column(Float, nullable=True)
-    min_time_to_conversion = Column(Float, nullable=True)
-    max_time_to_conversion = Column(Float, nullable=True)
+    avg_time_to_conversion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_time_to_conversion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_time_to_conversion: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_conversion_paths_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -194,42 +188,42 @@ class AttributionSnapshot(Base):
 
     __tablename__ = "attribution_snapshots"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Snapshot metadata
-    snapshot_date = Column(Date, nullable=False)
-    snapshot_type = Column(String(50), nullable=False)  # daily, weekly, monthly
-    attribution_model = Column(SQLEnum(AttributionModel), nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    snapshot_type: Mapped[str] = mapped_column(String(50), nullable=False)  # daily, weekly, monthly
+    attribution_model: Mapped[AttributionModel] = mapped_column(SQLEnum(AttributionModel), nullable=False)
 
     # Period covered
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Summary metrics
-    total_revenue_cents = Column(BigInteger, default=0, nullable=False)
-    total_deals = Column(Integer, default=0, nullable=False)
-    total_touchpoints = Column(Integer, default=0, nullable=False)
-    unique_contacts = Column(Integer, default=0, nullable=False)
+    total_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_deals: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_touchpoints: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unique_contacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Journey metrics
-    avg_touches_per_conversion = Column(Float, nullable=True)
-    avg_time_to_conversion_hours = Column(Float, nullable=True)
-    avg_unique_channels = Column(Float, nullable=True)
+    avg_touches_per_conversion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_time_to_conversion_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_unique_channels: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Top performers (JSON for flexibility)
-    top_campaigns = Column(JSONB, nullable=True)  # [{campaign_id, revenue, deals}, ...]
-    top_platforms = Column(JSONB, nullable=True)  # [{platform, revenue, deals}, ...]
-    top_paths = Column(JSONB, nullable=True)  # [{path, conversions, revenue}, ...]
+    top_campaigns: Mapped[Any] = mapped_column(JSONB, nullable=True)  # [{campaign_id, revenue, deals}, ...]
+    top_platforms: Mapped[Any] = mapped_column(JSONB, nullable=True)  # [{platform, revenue, deals}, ...]
+    top_paths: Mapped[Any] = mapped_column(JSONB, nullable=True)  # [{path, conversions, revenue}, ...]
 
     # Channel contribution
-    channel_mix = Column(JSONB, nullable=True)  # {platform: percentage, ...}
+    channel_mix: Mapped[Any] = mapped_column(JSONB, nullable=True)  # {platform: percentage, ...}
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_attribution_snapshot_tenant_date", "tenant_id", "snapshot_date"),
@@ -258,33 +252,33 @@ class ChannelInteraction(Base):
 
     __tablename__ = "channel_interactions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Period
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Transition
-    from_channel = Column(String(100), nullable=False)
-    to_channel = Column(String(100), nullable=False)
-    transition_type = Column(String(50), nullable=False)  # platform, campaign
+    from_channel: Mapped[str] = mapped_column(String(100), nullable=False)
+    to_channel: Mapped[str] = mapped_column(String(100), nullable=False)
+    transition_type: Mapped[str] = mapped_column(String(50), nullable=False)  # platform, campaign
 
     # Metrics
-    transition_count = Column(Integer, default=0, nullable=False)
-    unique_journeys = Column(Integer, default=0, nullable=False)
+    transition_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unique_journeys: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Revenue attributed to this transition
-    attributed_revenue_cents = Column(BigInteger, default=0, nullable=False)
+    attributed_revenue_cents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_channel_interaction_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -337,56 +331,56 @@ class TrainedAttributionModel(Base):
 
     __tablename__ = "trained_attribution_models"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
 
     # Model identification
-    model_name = Column(String(255), nullable=False)
-    model_type = Column(SQLEnum(DataDrivenModelType), nullable=False)
-    channel_type = Column(String(50), nullable=False)  # platform, campaign
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    model_type: Mapped[DataDrivenModelType] = mapped_column(SQLEnum(DataDrivenModelType), nullable=False)
+    channel_type: Mapped[str] = mapped_column(String(50), nullable=False)  # platform, campaign
 
     # Status
-    status = Column(SQLEnum(ModelStatus), nullable=False, default=ModelStatus.TRAINING)
-    is_active = Column(Boolean, default=False, nullable=False)  # Currently used for attribution
+    status: Mapped[ModelStatus] = mapped_column(SQLEnum(ModelStatus), nullable=False, default=ModelStatus.TRAINING)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Currently used for attribution
 
     # Training period
-    training_start = Column(Date, nullable=False)
-    training_end = Column(Date, nullable=False)
+    training_start: Mapped[date] = mapped_column(Date, nullable=False)
+    training_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Training statistics
-    journey_count = Column(Integer, nullable=True)
-    converting_journeys = Column(Integer, nullable=True)
-    unique_channels = Column(Integer, nullable=True)
+    journey_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    converting_journeys: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unique_channels: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Model results
-    attribution_weights = Column(JSONB, nullable=True)  # {channel: weight, ...}
-    model_data = Column(JSONB, nullable=True)  # Full serialized model
+    attribution_weights: Mapped[Any] = mapped_column(JSONB, nullable=True)  # {channel: weight, ...}
+    model_data: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Full serialized model
 
     # For Markov Chain
-    removal_effects = Column(JSONB, nullable=True)  # {channel: effect, ...}
-    baseline_conversion_rate = Column(Float, nullable=True)
+    removal_effects: Mapped[Any] = mapped_column(JSONB, nullable=True)  # {channel: effect, ...}
+    baseline_conversion_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # For Shapley Value
-    shapley_values = Column(JSONB, nullable=True)  # {channel: value, ...}
+    shapley_values: Mapped[Any] = mapped_column(JSONB, nullable=True)  # {channel: value, ...}
 
     # Validation metrics
-    validation_accuracy = Column(Float, nullable=True)
-    validation_period_start = Column(Date, nullable=True)
-    validation_period_end = Column(Date, nullable=True)
+    validation_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    validation_period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    validation_period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Metadata
-    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    error_message = Column(Text, nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_trained_model_tenant", "tenant_id"),
@@ -407,50 +401,50 @@ class ModelTrainingRun(Base):
 
     __tablename__ = "model_training_runs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    model_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    model_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("trained_attribution_models.id", ondelete="CASCADE"),
         nullable=True,
     )
 
     # Run details
-    model_type = Column(SQLEnum(DataDrivenModelType), nullable=False)
-    channel_type = Column(String(50), nullable=False)
-    status = Column(SQLEnum(ModelStatus), nullable=False, default=ModelStatus.TRAINING)
+    model_type: Mapped[DataDrivenModelType] = mapped_column(SQLEnum(DataDrivenModelType), nullable=False)
+    channel_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[ModelStatus] = mapped_column(SQLEnum(ModelStatus), nullable=False, default=ModelStatus.TRAINING)
 
     # Training period
-    training_start = Column(Date, nullable=False)
-    training_end = Column(Date, nullable=False)
+    training_start: Mapped[date] = mapped_column(Date, nullable=False)
+    training_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Configuration
-    include_non_converting = Column(Boolean, default=True)
-    min_journeys = Column(Integer, default=100)
+    include_non_converting: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+    min_journeys: Mapped[int | None] = mapped_column(Integer, default=100, nullable=True)
 
     # Timing
-    started_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Float, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Results
-    journey_count = Column(Integer, nullable=True)
-    converting_journeys = Column(Integer, nullable=True)
-    unique_channels = Column(Integer, nullable=True)
+    journey_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    converting_journeys: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unique_channels: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Error tracking
-    error_message = Column(Text, nullable=True)
-    error_details = Column(JSONB, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_details: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Triggered by
-    triggered_by_user_id = Column(
+    triggered_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    model = relationship("TrainedAttributionModel", foreign_keys=[model_id])
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    model: Mapped["TrainedAttributionModel | None"] = relationship("TrainedAttributionModel", foreign_keys=[model_id])
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
 
     __table_args__ = (
         Index("ix_training_run_tenant", "tenant_id", "started_at"),

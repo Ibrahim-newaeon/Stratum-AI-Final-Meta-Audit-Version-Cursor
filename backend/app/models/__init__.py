@@ -63,6 +63,33 @@ from app.models.audience_sync import (
     SyncStatus,
 )
 
+# Audit-recommended service models
+from app.models.audit_services import (
+    AudienceOverlapRecord,
+    AudienceRecord,
+    BudgetReallocationChange,
+    BudgetReallocationPlan,
+    ConversionLatency,
+    ConversionLatencyStats,
+    ConversionUploadStatus,
+    Creative,
+    CreativeFatigueAlert,
+    CreativePerformance,
+    CustomerLTVPrediction,
+    CustomerSegment,
+    EMQMeasurement,
+    EMQStatus,
+    ExperimentPrediction,
+    ExperimentStatus,
+    IndustryBenchmark,
+    LTVCohortAnalysis,
+    ModelExperiment,
+    ModelRetrainingJob,
+    OfflineConversion,
+    OfflineConversionBatch,
+    ReallocationStatus,
+)
+
 # Autopilot Enforcement models
 from app.models.autopilot import (
     EnforcementAuditLog,
@@ -144,6 +171,18 @@ from app.models.crm import (
     DealStage,
     Touchpoint,
     WritebackStatus,
+)
+
+# Embeddable widget models
+from app.models.embed_widgets import (
+    BrandingLevel,
+    EmbedDomainWhitelist,
+    EmbedToken,
+    EmbedWidget,
+    EmbedWidgetView,
+    TokenStatus,
+    WidgetSize,
+    WidgetType,
 )
 
 # Measurement & Verification models (GA4 read-only baseline + GTM tag deployment)
@@ -417,4 +456,37 @@ __all__ = [
     "CAPIDeadLetterEntry",
     "CAPIEventDedupeRecord",
     "CAPIDeliveryDailyStats",
+    # Audit-recommended service models
+    "AudienceOverlapRecord",
+    "AudienceRecord",
+    "BudgetReallocationChange",
+    "BudgetReallocationPlan",
+    "ConversionLatency",
+    "ConversionLatencyStats",
+    "ConversionUploadStatus",
+    "Creative",
+    "CreativeFatigueAlert",
+    "CreativePerformance",
+    "CustomerLTVPrediction",
+    "CustomerSegment",
+    "EMQMeasurement",
+    "EMQStatus",
+    "ExperimentPrediction",
+    "ExperimentStatus",
+    "IndustryBenchmark",
+    "LTVCohortAnalysis",
+    "ModelExperiment",
+    "ModelRetrainingJob",
+    "OfflineConversion",
+    "OfflineConversionBatch",
+    "ReallocationStatus",
+    # Embeddable widget models
+    "BrandingLevel",
+    "EmbedDomainWhitelist",
+    "EmbedToken",
+    "EmbedWidget",
+    "EmbedWidgetView",
+    "TokenStatus",
+    "WidgetSize",
+    "WidgetType",
 ]
