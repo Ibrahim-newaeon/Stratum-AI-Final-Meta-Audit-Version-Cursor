@@ -1,7 +1,7 @@
 """Add the audit-recommended service tables.
 
-Revision ID: 0005_audit_services
-Revises: 0004_capi_delivery_tables
+Revision ID: 0006_audit_services
+Revises: 0005_crm_provider_metadata
 Create Date: 2026-09-05
 
 app/models/audit_services.py was never reachable: it raised on import
@@ -27,8 +27,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "0005_audit_services"
-down_revision = "0004_capi_delivery_tables"
+revision = "0006_audit_services"
+down_revision = "0005_crm_provider_metadata"
 branch_labels = None
 depends_on = None
 

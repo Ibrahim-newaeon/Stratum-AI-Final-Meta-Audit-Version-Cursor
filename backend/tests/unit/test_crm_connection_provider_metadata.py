@@ -306,4 +306,9 @@ def test_the_provider_metadata_revision_is_chained_to_a_single_head():
                 down_revisions.add(line.split("=", 1)[1].strip().strip('"'))
 
     assert "0005_crm_provider_metadata" in revisions
-    assert revisions - down_revisions == {"0005_crm_provider_metadata"}
+    # This revision must be *in* the chain, but it is not required to stay the
+    # tip - naming the head here would fail on every later migration. The
+    # invariant worth guarding is that there is exactly one head, so Alembic
+    # never has to be told which branch to upgrade.
+    heads = revisions - down_revisions
+    assert len(heads) == 1, f"expected a single Alembic head, found {sorted(heads)}"

@@ -1,7 +1,7 @@
 """Add the embeddable widget tables.
 
-Revision ID: 0006_embed_widgets
-Revises: 0005_audit_services
+Revision ID: 0007_embed_widgets
+Revises: 0006_audit_services
 Create Date: 2026-09-05
 
 app/models/embed_widgets.py declared four tables but was never imported by
@@ -24,8 +24,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 # revision identifiers, used by Alembic.
-revision = '0006_embed_widgets'
-down_revision = '0005_audit_services'
+revision = "0007_embed_widgets"
+down_revision = "0006_audit_services"
 branch_labels = None
 depends_on = None
 
