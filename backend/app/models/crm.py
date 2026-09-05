@@ -109,7 +109,7 @@ class CRMConnection(Base):
     # Provider-specific connection metadata needed to talk to this account:
     # Salesforce instance_url, Pipedrive api_domain, and similar. Not the raw
     # CRM record - that is raw_properties on CRMContact/CRMDeal.
-    provider_metadata = Column(JSONB, nullable=True)
+    provider_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Connection status
     status: Mapped[CRMConnectionStatus] = mapped_column(
