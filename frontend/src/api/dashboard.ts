@@ -42,15 +42,53 @@ export interface OverviewMetrics {
   ctr: MetricValue;
 }
 
-// Signal health status
+// Signal health status.
+//
+// `insufficient_data` is a distinct state from a low score: the tenant has not
+// produced enough signal for the trust engine to judge, so `overall_score` is
+// null and `missing_inputs` says what is missing. Rendering it as 0 would read
+// as "terrible" when the truth is "unknown" - see SignalHealthCard.
+export type SignalHealthStatus = 'healthy' | 'degraded' | 'critical' | 'insufficient_data';
+
+// What the trust gate would decide for this tenant right now.
+//
+// This is a different question from `status`. `status` bands a live trailing
+// measurement; `gate_decision` is the gate's verdict over the newest persisted
+// daily snapshot, which is what actually governs whether an automation runs.
+// They can legitimately disagree - a tenant that started sending events this
+// morning measures healthy while the gate still blocks for want of a snapshot -
+// so anything that uses gate verbs ("autopilot executes") must read this field.
+export type TrustGateDecision = 'pass' | 'hold' | 'block';
+
 export interface SignalHealthSummary {
-  overall_score: number;
-  status: 'healthy' | 'degraded' | 'critical' | 'unknown';
+  overall_score: number | null;
+  status: SignalHealthStatus;
   emq_score: number | null;
   data_freshness_minutes: number | null;
-  api_health: boolean;
+  /** null when there is no Meta connection to judge - unknown, not offline. */
+  api_health: boolean | null;
   issues: string[];
   autopilot_enabled: boolean;
+  /** One entry per component that could not be measured, and why (English). */
+  missing_inputs: string[];
+  /** Stable codes for the same gaps, translated by the UI. */
+  missing_input_codes: string[];
+  /** Measured 0-100 component scores, keyed by component name. */
+  components: Record<string, number>;
+  /** The Meta channel this summary represents. */
+  channel: string | null;
+  /** The window the score was measured over. */
+  window_start: string | null;
+  window_end: string | null;
+  /** The trust gate's own current decision - not derived from the score. */
+  gate_decision: TrustGateDecision | null;
+  /** Why the gate decided that, in the gate's own words. */
+  gate_reason: string | null;
+  /** Date of the snapshot the gate graded, or null when there is none. */
+  gate_health_date: string | null;
+  /** Band edges applied - the tenant's onboarding overrides when it set any. */
+  healthy_threshold: number | null;
+  degraded_threshold: number | null;
 }
 
 // Platform performance summary

@@ -116,6 +116,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         app.state.memory_auditor.stop_tracking()
         logger.info("memory_auditor_stopped")
 
+    # Persist anything the CAPI delivery logger still holds. Those rows are the
+    # only evidence signal health has for event delivery, and a row lost at
+    # shutdown reads as "no events were delivered" - which pushes the tenant
+    # into insufficient_data and a blocked trust gate.
+    try:
+        from app.services.capi.delivery_logger import get_delivery_logger
+
+        await get_delivery_logger().flush()
+        logger.info("capi_delivery_log_flushed")
+    except Exception as exc:  # noqa: BLE001 - shutdown must not raise
+        logger.error("capi_delivery_log_flush_failed", error=str(exc))
+
     # Stop WebSocket manager
     await ws_manager.stop()
     logger.info("websocket_manager_stopped")

@@ -294,16 +294,6 @@ async def test_sync_upserts_rows_and_marks_connected(monkeypatch):
 
     monkeypatch.setattr(ga4_ingestion, "upsert_fact_rows", fake_upsert)
 
-    recorded: list = []
-
-    class _FakeEMQ:
-        def record_ga4_data(self, data):
-            recorded.append(data)
-
-    import app.services.emq_measurement_service as emq_mod
-
-    monkeypatch.setattr(emq_mod, "real_emq_service", _FakeEMQ())
-
     db = _session_with_integration(integration)  # scalar() -> 0 fact rows => backfill window
     result = await sync_ga4_for_tenant(db, tenant_id=1, lookback_days=3)
 
@@ -325,12 +315,12 @@ async def test_sync_upserts_rows_and_marks_connected(monkeypatch):
     meta_rows = [v for v in upserted[0] if v["is_meta_traffic"]]
     assert len(meta_rows) == 1
     assert meta_rows[0]["meta_channel"] == "instagram"
-
-    # Only Meta rows reach the in-process EMQ diagnostics
-    assert len(recorded) == 1
-    assert recorded[0].platform == "instagram"
-    assert recorded[0].conversions == 4
-    assert recorded[0].revenue == pytest.approx(200.0)
+    # The Meta row is identified and persisted to fact_ga4_daily. It used to be
+    # forwarded to an in-process EMQ store as well; that store was per-process
+    # and read by nothing that survived the request, so it is gone and
+    # fact_ga4_daily is the GA4 baseline's only home.
+    assert meta_rows[0]["conversions"] == 4
+    assert meta_rows[0]["revenue"] == pytest.approx(200.0)
 
 
 async def test_sync_uses_lookback_window_when_rows_exist(monkeypatch):

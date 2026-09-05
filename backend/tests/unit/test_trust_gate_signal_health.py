@@ -65,26 +65,35 @@ class _FakeResult:
         """Return the single scalar value, or None."""
         return self._scalar
 
+    def first(self):
+        """Return the first row, or None."""
+        return self._rows[0] if self._rows else None
+
 
 class FakeSession:
     """
-    Minimal AsyncSession stand-in that answers the gate's three queries.
+    Minimal AsyncSession stand-in that answers the gate's four queries.
 
     Dispatches on the compiled SQL so the test does not depend on call order:
-    the newest-snapshot aggregate, the rows for that snapshot, and the tenant
-    enforcement settings.
+    the newest-snapshot aggregate, the rows for that snapshot, the tenant
+    enforcement settings, and the tenant's own trust thresholds.
     """
 
-    def __init__(self, *, newest_date=None, rows=(), enforcement=None):
+    def __init__(self, *, newest_date=None, rows=(), enforcement=None, onboarding=None):
         self.newest_date = newest_date
         self.rows = list(rows)
         self.enforcement = enforcement
+        # (trust_threshold_autopilot, trust_threshold_alert) or None when the
+        # tenant has no onboarding record and takes the configured defaults.
+        self.onboarding = onboarding
         self.queries: list[str] = []
 
     async def execute(self, statement):
         """Answer one of the gate's queries based on the statement's SQL."""
         sql = str(statement)
         self.queries.append(sql)
+        if "tenant_onboarding" in sql:
+            return _FakeResult(rows=[self.onboarding] if self.onboarding else [])
         if "tenant_enforcement_settings" in sql:
             return _FakeResult(scalar=self.enforcement)
         if "max(" in sql.lower():

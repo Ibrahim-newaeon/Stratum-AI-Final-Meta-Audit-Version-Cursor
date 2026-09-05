@@ -20,12 +20,14 @@ from sqlalchemy.orm import Session as SyncSession
 from app.autopilot.service import ActionStatus, ActionType
 from app.core.config import settings
 from app.core.websocket import publish_action_status_update
+
 # app.db.session exports the sessionmaker as AsyncSessionLocal; the old
 # `async_session_factory` name never existed there, so this module raised
 # ImportError and none of its tasks could be registered or run.
 from app.db.session import AsyncSessionLocal as async_session_factory
 from app.features.flags import get_autopilot_caps
 from app.models.autopilot import EnforcementMode, TenantEnforcementSettings
+from app.models.onboarding import TenantOnboarding
 from app.models.trust_layer import (
     FactActionsQueue,
     FactSignalHealthDaily,
@@ -36,6 +38,15 @@ from app.services.meta.action_executor import (
     ExecutionStatus,
     execute_meta_action,
 )
+from app.services.signal_health.model import SignalHealthThresholds
+from app.services.signal_health.scoring import (
+    COMPONENT_DELIVERY,
+    COMPONENT_EMQ,
+    COMPONENT_FRESHNESS,
+    COMPONENT_RELIABILITY,
+    weighted_score,
+)
+from app.services.signal_health.service import thresholds_for_tenant
 from app.stratum.core.signal_health import SignalHealthConfig
 from app.stratum.core.trust_gate import GateDecision
 
@@ -256,6 +267,7 @@ class SignalHealthGateResult:
     health_date: date | None = None
     enforcement_mode: str = EnforcementMode.ADVISORY.value
     channels: dict[str, dict[str, Any]] = field(default_factory=dict)
+    thresholds: SignalHealthThresholds | None = None
 
     @property
     def may_execute(self) -> bool:
@@ -275,11 +287,19 @@ class SignalHealthGateResult:
             "signal_health_score": self.score,
             "signal_health_date": self.health_date.isoformat() if self.health_date else None,
             "enforcement_mode": self.enforcement_mode,
-            "healthy_threshold": settings.signal_health_healthy_threshold,
-            "degraded_threshold": settings.signal_health_degraded_threshold,
+            # The thresholds actually applied, which may be the tenant's own
+            # onboarding overrides rather than the deployment defaults. Logging
+            # the settings values here would misreport why an action was held.
+            "healthy_threshold": self.bands.healthy,
+            "degraded_threshold": self.bands.degraded,
             "max_health_age_days": settings.trust_gate_max_health_age_days,
             "channels": self.channels,
         }
+
+    @property
+    def bands(self) -> SignalHealthThresholds:
+        """The thresholds this decision was made against."""
+        return self.thresholds or SignalHealthThresholds.from_settings()
 
 
 def _freshness_component(
@@ -339,58 +359,47 @@ def _score_record(
         the row is populated to be trusted, which the caller maps to BLOCK.
     """
     components: dict[str, float | None] = {
-        "emq": float(record.emq_score) if record.emq_score is not None else None,
-        "freshness": _freshness_component(record.freshness_minutes, config),
-        "delivery": (
+        COMPONENT_EMQ: float(record.emq_score) if record.emq_score is not None else None,
+        COMPONENT_FRESHNESS: _freshness_component(record.freshness_minutes, config),
+        COMPONENT_DELIVERY: (
             100.0 - float(record.event_loss_pct) if record.event_loss_pct is not None else None
         ),
-        "reliability": (
+        COMPONENT_RELIABILITY: (
             100.0 - float(record.api_error_rate) if record.api_error_rate is not None else None
         ),
     }
-    weights = {
-        "emq": config.emq_weight,
-        "freshness": config.freshness_weight,
-        "delivery": config.variance_weight,
-        "reliability": config.anomaly_weight,
-    }
-
-    total_weight = sum(weights[name] for name, value in components.items() if value is not None)
-    # Scale the floor by the weights actually in play, so a config whose
-    # weights do not sum to exactly 1.0 still means "half the evidence".
-    available_weight = sum(weights.values())
-    required_weight = settings.signal_health_min_component_weight * available_weight
-    if total_weight <= 0 or total_weight < required_weight:
-        return None, components
-
-    score = sum(
-        min(max(value, 0.0), 100.0) * weights[name]
-        for name, value in components.items()
-        if value is not None
-    )
-    return round(score / total_weight, 1), components
+    # Weighted with the same shared function - and therefore the same
+    # configured weights and the same evidence floor - that
+    # app.services.signal_health used to produce this row. The score cannot
+    # mean one thing where it is written and another where it is enforced.
+    score, _available, _required = weighted_score(components, config)
+    return score, components
 
 
-def _decision_for_score(score: float | None) -> GateDecision:
+def _decision_for_score(
+    score: float | None, thresholds: SignalHealthThresholds | None = None
+) -> GateDecision:
     """
     Map a composite signal health score onto a gate decision.
 
     Thresholds come from configuration, never from literals at the call site:
-    >= signal_health_healthy_threshold PASSes, >= signal_health_degraded_threshold
-    HOLDs, anything lower BLOCKs. A missing score is not evidence of health, so
-    it BLOCKs.
+    >= the healthy threshold PASSes, >= the degraded threshold HOLDs, anything
+    lower BLOCKs. A missing score is not evidence of health, so it BLOCKs.
 
     Args:
         score: Composite 0-100 signal health, or None when it could not be computed
+        thresholds: Band edges to grade against, which may be the tenant's own
+            onboarding overrides; defaults to the configured pair
 
     Returns:
         The corresponding gate decision
     """
+    bands = thresholds or SignalHealthThresholds.from_settings()
     if score is None:
         return GateDecision.BLOCK
-    if score >= settings.signal_health_healthy_threshold:
+    if score >= bands.healthy:
         return GateDecision.PASS
-    if score >= settings.signal_health_degraded_threshold:
+    if score >= bands.degraded:
         return GateDecision.HOLD
     return GateDecision.BLOCK
 
@@ -457,6 +466,7 @@ def evaluate_signal_health(
     today: date,
     enforcement_mode: str,
     config: SignalHealthConfig | None = None,
+    thresholds: SignalHealthThresholds | None = None,
 ) -> SignalHealthGateResult:
     """
     Turn the newest signal health snapshot into a trust gate decision.
@@ -478,11 +488,14 @@ def evaluate_signal_health(
         today: The current UTC date, used for the staleness check
         enforcement_mode: The tenant's EnforcementMode value
         config: Optional signal health configuration override (weights/bounds)
+        thresholds: Optional band edges - the tenant's onboarding overrides when
+            it set any, otherwise the configured deployment defaults
 
     Returns:
         A SignalHealthGateResult carrying the decision, reason and inputs
     """
     config = config or SignalHealthConfig()
+    bands = thresholds or SignalHealthThresholds.from_settings()
     max_age = settings.trust_gate_max_health_age_days
 
     if health_date is None:
@@ -493,6 +506,7 @@ def evaluate_signal_health(
                 "verify the signals this action would be based on, so it fails closed."
             ),
             enforcement_mode=enforcement_mode,
+            thresholds=bands,
         )
 
     age_days = (today - health_date).days
@@ -525,6 +539,7 @@ def evaluate_signal_health(
             reason=reason,
             health_date=health_date,
             enforcement_mode=enforcement_mode,
+            thresholds=bands,
         )
 
     if not records:
@@ -536,6 +551,7 @@ def evaluate_signal_health(
             ),
             health_date=health_date,
             enforcement_mode=enforcement_mode,
+            thresholds=bands,
         )
 
     channels: dict[str, dict[str, Any]] = {}
@@ -548,7 +564,7 @@ def evaluate_signal_health(
         if isinstance(status, str):
             status = SignalHealthStatus(status)
         status_decision = _STATUS_DECISIONS.get(status, GateDecision.BLOCK)
-        channel_decision = _worst(_decision_for_score(score), status_decision)
+        channel_decision = _worst(_decision_for_score(score, bands), status_decision)
 
         decisions.append(channel_decision)
         if score is not None:
@@ -569,13 +585,13 @@ def evaluate_signal_health(
     )
     if decision is GateDecision.PASS:
         reason = (
-            f"Signal health {lowest} >= {settings.signal_health_healthy_threshold} "
+            f"Signal health {lowest} >= {bands.healthy} "
             f"on every channel ({health_date.isoformat()})."
         )
     else:
         reason = (
             f"Signal health {lowest} below the healthy threshold "
-            f"{settings.signal_health_healthy_threshold} on "
+            f"{bands.healthy} on "
             f"{', '.join(worst_channels) or 'one or more channels'} "
             f"({health_date.isoformat()})."
         )
@@ -589,6 +605,7 @@ def evaluate_signal_health(
         health_date=health_date,
         enforcement_mode=enforcement_mode,
         channels=channels,
+        thresholds=bands,
     )
 
 
@@ -646,12 +663,17 @@ async def check_signal_health(db: AsyncSession, tenant_id: int) -> SignalHealthG
         records = list(rows_result.scalars().all())
 
     enforcement_mode = await get_tenant_enforcement_mode(db, tenant_id)
+    # The tenant's own onboarding thresholds when it set any. The dashboard
+    # summary resolves the same pair, so the score the tenant is shown and the
+    # score the gate enforces are graded against the same band edges.
+    thresholds = await thresholds_for_tenant(db, tenant_id)
 
     return evaluate_signal_health(
         records=records,
         health_date=health_date,
         today=today,
         enforcement_mode=enforcement_mode,
+        thresholds=thresholds,
     )
 
 
@@ -711,11 +733,24 @@ def check_signal_health_sync(db: SyncSession, tenant_id: int) -> SignalHealthGat
         mode = record.default_mode
         enforcement_mode = mode.value if isinstance(mode, EnforcementMode) else str(mode)
 
+    onboarding_row = db.execute(
+        select(
+            TenantOnboarding.trust_threshold_autopilot,
+            TenantOnboarding.trust_threshold_alert,
+        ).where(TenantOnboarding.tenant_id == tenant_id)
+    ).first()
+    thresholds = (
+        SignalHealthThresholds.resolve(onboarding_row[0], onboarding_row[1])
+        if onboarding_row is not None
+        else SignalHealthThresholds.from_settings()
+    )
+
     return evaluate_signal_health(
         records=records,
         health_date=health_date,
         today=today,
         enforcement_mode=enforcement_mode,
+        thresholds=thresholds,
     )
 
 

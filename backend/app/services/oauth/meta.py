@@ -239,6 +239,48 @@ class MetaOAuthService(OAuthService):
                 raw_response=token_data,
             )
 
+    async def fetch_authorized_user_id(self, access_token: str) -> str | None:
+        """
+        Read the app-scoped user id (ASID) of the person who authorised the app.
+
+        This is the single field Meta puts in the ``signed_request`` it POSTs to
+        the Deauthorize and Data Deletion Request callbacks, so it must be on
+        the connection before either callback can identify it. Persisting it
+        here is what makes those App Review callbacks work at all.
+
+        The id is app-scoped: it identifies the person only within this app and
+        is useless anywhere else. It is not a credential.
+
+        Args:
+            access_token: Freshly issued access token for the authorising user
+
+        Returns:
+            The ASID as a string, or None when Meta does not return one. A
+            failure here never fails the OAuth flow - the connection is still
+            usable, it just cannot be matched by a later privacy callback.
+        """
+        # Bearer header, never a query parameter: a token in a URL leaks into
+        # access logs and exception messages.
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        try:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(
+                    self._get_graph_url("me"), params={"fields": "id"}, headers=headers
+                ) as resp,
+            ):
+                if resp.status != 200:
+                    self.logger.warning("meta_authorized_user_id_unavailable", status=resp.status)
+                    return None
+                data = await resp.json()
+        except Exception as exc:  # noqa: BLE001 - never break OAuth over this
+            self.logger.warning("meta_authorized_user_id_error", error=str(exc))
+            return None
+
+        user_id = data.get("id")
+        return str(user_id) if user_id else None
+
     async def fetch_ad_accounts(
         self,
         access_token: str,

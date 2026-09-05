@@ -41,6 +41,16 @@ from app.models import (
 from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
 from app.models.onboarding import OnboardingStatus, TenantOnboarding
 from app.schemas import APIResponse
+from app.services.signal_health import (
+    COMPONENT_EMQ,
+    STATUS_CRITICAL,
+    STATUS_DEGRADED,
+    STATUS_HEALTHY,
+    STATUS_INSUFFICIENT_DATA,
+    SignalHealthThresholds,
+    compute_tenant_signal_health,
+    summarise_channels,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -118,15 +128,49 @@ class OverviewMetrics(BaseModel):
 
 
 class SignalHealthSummary(BaseModel):
-    """Signal health status for trust gate."""
+    """
+    Signal health status for the trust gate.
 
-    overall_score: int = Field(ge=0, le=100)
-    status: str  # healthy, degraded, critical
-    emq_score: Optional[float] = None
-    data_freshness_minutes: Optional[int] = None
-    api_health: bool = True
+    ``status`` may be ``insufficient_data``, in which case ``overall_score`` is
+    ``None`` and ``missing_inputs`` names what could not be measured. That is a
+    distinct state from a low score: unknown is not the same as bad, and the UI
+    must not render it as a zero. Every populated number here was measured from
+    the tenant's own persisted data over ``window_start``..``window_end``.
+
+    ``status`` and ``gate_decision`` answer two different questions and can
+    legitimately disagree. ``status`` bands a **live** trailing-window
+    measurement; ``gate_decision`` is what the trust gate would actually decide
+    right now, and the gate grades the newest ``fact_signal_health_daily``
+    snapshot - yesterday's rollup - not the live window. A tenant that started
+    delivering events this morning measures healthy while the gate still BLOCKs
+    for want of a snapshot, and the UI must show the gate's answer wherever it
+    uses gate verbs, or it promises automation that will not run.
+    """
+
+    overall_score: int | None = Field(default=None, ge=0, le=100)
+    status: str  # healthy, degraded, critical, insufficient_data
+    emq_score: float | None = None
+    data_freshness_minutes: int | None = None
+    api_health: bool | None = None
     issues: list[str] = []
     autopilot_enabled: bool = False
+    missing_inputs: list[str] = []
+    # Stable codes for the same gaps, so the UI can render them in the viewer's
+    # language instead of showing the server's English sentence.
+    missing_input_codes: list[str] = []
+    components: dict[str, float] = {}
+    channel: str | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    # What the trust gate decides for this tenant right now: "pass", "hold" or
+    # "block". Sourced from the gate itself, not re-derived from the live score.
+    gate_decision: str | None = None
+    gate_reason: str | None = None
+    gate_health_date: date | None = None
+    # The band edges applied, which are the tenant's own onboarding overrides
+    # when it set any.
+    healthy_threshold: float | None = None
+    degraded_threshold: float | None = None
 
 
 class PlatformSummary(BaseModel):
@@ -359,6 +403,140 @@ def format_percentage(value: float) -> str:
     return f"{value:.2f}%"
 
 
+async def build_signal_health_summary(
+    db: AsyncSession,
+    tenant_id: int,
+    onboarding: TenantOnboarding | None,
+) -> SignalHealthSummary:
+    """
+    Build the dashboard's signal health payload from measured data.
+
+    The single place this endpoint module computes signal health, so the
+    overview card and the dedicated signal health endpoint cannot disagree.
+    Both used to return a hardcoded ``overall_score=85``, ``emq_score=0.92``
+    and ``data_freshness_minutes=5`` for any tenant that merely had campaigns
+    or a connected platform - a healthy-looking trust gate for a tenant that
+    had never sent a single event.
+
+    The tenant-level number mirrors the trust gate: the worst channel that
+    could be scored wins, and a channel with no evidence of its own is
+    reported rather than counted against the tenant (the gate likewise only
+    grades the rows that exist). When no channel could be scored at all the
+    status is ``insufficient_data`` with the missing inputs named, and no
+    score is sent - a zero would read as "terrible" when the truth is
+    "unknown".
+
+    The gate's own current decision is published alongside the measurement.
+    They are different questions: this function measures a live trailing
+    window, while the gate grades yesterday's ``fact_signal_health_daily``
+    snapshot. Publishing only the live measurement let the UI show "PASS -
+    autopilot executes" to a tenant whose every automation the gate was
+    BLOCKing for want of a snapshot, and the divergence was always in the
+    flattering direction on day one.
+
+    Args:
+        db: Async database session
+        tenant_id: Tenant to measure; every underlying query is filtered by it
+        onboarding: The tenant's onboarding record, for the automation mode
+
+    Returns:
+        The summary, either scored or explicitly insufficient.
+    """
+    # Import here: app.tasks.apply_actions_queue pulls in the Celery app, and
+    # the endpoint modules must stay importable without it.
+    from app.tasks.apply_actions_queue import check_signal_health
+
+    thresholds = SignalHealthThresholds.resolve(
+        getattr(onboarding, "trust_threshold_autopilot", None),
+        getattr(onboarding, "trust_threshold_alert", None),
+    )
+    computations = await compute_tenant_signal_health(
+        db, tenant_id, thresholds=thresholds
+    )
+    representative = summarise_channels(computations)
+    gate = await check_signal_health(db, tenant_id)
+
+    if representative is None:
+        return SignalHealthSummary(
+            status=STATUS_INSUFFICIENT_DATA,
+            issues=["No Meta channels are configured for this tenant."],
+            missing_inputs=["No Meta channels are configured for this tenant."],
+            missing_input_codes=["no_meta_channels"],
+            gate_decision=gate.decision.value,
+            gate_reason=gate.reason,
+            gate_health_date=gate.health_date,
+            healthy_threshold=thresholds.healthy,
+            degraded_threshold=thresholds.degraded,
+        )
+
+    unscored = sorted(
+        channel for channel, item in computations.items() if item.insufficient_data
+    )
+    components = representative.component_scores()
+    connection = representative.connection
+
+    issues: list[str] = []
+    # Two components can share one cause (both delivery components go missing
+    # together when there is no CAPI traffic); say it once.
+    missing_inputs = list(dict.fromkeys(representative.missing_inputs))
+
+    if representative.insufficient_data:
+        issues.extend(missing_inputs)
+    else:
+        if unscored:
+            issues.append(
+                "No signal data yet for: " + ", ".join(unscored) + "."
+            )
+        if connection is not None and connection.error_count:
+            issues.append(
+                f"The Meta connection has recorded {connection.error_count} error(s)."
+            )
+        if representative.status == STATUS_DEGRADED:
+            issues.append("Signal health is below the autopilot threshold; actions are held.")
+        elif representative.status == STATUS_CRITICAL:
+            issues.append("Signal health is critical; automated actions are blocked.")
+
+    # Autopilot only actually runs when the gate lets it, so this flag follows
+    # the gate rather than the live measurement.
+    autopilot_enabled = bool(
+        onboarding
+        and onboarding.automation_mode == "autopilot"
+        and gate.may_execute
+    )
+    if representative.status == STATUS_HEALTHY and not gate.may_execute:
+        issues.append(gate.reason)
+
+    return SignalHealthSummary(
+        overall_score=(
+            round(representative.score) if representative.score is not None else None
+        ),
+        status=representative.status,
+        emq_score=components.get(COMPONENT_EMQ),
+        data_freshness_minutes=(
+            representative.freshness.age_minutes if representative.freshness else None
+        ),
+        # None means "not measured", which is not the same as "offline".
+        api_health=(
+            None
+            if connection is None
+            else connection.is_connected and not connection.has_last_error
+        ),
+        issues=issues,
+        autopilot_enabled=autopilot_enabled,
+        missing_inputs=missing_inputs,
+        missing_input_codes=representative.missing_input_codes,
+        components=components,
+        channel=representative.channel,
+        window_start=representative.window.start,
+        window_end=representative.window.end,
+        gate_decision=gate.decision.value,
+        gate_reason=gate.reason,
+        gate_health_date=gate.health_date,
+        healthy_threshold=thresholds.healthy,
+        degraded_threshold=thresholds.degraded,
+    )
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -457,16 +635,9 @@ async def get_dashboard_overview(
         ctr=build_metric(current_ctr, prev_ctr, format_percentage),
     )
 
-    # Signal health (mock for now, integrate with trust layer)
-    signal_health = SignalHealthSummary(
-        overall_score=85 if has_campaigns else 0,
-        status="healthy" if has_campaigns else "unknown",
-        emq_score=0.92 if has_campaigns else None,
-        data_freshness_minutes=5 if has_campaigns else None,
-        api_health=True,
-        issues=[],
-        autopilot_enabled=onboarding.automation_mode == "autopilot" if onboarding else False,
-    )
+    # Signal health, measured from this tenant's own persisted data. Having
+    # campaigns is not evidence that the signals behind them are healthy.
+    signal_health = await build_signal_health_summary(db, tenant_id, onboarding)
 
     # Platform breakdown
     platforms_summary = []
@@ -980,77 +1151,25 @@ async def get_signal_health(
 
     Returns the current trust gate status including EMQ, data freshness,
     and any issues that may affect autopilot.
+
+    Everything here is measured from the tenant's own persisted data by
+    :func:`build_signal_health_summary`. When there is not enough of it the
+    response carries ``status="insufficient_data"``, no score and the list of
+    missing inputs - it does not simulate a healthy tenant, which is what this
+    endpoint did before (``overall_score = 85``, ``emq_score = 0.92``,
+    ``data_freshness = 5``, under the comment "Simulated healthy status").
     """
     tenant_id = current_user.tenant_id
 
-    # Get onboarding settings for thresholds
+    # Get onboarding settings for the tenant's automation mode
     onboarding_result = await db.execute(
         select(TenantOnboarding).where(TenantOnboarding.tenant_id == tenant_id)
     )
     onboarding = onboarding_result.scalar_one_or_none()
 
-    # Get connected platforms count
-    platforms_result = await db.execute(
-        select(func.count()).where(
-            and_(
-                TenantPlatformConnection.tenant_id == tenant_id,
-                TenantPlatformConnection.status == ConnectionStatus.CONNECTED,
-            )
-        )
-    )
-    connected_count = platforms_result.scalar() or 0
-
-    # Mock signal health (in production, query FactSignalHealthDaily)
-    if connected_count == 0:
-        return APIResponse(
-            success=True,
-            data=SignalHealthSummary(
-                overall_score=0,
-                status="unknown",
-                emq_score=None,
-                data_freshness_minutes=None,
-                api_health=True,
-                issues=["No platforms connected"],
-                autopilot_enabled=False,
-            ),
-        )
-
-    # Simulated healthy status
-    overall_score = 85
-    emq_score = 0.92
-    data_freshness = 5
-    issues = []
-
-    # Check thresholds
-    autopilot_threshold = onboarding.trust_threshold_autopilot if onboarding else 70
-    alert_threshold = onboarding.trust_threshold_alert if onboarding else 40
-
-    if overall_score < alert_threshold:
-        status = "critical"
-        issues.append("Signal health below critical threshold")
-    elif overall_score < autopilot_threshold:
-        status = "degraded"
-        issues.append("Signal health below autopilot threshold")
-    else:
-        status = "healthy"
-
-    autopilot_enabled = (
-        onboarding
-        and onboarding.automation_mode == "autopilot"
-        and overall_score >= autopilot_threshold
-    )
-
     return APIResponse(
         success=True,
-        data=SignalHealthSummary(
-            overall_score=overall_score,
-            status=status,
-            emq_score=emq_score,
-            data_freshness_minutes=data_freshness,
-            api_health=True,
-            issues=issues,
-            autopilot_enabled=autopilot_enabled,
-        ),
+        data=await build_signal_health_summary(db, tenant_id, onboarding),
     )
 
 

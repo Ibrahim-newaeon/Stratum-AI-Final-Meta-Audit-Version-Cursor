@@ -2,8 +2,18 @@
 # Stratum AI - Signal Health Daily Rollup Task
 # =============================================================================
 """
-Celery task for daily signal health rollup.
-Aggregates platform metrics and calculates health status for each tenant.
+Celery task for the daily signal health rollup.
+
+Writes one ``fact_signal_health_daily`` row per tenant and Meta channel from
+what :mod:`app.services.signal_health` could actually measure - CAPI delivery
+logs, genuine campaign sync timestamps and the platform connection's own error
+state, all tenant-scoped.
+
+**A tenant with too little evidence gets no row.** That table is what the trust
+gate grades on, and the gate fails closed on its absence, so writing a row that
+nothing substantiates would be worse than writing none: it would be graded as
+if it were evidence. Any row this rollup wrote earlier for a tenant/channel it
+can no longer substantiate is withdrawn for the same reason.
 """
 
 import logging
@@ -11,11 +21,21 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from celery import shared_task
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal as async_session_factory
 from app.models.trust_layer import FactSignalHealthDaily, SignalHealthStatus
+from app.services.signal_health import (
+    COMPONENT_DELIVERY,
+    COMPONENT_EMQ,
+    COMPONENT_FRESHNESS,
+    COMPONENT_RELIABILITY,
+    SignalHealthThresholds,
+    compute_signal_health,
+    day_window,
+    thresholds_for_tenant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,27 +44,18 @@ logger = logging.getLogger(__name__)
 # Configuration
 # =============================================================================
 
-# Thresholds for status determination
-THRESHOLDS = {
-    "critical": {
-        "emq_score_below": 70,
-        "event_loss_above": 20,
-        "freshness_above": 360,
-        "api_error_above": 10,
-    },
-    "degraded": {
-        "emq_score_below": 80,
-        "event_loss_above": 10,
-        "freshness_above": 180,
-        "api_error_above": 5,
-    },
-    "risk": {
-        "emq_score_below": 90,
-        "event_loss_above": 5,
-        "freshness_above": 60,
-        "api_error_above": 2,
-    },
-}
+# What ``fact_signal_health_daily.api_error_rate`` actually holds.
+#
+# Nothing in the system measures a request-level API error rate: the Meta
+# connection records a status, a last_error and an error counter, but never a
+# denominator. The column therefore carries the *connection-health deficit* -
+# ``100 - the reliability component`` - which is exactly what the trust gate
+# reads back out of it (``_score_record`` computes ``100 - api_error_rate``).
+# Writer and reader have always agreed; this constant exists so the next reader
+# does not mistake the value for a percentage of failed API calls and band it
+# against percentage thresholds, which is how one recorded connection error
+# used to turn a tenant scoring 97 into a CRITICAL row that BLOCKed the gate.
+API_ERROR_RATE_IS_CONNECTION_DEFICIT = True
 
 # Meta channels - matches fact_ga4_daily.meta_channel, the seeded
 # fact_signal_health_daily rows and the trust layer grouping. All three share
@@ -58,106 +69,147 @@ PLATFORMS = ["facebook", "instagram", "whatsapp"]
 
 
 def determine_status(
-    emq_score: Optional[float],
-    event_loss_pct: Optional[float],
-    freshness_minutes: Optional[int],
-    api_error_rate: Optional[float],
+    score: Optional[float],
+    partial_evidence: bool,
+    thresholds: SignalHealthThresholds,
 ) -> SignalHealthStatus:
     """
-    Determine signal health status based on metrics.
+    Band the measured composite onto the row's status enum.
 
-    Returns the worst status among all metrics.
+    The enum is not decoration: the trust gate floors its decision on it
+    (``_STATUS_DECISIONS`` maps OK/RISK to PASS, DEGRADED to HOLD, CRITICAL to
+    BLOCK), so whatever this function returns can only ever make the gate
+    *stricter* than the score alone. That is precisely why it must be derived
+    from the same configured bands the composite is graded against.
+
+    It used to apply four unconfigured per-metric threshold tables - freshness
+    over 360 minutes, EMQ under 70, event loss over 20, "api_error_rate" over
+    10 - calibrated for the fabricated numbers the rollup used to write. Against
+    real measurements those literals silently overrode the documented 70/40
+    contract: a tenant with a clean connection, no failed deliveries and a
+    seven-hour-old sync scored 93.5 and was written CRITICAL, and a tenant with
+    one recorded connection error scored 97 and was written CRITICAL, both of
+    which BLOCKed every automation.
+
+    ``RISK`` is reserved for a composite in the healthy band that was measured
+    over an incomplete set of components. It maps to PASS in the gate, so the
+    decision is unchanged; it exists so the trust layer UI can say "passing, on
+    partial evidence" without a second threshold table.
+
+    Args:
+        score: The measured 0-100 composite for this tenant/channel.
+        partial_evidence: Whether some component went unmeasured.
+        thresholds: The band edges this tenant is graded against.
+
+    Returns:
+        The status enum to store on the row.
     """
-    # Check critical thresholds
-    if any(
-        [
-            emq_score is not None and emq_score < THRESHOLDS["critical"]["emq_score_below"],
-            event_loss_pct is not None
-            and event_loss_pct > THRESHOLDS["critical"]["event_loss_above"],
-            freshness_minutes is not None
-            and freshness_minutes > THRESHOLDS["critical"]["freshness_above"],
-            api_error_rate is not None
-            and api_error_rate > THRESHOLDS["critical"]["api_error_above"],
-        ]
-    ):
+    if score is None:
+        # The caller writes no row at all in this case; returning the most
+        # restrictive status keeps any future caller fail-closed.
         return SignalHealthStatus.CRITICAL
-
-    # Check degraded thresholds
-    if any(
-        [
-            emq_score is not None and emq_score < THRESHOLDS["degraded"]["emq_score_below"],
-            event_loss_pct is not None
-            and event_loss_pct > THRESHOLDS["degraded"]["event_loss_above"],
-            freshness_minutes is not None
-            and freshness_minutes > THRESHOLDS["degraded"]["freshness_above"],
-            api_error_rate is not None
-            and api_error_rate > THRESHOLDS["degraded"]["api_error_above"],
-        ]
-    ):
+    if score < thresholds.degraded:
+        return SignalHealthStatus.CRITICAL
+    if score < thresholds.healthy:
         return SignalHealthStatus.DEGRADED
-
-    # Check risk thresholds
-    if any(
-        [
-            emq_score is not None and emq_score < THRESHOLDS["risk"]["emq_score_below"],
-            event_loss_pct is not None and event_loss_pct > THRESHOLDS["risk"]["event_loss_above"],
-            freshness_minutes is not None
-            and freshness_minutes > THRESHOLDS["risk"]["freshness_above"],
-            api_error_rate is not None and api_error_rate > THRESHOLDS["risk"]["api_error_above"],
-        ]
-    ):
-        return SignalHealthStatus.RISK
-
-    return SignalHealthStatus.OK
+    return SignalHealthStatus.RISK if partial_evidence else SignalHealthStatus.OK
 
 
 def generate_issues(
-    emq_score: Optional[float],
-    event_loss_pct: Optional[float],
-    freshness_minutes: Optional[int],
-    api_error_rate: Optional[float],
+    components: dict[str, float],
+    missing_inputs: list[str],
+    connection_errors: int,
+    thresholds: SignalHealthThresholds,
 ) -> list[str]:
-    """Generate list of issues based on metrics."""
-    issues = []
+    """
+    Describe what is wrong, in terms of what was actually measured.
 
-    if emq_score is not None and emq_score < 90:
-        issues.append(f"EMQ score is {emq_score:.0f}% (below 90% threshold)")
+    Each component is a 0-100 score on the same scale as the composite, so the
+    same configured band is used to decide whether it is worth reporting - no
+    parallel per-metric literals. Components that could not be measured are
+    reported as gaps rather than as failures.
 
-    if event_loss_pct is not None and event_loss_pct > 5:
-        issues.append(f"Event loss is {event_loss_pct:.1f}% (above 5% threshold)")
+    Args:
+        components: Measured component name to 0-100 score.
+        missing_inputs: Sentences naming the components that were not measured.
+        connection_errors: Errors recorded against the Meta connection.
+        thresholds: The band edges this tenant is graded against.
 
-    if freshness_minutes is not None and freshness_minutes > 60:
-        issues.append(f"Data freshness is {freshness_minutes} minutes (above 60 minute threshold)")
+    Returns:
+        Issue sentences, safe to show to the tenant.
+    """
+    issues: list[str] = list(missing_inputs)
+    healthy = thresholds.healthy
 
-    if api_error_rate is not None and api_error_rate > 2:
-        issues.append(f"API error rate is {api_error_rate:.1f}% (above 2% threshold)")
+    emq = components.get(COMPONENT_EMQ)
+    if emq is not None and emq < healthy:
+        issues.append(
+            f"Event match quality scores {emq:.0f}/100, below the {healthy:.0f} "
+            "threshold for automated action."
+        )
+
+    delivery = components.get(COMPONENT_DELIVERY)
+    if delivery is not None and delivery < healthy:
+        issues.append(
+            f"Conversion event delivery scores {delivery:.0f}/100 - "
+            f"{100.0 - delivery:.1f}% of attempts were rejected."
+        )
+
+    freshness = components.get(COMPONENT_FRESHNESS)
+    if freshness is not None and freshness < healthy:
+        issues.append(
+            f"Campaign data freshness scores {freshness:.0f}/100; the newest "
+            "successful Meta insights sync is older than the configured window."
+        )
+
+    reliability = components.get(COMPONENT_RELIABILITY)
+    if reliability is not None and reliability < healthy:
+        # Deliberately not phrased as an error *rate*: nothing measures a
+        # denominator, so "N recorded errors" is the whole of what is known.
+        issues.append(
+            f"Meta connection health scores {reliability:.0f}/100 "
+            f"({connection_errors} recorded error(s))."
+        )
 
     return issues
 
 
 def generate_actions(
-    emq_score: Optional[float],
-    event_loss_pct: Optional[float],
-    freshness_minutes: Optional[int],
-    api_error_rate: Optional[float],
+    components: dict[str, float],
     platform: str,
+    thresholds: SignalHealthThresholds,
 ) -> list[str]:
-    """Generate recommended actions based on metrics."""
-    actions = []
+    """
+    Recommend what to do about the components that scored below the band.
 
-    if emq_score is not None and emq_score < 90:
+    Args:
+        components: Measured component name to 0-100 score.
+        platform: Meta channel these measurements belong to.
+        thresholds: The band edges this tenant is graded against.
+
+    Returns:
+        Recommended operator actions.
+    """
+    actions: list[str] = []
+    healthy = thresholds.healthy
+
+    emq = components.get(COMPONENT_EMQ)
+    if emq is not None and emq < healthy:
         actions.append(f"Review {platform} pixel/CAPI implementation")
-        actions.append("Check event parameter mapping")
+        actions.append("Send more hashed customer identifiers with each event")
 
-    if event_loss_pct is not None and event_loss_pct > 5:
+    delivery = components.get(COMPONENT_DELIVERY)
+    if delivery is not None and delivery < healthy:
         actions.append("Verify server-side event delivery")
         actions.append("Check for browser tracking blockers")
 
-    if freshness_minutes is not None and freshness_minutes > 60:
-        actions.append("Check data pipeline status")
+    freshness = components.get(COMPONENT_FRESHNESS)
+    if freshness is not None and freshness < healthy:
+        actions.append("Check the Meta insights sync schedule")
         actions.append("Verify API connection health")
 
-    if api_error_rate is not None and api_error_rate > 2:
+    reliability = components.get(COMPONENT_RELIABILITY)
+    if reliability is not None and reliability < healthy:
         actions.append(f"Review {platform} API credentials")
         actions.append("Check rate limits and quotas")
 
@@ -215,39 +267,64 @@ def signal_health_rollup(self, tenant_id: Optional[int] = None, target_date: Opt
                     tenant_ids = [row[0] for row in result.all()]
 
                 records_created = 0
+                records_skipped = 0
+                rows_withdrawn = 0
 
                 for tid in tenant_ids:
+                    # The tenant's own trust thresholds when it set any during
+                    # onboarding, read once per tenant. The trust gate resolves
+                    # the same pair, so the band this row is stamped with is the
+                    # band the gate will enforce.
+                    thresholds = await thresholds_for_tenant(db, tid)
+
                     for platform in PLATFORMS:
-                        # Fetch metrics for this tenant/platform
-                        # In production, this would query actual platform APIs or aggregated metrics
-                        metrics = await fetch_platform_metrics(db, tid, platform, rollup_date)
+                        # Measure this tenant/channel from real, persisted,
+                        # tenant-scoped data. Returns None when the inputs are
+                        # not there - never a stand-in number.
+                        metrics = await fetch_platform_metrics(
+                            db, tid, platform, rollup_date, thresholds
+                        )
 
                         if not metrics:
+                            # Insufficient data: write nothing. This table is what
+                            # the trust gate grades on, and a row it cannot
+                            # substantiate would be graded as if it were evidence.
+                            # Any row an earlier run wrote for the same key is
+                            # withdrawn for the same reason - leaving a previously
+                            # fabricated row in place would keep the gate passing
+                            # on it long after the fabrication was removed.
+                            withdrawn = await db.execute(
+                                delete(FactSignalHealthDaily).where(
+                                    and_(
+                                        FactSignalHealthDaily.tenant_id == tid,
+                                        FactSignalHealthDaily.date == rollup_date,
+                                        FactSignalHealthDaily.platform == platform,
+                                    )
+                                )
+                            )
+                            rows_withdrawn += withdrawn.rowcount or 0
+                            records_skipped += 1
                             continue
 
-                        # Calculate status
+                        # Band the measured composite with the same configured
+                        # thresholds the gate enforces.
                         status = determine_status(
-                            metrics.get("emq_score"),
-                            metrics.get("event_loss_pct"),
-                            metrics.get("freshness_minutes"),
-                            metrics.get("api_error_rate"),
+                            metrics.get("composite_score"),
+                            bool(metrics.get("partial_evidence")),
+                            thresholds,
                         )
 
-                        # Generate issues and actions
+                        # Describe what was measured, in the components' own
+                        # terms - never as a threshold the row does not carry.
+                        components = metrics.get("components") or {}
                         issues = generate_issues(
-                            metrics.get("emq_score"),
-                            metrics.get("event_loss_pct"),
-                            metrics.get("freshness_minutes"),
-                            metrics.get("api_error_rate"),
+                            components,
+                            metrics.get("missing_inputs") or [],
+                            int(metrics.get("connection_errors") or 0),
+                            thresholds,
                         )
 
-                        actions = generate_actions(
-                            metrics.get("emq_score"),
-                            metrics.get("event_loss_pct"),
-                            metrics.get("freshness_minutes"),
-                            metrics.get("api_error_rate"),
-                            platform,
-                        )
+                        actions = generate_actions(components, platform, thresholds)
 
                         # Check if record already exists
                         existing = await db.execute(
@@ -293,13 +370,19 @@ def signal_health_rollup(self, tenant_id: Optional[int] = None, target_date: Opt
                 await db.commit()
 
                 logger.info(
-                    f"Signal health rollup completed: {records_created} records created/updated"
+                    "Signal health rollup completed: %s rows written, %s tenant/channel "
+                    "pairs skipped for insufficient data, %s unsubstantiated rows withdrawn",
+                    records_created,
+                    records_skipped,
+                    rows_withdrawn,
                 )
 
                 return {
                     "status": "success",
                     "date": rollup_date.isoformat(),
                     "records_processed": records_created,
+                    "insufficient_data": records_skipped,
+                    "rows_withdrawn": rows_withdrawn,
                 }
 
             except Exception as e:
@@ -307,7 +390,10 @@ def signal_health_rollup(self, tenant_id: Optional[int] = None, target_date: Opt
                 await db.rollback()
                 raise self.retry(exc=e)
 
-    return asyncio.get_event_loop().run_until_complete(run_rollup())
+    # asyncio.run rather than get_event_loop(): a Celery worker process has no
+    # current event loop, and get_event_loop() raises there rather than making
+    # one (it is deprecated for exactly this).
+    return asyncio.run(run_rollup())
 
 
 async def fetch_platform_metrics(
@@ -315,56 +401,100 @@ async def fetch_platform_metrics(
     tenant_id: int,
     platform: str,
     target_date: date,
+    thresholds: Optional[SignalHealthThresholds] = None,
 ) -> Optional[dict[str, Any]]:
     """
-    Fetch platform metrics for signal health calculation.
+    Measure one tenant/channel from real, persisted, tenant-scoped data.
 
-    In production, this would:
-    1. Query platform APIs for EMQ scores
-    2. Calculate event loss from fact_events vs platform reported
-    3. Check data freshness from last sync timestamp
-    4. Calculate API error rate from logs
+    Delegates to :mod:`app.services.signal_health` - the single computation of
+    signal health - and translates its components onto the metric columns of
+    ``fact_signal_health_daily``:
 
-    For now, returns metrics derived from the Meta platform connection state
-    (all Meta channels share the single ``platform='meta'`` connection).
+    - ``emq_score``: CAPI delivery success blended with hashed-identifier
+      coverage, counted from ``capi_delivery_logs`` over the rollup day
+    - ``event_loss_pct``: the measured delivery failure rate over the same rows
+    - ``freshness_minutes``: age of the newest genuine ``Campaign.last_synced_at``
+      at the end of the rollup day
+    - ``api_error_rate``: the connection-health deficit - ``100 - the
+      reliability component`` - derived from ``TenantPlatformConnection``
+      status and error state. It is **not** a percentage of failed API calls;
+      nothing in the system measures a denominator for one. The trust gate
+      reads it back as ``100 - api_error_rate``, so writer and reader agree.
+      See ``API_ERROR_RATE_IS_CONNECTION_DEFICIT``.
+
+    A column the tenant produced no evidence for is left NULL rather than
+    filled in; the trust gate already renormalises over the columns that are
+    populated and refuses to score a row that is too empty.
+
+    Alongside the four columns the result carries the composite the row will be
+    banded with, whether it rests on partial evidence, and the components and
+    missing inputs the issue/action text is written from - so the row's status
+    and its explanation come from the same measurement rather than from a
+    second pass of threshold guesses over the stored columns.
+
+    This function used to return ``emq_score`` 85 or 65, ``event_loss_pct`` 3.5
+    or 15 and ``api_error_rate`` 0.5 or 8 chosen purely on whether the Meta
+    connection had ever recorded an error, with freshness defaulting to 30
+    minutes - numbers no tenant ever produced, written into the table the trust
+    gate grades on.
+
+    Args:
+        db: Async database session
+        tenant_id: Tenant to measure; every underlying query is filtered by it
+        platform: Meta channel (``facebook``, ``instagram`` or ``whatsapp``)
+        target_date: The UTC day this rollup row is dated for
+        thresholds: The tenant's band edges; resolved from its onboarding
+            record when not supplied
+
+    Returns:
+        The metric columns to write plus the composite and its supporting
+        detail, or None when the tenant produced too little evidence to be
+        scored - in which case the caller must write no row at all rather than
+        substitute defaults.
     """
-    # Check if tenant has the Meta platform connected
-    from app.base_models import AdPlatform
-    from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
-
-    result = await db.execute(
-        select(TenantPlatformConnection).where(
-            and_(
-                TenantPlatformConnection.tenant_id == tenant_id,
-                TenantPlatformConnection.platform == AdPlatform.META.value,
-                TenantPlatformConnection.status == ConnectionStatus.CONNECTED.value,
-            )
-        )
+    computation = await compute_signal_health(
+        db=db,
+        tenant_id=tenant_id,
+        channel=platform,
+        window=day_window(target_date),
+        thresholds=thresholds,
     )
-    connection = result.scalar_one_or_none()
 
-    if not connection:
+    if computation.insufficient_data:
+        logger.info(
+            "Signal health insufficient for tenant=%s channel=%s date=%s: %s",
+            tenant_id,
+            platform,
+            target_date.isoformat(),
+            "; ".join(computation.missing_inputs) or "no components measured",
+        )
         return None
 
-    # Calculate freshness from the last token refresh / sync
-    freshness_minutes = None
-    if connection.last_refreshed_at:
-        last_refreshed = connection.last_refreshed_at
-        if last_refreshed.tzinfo is None:
-            last_refreshed = last_refreshed.replace(tzinfo=UTC)
-        delta = datetime.now(UTC) - last_refreshed
-        freshness_minutes = int(delta.total_seconds() / 60)
+    components = computation.component_scores()
+    delivery = computation.delivery
+    freshness = computation.freshness
 
-    # Connection is healthy when it has no recorded errors
-    is_healthy = (connection.error_count or 0) == 0 and not connection.last_error
+    api_error_rate = None
+    if COMPONENT_RELIABILITY in components:
+        api_error_rate = round(100.0 - components[COMPONENT_RELIABILITY], 2)
 
-    # In production, these would be calculated from actual data
-    # For now, return metrics based on connection health
     return {
-        "emq_score": 85.0 if is_healthy else 65.0,
-        "event_loss_pct": 3.5 if is_healthy else 15.0,
-        "freshness_minutes": freshness_minutes or 30,
-        "api_error_rate": 0.5 if is_healthy else 8.0,
+        "emq_score": components.get(COMPONENT_EMQ),
+        "event_loss_pct": (
+            delivery.failure_rate_pct if delivery and COMPONENT_DELIVERY in components else None
+        ),
+        "freshness_minutes": (
+            freshness.age_minutes if freshness and COMPONENT_FRESHNESS in components else None
+        ),
+        "api_error_rate": api_error_rate,
+        # Not stored - used to band the row and to write its explanation.
+        "composite_score": computation.score,
+        "partial_evidence": computation.partial_evidence,
+        "components": components,
+        "missing_inputs": computation.missing_inputs,
+        "connection_errors": (
+            computation.connection.error_count if computation.connection else 0
+        ),
     }
 
 

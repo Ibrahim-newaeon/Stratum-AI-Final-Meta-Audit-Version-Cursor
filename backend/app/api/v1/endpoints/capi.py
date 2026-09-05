@@ -24,9 +24,20 @@ _capi_services: dict[int, CAPIService] = {}
 
 
 def get_capi_service(tenant_id: int) -> CAPIService:
-    """Get or create CAPI service for tenant."""
+    """
+    Get or create the CAPI service for one tenant.
+
+    The tenant id is handed to the service - and through it to every connector -
+    so each delivery attempt is persisted against its own tenant.
+
+    Args:
+        tenant_id: Tenant the caller is authenticated for.
+
+    Returns:
+        That tenant's CAPI service.
+    """
     if tenant_id not in _capi_services:
-        _capi_services[tenant_id] = CAPIService()
+        _capi_services[tenant_id] = CAPIService(tenant_id=tenant_id)
     return _capi_services[tenant_id]
 
 

@@ -8,7 +8,6 @@ API endpoints for Autopilot features:
 - Action execution
 """
 
-import contextlib
 from datetime import UTC, date
 from typing import Any, Optional
 from uuid import UUID
@@ -22,6 +21,7 @@ from app.db.session import get_async_session
 from app.features.service import can_access_feature, get_tenant_features
 from app.models.trust_layer import TrustGateAuditLog
 from app.schemas.response import APIResponse
+from app.services.signal_health import status_for_score
 
 router = APIRouter(prefix="/tenant/{tenant_id}/autopilot", tags=["autopilot"])
 
@@ -458,56 +458,38 @@ async def dry_run_action(
     features = await get_tenant_features(db, tenant_id)
     autopilot_level = features.get("autopilot_level", 0)
 
-    # Get signal health
-    from app.quality.trust_layer_service import SignalHealthService
+    # Evaluate the trust gate with the gate itself.
+    #
+    # This preview used to run its own second implementation: it read
+    # SignalHealthService.get_signal_health (which queries today's rows while
+    # the rollup writes yesterday's, so "no_data" was the normal outcome),
+    # hardcoded 70/40 instead of reading them from configuration, and started
+    # from gate_passed=True with every lowering branch requiring evidence. A
+    # tenant the real gate BLOCKs was therefore told would_execute=True and got
+    # a TrustGateAuditLog row stamped gate_passed=1. Preview and enforcement now
+    # share one decision function, so the dry run cannot promise an execution
+    # that the gate will refuse.
+    from app.stratum.core.trust_gate import GateDecision
+    from app.tasks.apply_actions_queue import check_signal_health
 
-    signal_service = SignalHealthService(db)
-    signal_data = await signal_service.get_signal_health(tenant_id)
+    gate = await check_signal_health(db, tenant_id)
+    healthy_threshold = gate.bands.healthy
+    degraded_threshold = gate.bands.degraded
+    signal_score = gate.score
+    signal_status = status_for_score(signal_score, gate.bands)
 
-    # Determine thresholds
-    healthy_threshold = 70.0
-    degraded_threshold = 40.0
-
-    # Calculate effective signal health score
-    signal_score = None
-    signal_status = signal_data.get("status", "no_data")
-
-    # Get EMQ from cards if available
-    for card in signal_data.get("cards", []):
-        if "EMQ" in card.get("title", ""):
-            with contextlib.suppress(ValueError, AttributeError):
-                signal_score = float(card.get("value", "0").rstrip("%"))
-
-    # Evaluate trust gate
-    gate_passed = True
-    gate_reasons = []
-    decision_type = "execute"
-    warnings = []
-
-    # Check signal health
-    if signal_status in ["degraded", "critical"]:
-        gate_passed = False
-        decision_type = "block"
-        gate_reasons.append(f"Signal health is {signal_status}")
-    elif signal_status == "risk":
-        decision_type = "hold"
-        gate_reasons.append("Signal health is at risk")
+    gate_passed = gate.may_execute
+    gate_reasons: list[str] = [gate.reason]
+    warnings: list[str] = []
+    decision_type = {
+        GateDecision.PASS: "execute",
+        GateDecision.HOLD: "hold",
+        GateDecision.BLOCK: "block",
+    }[gate.decision]
+    if gate.decision is GateDecision.HOLD:
         warnings.append("Action will be held for review due to signal health")
-
-    if signal_score is not None:
-        if signal_score < degraded_threshold:
-            gate_passed = False
-            decision_type = "block"
-            gate_reasons.append(
-                f"EMQ score {signal_score:.1f}% is below degraded threshold ({degraded_threshold}%)"
-            )
-        elif signal_score < healthy_threshold:
-            if decision_type != "block":
-                decision_type = "hold"
-            gate_reasons.append(
-                f"EMQ score {signal_score:.1f}% is below healthy threshold ({healthy_threshold}%)"
-            )
-            warnings.append("Consider improving data quality before executing")
+    elif gate.decision is GateDecision.BLOCK:
+        warnings.append("Signal health cannot justify an automated action")
 
     # Check autopilot level
     service = AutopilotService(db)

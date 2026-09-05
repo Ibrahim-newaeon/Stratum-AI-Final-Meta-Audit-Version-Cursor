@@ -12,7 +12,6 @@ import hashlib
 import statistics
 import threading
 import time
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -148,7 +147,19 @@ class RateLimiter:
 
 @dataclass
 class EventDeliveryLog:
-    """Log entry for CAPI event delivery (used for real EMQ measurement)."""
+    """
+    One CAPI delivery attempt, as an in-request value.
+
+    Passed to :meth:`ConnectorHealthMonitor.check_health` by whoever already
+    holds the attempts it wants judged. It is deliberately *not* accumulated in
+    a module-level list any more: that list lived in whichever process appended
+    to it, so the Celery worker computing signal health always saw it empty, it
+    was capped at 10000 entries, it was lost on restart, and - worst - it was
+    not scoped by tenant at all. Delivery attempts are now persisted to
+    ``capi_delivery_logs`` through
+    :class:`app.services.capi.delivery_logger.DeliveryLogger`, which is the one
+    source signal health and EMQ read from.
+    """
 
     event_id: str
     platform: str
@@ -159,35 +170,6 @@ class EventDeliveryLog:
     error_message: Optional[str] = None
     request_id: Optional[str] = None
     retry_count: int = 0
-
-
-# In-memory event log (in production, this would be stored in database)
-_event_delivery_logs: list[EventDeliveryLog] = []
-
-
-def log_event_delivery(log: EventDeliveryLog):
-    """Log event delivery for EMQ measurement."""
-    global _event_delivery_logs
-    _event_delivery_logs.append(log)
-    # Keep only last 10000 entries in memory
-    if len(_event_delivery_logs) > 10000:
-        _event_delivery_logs = _event_delivery_logs[-10000:]
-    logger.info(
-        f"CAPI Event Delivery: platform={log.platform}, event={log.event_name}, "
-        f"success={log.success}, latency={log.latency_ms:.2f}ms"
-    )
-
-
-def get_event_delivery_logs(
-    platform: Optional[str] = None, since: Optional[datetime] = None
-) -> list[EventDeliveryLog]:
-    """Get event delivery logs for EMQ measurement."""
-    logs = _event_delivery_logs
-    if platform:
-        logs = [log for log in logs if log.platform == platform]
-    if since:
-        logs = [log for log in logs if log.timestamp >= since]
-    return logs
 
 
 class ConnectionStatus(str, Enum):
@@ -221,6 +203,64 @@ class ConnectionResult:
     details: Optional[dict[str, Any]] = None
 
 
+# The user_data keys that actually bear on Meta's event match quality. An
+# event carrying only a client IP and a user agent is not "identified" in any
+# sense Meta will match on, so it must not count toward identifier coverage:
+# that coverage is 30% of the EMQ component, and counting IP-only events as
+# fully identified let a tenant sending no email, phone or external id score
+# 100% "hashed customer identifier coverage".
+MATCH_QUALITY_IDENTIFIERS: frozenset[str] = frozenset(
+    {
+        "em",
+        "email",
+        "ph",
+        "phone",
+        "external_id",
+        "fbc",
+        "fbp",
+        "lead_id",
+        "subscription_id",
+        "madid",
+    }
+)
+
+
+def _match_quality_hash(user_data: dict[str, Any] | None) -> Optional[str]:
+    """
+    Hash the match-quality identifiers on an event, or return None.
+
+    The stored column is documented as "SHA256 of user identifiers" and is read
+    two ways: as presence (identifier coverage, which feeds EMQ) and as a
+    correlation key. It used to hash the *field names* - ``sha256("em|ph")`` -
+    so every event with the same key set produced a byte-identical digest that
+    correlated nothing, under a comment claiming it hashed the identifiers. It
+    was also non-null for any non-empty ``user_data``, including the IP/user
+    agent pair the landing-page path sends on every event.
+
+    Hashing the values keeps the column PII-free (SHA-256 is one-way) while
+    making it mean what its name says, and returning None when no genuine
+    identifier was sent keeps coverage honest.
+
+    Args:
+        user_data: The event's raw user data, or None.
+
+    Returns:
+        A hex digest, or None when the event carried no match-quality identifier.
+    """
+    if not user_data:
+        return None
+    identifiers = {
+        str(key): user_data[key]
+        for key in user_data
+        if str(key).lower() in MATCH_QUALITY_IDENTIFIERS
+        and user_data[key] not in (None, "")
+    }
+    if not identifiers:
+        return None
+    payload = "|".join(f"{key}={identifiers[key]}" for key in sorted(identifiers))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 class BaseCAPIConnector(ABC):
     """
     Base class for CAPI connectors.
@@ -231,13 +271,140 @@ class BaseCAPIConnector(ABC):
     MAX_RETRIES: int = 3
     RETRY_DELAYS: list[float] = [1.0, 2.0, 4.0]  # Exponential backoff
 
-    def __init__(self):
+    def __init__(self, tenant_id: int | None = None):
+        """
+        Initialise the connector.
+
+        Args:
+            tenant_id: Tenant these events belong to. Delivery attempts can
+                only be persisted - and therefore can only feed signal health -
+                when it is known, because ``capi_delivery_logs`` is scoped by
+                tenant and an unattributed row would be a cross-tenant read
+                waiting to happen.
+        """
+        self.tenant_id = tenant_id
         self.hasher = PIIHasher()
         self.mapper = AIEventMapper()
         self._credentials: dict[str, str] = {}
         self._connected = False
         self._circuit_breaker = CircuitBreaker()
         self._rate_limiter = RateLimiter()
+
+    async def _record_dropped(
+        self,
+        events: list[dict[str, Any]],
+        response: "CAPIResponse",
+        status_value: str,
+    ) -> None:
+        """
+        Record events that were dropped before any send was attempted.
+
+        Args:
+            events: The events that never reached the platform.
+            response: The failure response returned to the caller.
+            status_value: ``DeliveryStatus`` value describing the drop.
+        """
+        for event in events:
+            await self._record_delivery(
+                event, response, latency_ms=0.0, retry=0, status_value=status_value
+            )
+        await self._flush_delivery_log()
+
+    async def _flush_delivery_log(self) -> None:
+        """
+        Persist whatever the delivery logger has buffered.
+
+        The logger batches writes and only flushes them from inside a later
+        ``log_delivery`` call, so a quiet tenant's rows could sit in process
+        memory indefinitely and be lost on restart. Flushing once per send
+        keeps the batch (all of a burst goes in one transaction) while making
+        the durability boundary the send itself.
+        """
+        try:
+            from app.services.capi.delivery_logger import get_delivery_logger
+
+            await get_delivery_logger().flush()
+        except Exception as exc:  # noqa: BLE001 - never fail a send on logging
+            logger.error(
+                "capi_delivery_log_flush_failed",
+                platform=self.PLATFORM_NAME,
+                error=str(exc),
+            )
+
+    async def _record_delivery(
+        self,
+        event: dict[str, Any],
+        response: "CAPIResponse",
+        latency_ms: float,
+        retry: int,
+        status_value: str | None = None,
+    ) -> None:
+        """
+        Persist one delivery attempt to ``capi_delivery_logs``.
+
+        This is the only record of CAPI delivery that survives the process, and
+        it is what ``app.services.signal_health`` reads to score EMQ and event
+        loss. Failing to write it must never fail the send, so errors are
+        logged and swallowed.
+
+        Args:
+            event: The event payload that was sent.
+            response: The platform's response for this attempt.
+            latency_ms: How long the attempt took.
+            retry: Zero-based retry index of this attempt.
+            status_value: Optional ``DeliveryStatus`` value overriding the
+                success/failure derived from ``response`` - used for events
+                dropped before a send was attempted.
+        """
+        if self.tenant_id is None:
+            # Without a tenant the attempt cannot be attributed, and an
+            # unattributed row would either leak across tenants or silently
+            # inflate somebody's score. Say so rather than inventing an owner.
+            logger.warning(
+                "capi_delivery_not_recorded_without_tenant",
+                platform=self.PLATFORM_NAME,
+                event_name=event.get("event_name", "unknown"),
+            )
+            return
+
+        try:
+            from app.services.capi.delivery_logger import (
+                DeliveryStatus,
+                get_delivery_logger,
+            )
+
+            user_data = event.get("user_data") or {}
+            await get_delivery_logger().log_delivery(
+                tenant_id=self.tenant_id,
+                platform=self.PLATFORM_NAME,
+                event_name=event.get("event_name", "unknown"),
+                status=(
+                    DeliveryStatus(status_value)
+                    if status_value is not None
+                    else (
+                        DeliveryStatus.SUCCESS
+                        if response.success
+                        else DeliveryStatus.FAILED
+                    )
+                ),
+                latency_ms=latency_ms,
+                event_id=event.get("event_id"),
+                retry_count=retry,
+                error_message=(
+                    response.errors[0].get("message") if response.errors else None
+                ),
+                request_id=response.request_id,
+                # SHA-256 of the match-quality identifiers actually sent, so
+                # coverage can be measured and identical identifier sets
+                # correlated, without storing any PII.
+                user_data_hash=_match_quality_hash(user_data),
+            )
+        except Exception as exc:  # noqa: BLE001 - never fail a send on logging
+            logger.error(
+                "capi_delivery_log_failed",
+                platform=self.PLATFORM_NAME,
+                error=str(exc),
+            )
 
     @abstractmethod
     async def connect(self, credentials: dict[str, str]) -> ConnectionResult:
@@ -259,55 +426,64 @@ class BaseCAPIConnector(ABC):
         Send conversion events with retry logic, circuit breaker, and rate limiting.
         """
         if not self._connected:
-            return CAPIResponse(
+            response = CAPIResponse(
                 success=False,
                 events_received=len(events),
                 events_processed=0,
                 errors=[{"message": "Not connected"}],
                 platform=self.PLATFORM_NAME,
             )
+            # A dropped event is a lost conversion, not a non-event. Returning
+            # here without a row used to make these invisible to signal health,
+            # which computes event loss as a share of *recorded* attempts - so a
+            # disconnected connector reported 0% loss.
+            await self._record_dropped(events, response, "failed")
+            return response
 
         # Check circuit breaker
         if not self._circuit_breaker.can_execute():
-            return CAPIResponse(
+            response = CAPIResponse(
                 success=False,
                 events_received=len(events),
                 events_processed=0,
                 errors=[{"message": "Circuit breaker open - service temporarily unavailable"}],
                 platform=self.PLATFORM_NAME,
             )
+            # Same reasoning, and worse in practice: with a 60s recovery
+            # timeout a sustained outage recorded five failed batches and then
+            # nothing at all, so the measured success rate recovered while the
+            # platform was still rejecting everything.
+            await self._record_dropped(events, response, "circuit_open")
+            return response
 
         # Rate limiting
         await self._rate_limiter.wait_for_token(len(events))
 
         # Retry logic with exponential backoff
         last_error = None
+        recorded_any = False
         for retry in range(self.MAX_RETRIES):
             start_time = time.time()
             try:
                 response = await self._send_events_impl(events)
 
-                # Log delivery for EMQ measurement
+                # Persist the delivery attempt. capi_delivery_logs is the one
+                # event-delivery source signal health reads, so this is what
+                # makes EMQ and event loss measurable rather than guessed.
                 latency_ms = (time.time() - start_time) * 1000
                 for event in events:
-                    log_event_delivery(
-                        EventDeliveryLog(
-                            event_id=event.get("event_id", str(uuid.uuid4())),
-                            platform=self.PLATFORM_NAME,
-                            event_name=event.get("event_name", "unknown"),
-                            timestamp=datetime.now(UTC),
-                            success=response.success,
-                            latency_ms=latency_ms,
-                            error_message=response.errors[0].get("message")
-                            if response.errors
-                            else None,
-                            request_id=response.request_id,
-                            retry_count=retry,
-                        )
-                    )
+                    await self._record_delivery(event, response, latency_ms, retry)
+                recorded_any = True
 
                 if response.success:
                     self._circuit_breaker.record_success()
+                    # Persist immediately. The logger batches, and the batch is
+                    # only flushed from inside a *later* log_delivery call, so
+                    # without this the tail of every burst sat in process memory
+                    # until more traffic arrived - or was lost on restart. That
+                    # gap read as "no CAPI events were delivered", pushing a
+                    # low-volume tenant into insufficient_data and BLOCK.
+                    await self._flush_delivery_log()
                     return response
                 else:
                     last_error = response.errors
@@ -331,13 +507,19 @@ class BaseCAPIConnector(ABC):
 
         # All retries failed
         self._circuit_breaker.record_failure()
-        return CAPIResponse(
+        # Retries that raised never reached _record_delivery, so nothing was
+        # written for them; record the exhausted attempt so the loss is visible.
+        response = CAPIResponse(
             success=False,
             events_received=len(events),
             events_processed=0,
             errors=last_error or [{"message": "Unknown error after retries"}],
             platform=self.PLATFORM_NAME,
         )
+        if not recorded_any:
+            await self._record_dropped(events, response, "failed")
+        await self._flush_delivery_log()
+        return response
 
     def format_user_data(self, user_data: dict[str, Any]) -> dict[str, Any]:
         """Format and hash user data for the platform."""
@@ -380,8 +562,9 @@ class MetaCAPIConnector(BaseCAPIConnector):
         """Graph API version, from config so one knob moves every Meta caller."""
         return settings.meta_graph_api_version
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, tenant_id: int | None = None):
+        """Initialise the Meta connector for one tenant."""
+        super().__init__(tenant_id=tenant_id)
         self.pixel_id: Optional[str] = None
         self.access_token: Optional[str] = None
 
@@ -593,8 +776,9 @@ class WhatsAppCAPIConnector(BaseCAPIConnector):
         """Graph API version, from config (WhatsApp Cloud shares Graph versioning)."""
         return settings.meta_graph_api_version
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, tenant_id: int | None = None):
+        """Initialise the WhatsApp connector for one tenant."""
+        super().__init__(tenant_id=tenant_id)
         self.phone_number_id: Optional[str] = None
         self.business_account_id: Optional[str] = None
         self.access_token: Optional[str] = None
@@ -761,9 +945,11 @@ class ConnectorHealthStatus:
     """Health status for a platform connector."""
 
     platform: str
-    status: str  # healthy, degraded, unhealthy
+    status: str  # healthy, degraded, unhealthy, unknown
     last_check: datetime
-    success_rate_1h: float
+    # None when no delivery attempts were supplied to judge: unknown, which is
+    # not the same as 100%.
+    success_rate_1h: float | None
     avg_latency_ms: float
     circuit_state: str
     error_count_1h: int
@@ -803,19 +989,30 @@ class ConnectorHealthMonitor:
         connector: BaseCAPIConnector,
         delivery_logs: Optional[list[EventDeliveryLog]] = None,
     ) -> ConnectorHealthStatus:
-        """Check health of a connector."""
+        """
+        Judge a connector from the delivery attempts the caller supplies.
+
+        Args:
+            connector: The connector whose circuit state to read.
+            delivery_logs: Delivery attempts to judge. With none supplied the
+                success rate is reported as unknown rather than as perfect.
+
+        Returns:
+            The health status, whose ``status`` may be ``unknown``.
+        """
         platform = connector.PLATFORM_NAME
         now = datetime.now(UTC)
-        hour_ago = now - timedelta(hours=1)
 
-        # Get recent delivery logs
-        if delivery_logs is None:
-            delivery_logs = get_event_delivery_logs(platform, hour_ago)
+        # Delivery attempts must be supplied by the caller. They used to be
+        # read from a process-local list here, which meant a fresh process saw
+        # none and scored a flat 100% success - "no evidence" reported as
+        # "perfect". With nothing to judge, this now reports unknown.
+        delivery_logs = list(delivery_logs) if delivery_logs is not None else []
 
         # Calculate success rate
         total = len(delivery_logs)
         successes = sum(1 for log in delivery_logs if log.success)
-        success_rate = (successes / total * 100) if total > 0 else 100.0
+        success_rate = (successes / total * 100) if total > 0 else None
 
         # Calculate average latency
         latencies = [log.latency_ms for log in delivery_logs if log.latency_ms > 0]
@@ -839,12 +1036,17 @@ class ConnectorHealthMonitor:
             issues.append("Circuit breaker is recovering")
             status = "degraded"
 
-        if success_rate < 90:
-            issues.append(f"Low success rate: {success_rate:.1f}%")
-            status = "degraded" if status != "unhealthy" else status
+        if success_rate is None:
+            issues.append("No delivery attempts to judge - health is unknown")
+            if status == "healthy":
+                status = "unknown"
+        else:
+            if success_rate < 90:
+                issues.append(f"Low success rate: {success_rate:.1f}%")
+                status = "degraded" if status != "unhealthy" else status
 
-        if success_rate < 70:
-            status = "unhealthy"
+            if success_rate < 70:
+                status = "unhealthy"
 
         if avg_latency > 5000:
             issues.append(f"High latency: {avg_latency:.0f}ms")
@@ -860,7 +1062,7 @@ class ConnectorHealthMonitor:
             platform=platform,
             status=status,
             last_check=now,
-            success_rate_1h=round(success_rate, 1),
+            success_rate_1h=round(success_rate, 1) if success_rate is not None else None,
             avg_latency_ms=round(avg_latency, 1),
             circuit_state=circuit_state,
             error_count_1h=error_count,

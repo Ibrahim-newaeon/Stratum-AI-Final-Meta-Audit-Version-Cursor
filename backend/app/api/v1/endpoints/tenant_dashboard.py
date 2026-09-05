@@ -22,10 +22,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.dashboard import build_signal_health_summary
 from app.auth.permissions import Permission, require_permissions
 from app.core.logging import get_logger
 from app.db.session import get_async_session
 from app.models import Campaign, Tenant
+from app.models.onboarding import TenantOnboarding
 from app.schemas import APIResponse
 from app.tenancy import TenantContext, require_tenant, tenant_query
 
@@ -68,9 +70,15 @@ class DashboardOverviewResponse(BaseModel):
     watch_campaigns: int = 0
     fix_candidates: int = 0
 
-    # Signal health
+    # Signal health.
+    #
+    # The default is "insufficient_data", not "healthy": this field used to
+    # default to - and be hardcoded as - "healthy" for every tenant, so a
+    # response that had measured nothing still reported good health. An unset
+    # field must never read as a passing grade for the number the product is
+    # gated on.
     avg_emq_score: Optional[float] = None
-    signal_health_status: str = "healthy"
+    signal_health_status: str = "insufficient_data"
     open_alerts_count: int = 0
 
     # Platform distribution
@@ -163,6 +171,25 @@ class TenantSettingsUpdate(BaseModel):
     notification_frequency: Optional[str] = None
 
 
+async def _tenant_onboarding(
+    db: AsyncSession, tenant_id: int
+) -> TenantOnboarding | None:
+    """
+    Load the tenant's onboarding record, which carries its trust thresholds.
+
+    Args:
+        db: Async database session.
+        tenant_id: Tenant to load for.
+
+    Returns:
+        The record, or None when the tenant has not onboarded.
+    """
+    result = await db.execute(
+        select(TenantOnboarding).where(TenantOnboarding.tenant_id == tenant_id)
+    )
+    return result.scalar_one_or_none()
+
+
 # =============================================================================
 # Dashboard Overview
 # =============================================================================
@@ -198,6 +225,8 @@ async def get_dashboard_overview(
     campaigns = result.scalars().all()
 
     if not campaigns:
+        # No campaigns means nothing measured, which the response's own
+        # defaults now say (signal_health_status="insufficient_data").
         return APIResponse(
             success=True,
             data=DashboardOverviewResponse(),
@@ -238,6 +267,14 @@ async def get_dashboard_overview(
     roas_delta_pct = 3.2
     cpa_delta_pct = -4.1
 
+    # Signal health, measured from this tenant's own persisted data. Both this
+    # status and the EMQ number used to be fixed: signal_health_status was the
+    # literal "healthy" for every tenant, next to an honest avg_emq_score=None
+    # that admitted nothing had been measured.
+    signal_health = await build_signal_health_summary(
+        db, tenant_id, await _tenant_onboarding(db, tenant_id)
+    )
+
     # Health classification (placeholder - would use scaling_score logic)
     scaling_candidates = sum(1 for c in campaigns if c.roas and c.roas >= 3.0)
     watch_campaigns = sum(1 for c in campaigns if c.roas and 1.5 <= c.roas < 3.0)
@@ -265,8 +302,8 @@ async def get_dashboard_overview(
             scaling_candidates=scaling_candidates,
             watch_campaigns=watch_campaigns,
             fix_candidates=fix_candidates,
-            avg_emq_score=None,
-            signal_health_status="healthy",
+            avg_emq_score=signal_health.emq_score,
+            signal_health_status=signal_health.status,
             open_alerts_count=0,
             platform_breakdown=platform_breakdown,
         ),

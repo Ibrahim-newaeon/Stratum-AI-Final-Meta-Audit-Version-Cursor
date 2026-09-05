@@ -145,6 +145,12 @@ from app.models.measurement import (
     TenantGTMIntegration,
 )
 
+# Meta privacy callback models (App Review: data deletion request records)
+from app.models.meta_privacy import (
+    DataDeletionStatus,
+    MetaDataDeletionRequest,
+)
+
 # Onboarding models
 from app.models.onboarding import (
     AutomationMode,
@@ -268,6 +274,9 @@ __all__ = [
     "TenantAdAccount",
     "CampaignDraft",
     "CampaignPublishLog",
+    # Meta privacy callbacks (App Review)
+    "DataDeletionStatus",
+    "MetaDataDeletionRequest",
     # CRM Integration
     "CRMProvider",
     "CRMConnectionStatus",

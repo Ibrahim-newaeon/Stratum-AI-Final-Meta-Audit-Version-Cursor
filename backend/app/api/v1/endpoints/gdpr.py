@@ -11,11 +11,11 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.core.security import anonymize_pii, decrypt_pii
+from app.core.security import decrypt_pii
 from app.db.session import get_async_session
 from app.models import (
     APIKey,
@@ -32,6 +32,7 @@ from app.schemas import (
     GDPRExportRequest,
     PaginatedResponse,
 )
+from app.services.gdpr_erasure import anonymize_user
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -233,89 +234,21 @@ async def anonymize_user_data(
             detail="Not authorized to anonymize this user's data",
         )
 
-    tables_affected = []
-    records_modified = 0
-
-    # Anonymize user record
-    anon_email = anonymize_pii("email")
-    anon_name = anonymize_pii("name")
-
-    user.email = anon_email
-    user.email_hash = f"ANON_{user.id}"
-    user.full_name = anon_name
-    user.phone = None
-    user.avatar_url = None
-    user.is_active = False
-    user.gdpr_anonymized_at = datetime.now(UTC)
-    user.preferences = {}
-
-    tables_affected.append("users")
-    records_modified += 1
-
-    # Delete notification preferences
-    await db.execute(
-        select(NotificationPreference).where(NotificationPreference.user_id == user.id)
+    result = await anonymize_user(
+        db,
+        user,
+        actor_user_id=requesting_user_id,
+        reason="gdpr_anonymize_request",
     )
-    # Actually delete
-    from sqlalchemy import delete
-
-    result = await db.execute(
-        delete(NotificationPreference).where(NotificationPreference.user_id == user.id)
-    )
-    if result.rowcount > 0:
-        tables_affected.append("notification_preferences")
-        records_modified += result.rowcount
-
-    # Delete API keys
-    result = await db.execute(delete(APIKey).where(APIKey.user_id == user.id))
-    if result.rowcount > 0:
-        tables_affected.append("api_keys")
-        records_modified += result.rowcount
-
-    # Anonymize audit logs (keep structure, remove PII)
-    result = await db.execute(
-        update(AuditLog)
-        .where(AuditLog.user_id == user.id)
-        .values(
-            ip_address=None,
-            user_agent=None,
-        )
-    )
-    if result.rowcount > 0:
-        tables_affected.append("audit_logs")
-        records_modified += result.rowcount
-
-    # Create audit log for the anonymization
-    anonymization_log = AuditLog(
-        tenant_id=tenant_id,
-        user_id=requesting_user_id,
-        action=AuditAction.ANONYMIZE,
-        resource_type="user",
-        resource_id=str(user.id),
-        new_value={
-            "tables_affected": tables_affected,
-            "records_modified": records_modified,
-        },
-    )
-    db.add(anonymization_log)
-
     await db.commit()
-
-    logger.info(
-        "gdpr_user_anonymized",
-        user_id=user.id,
-        requested_by=requesting_user_id,
-        tables_affected=tables_affected,
-        records_modified=records_modified,
-    )
 
     return APIResponse(
         success=True,
         data=GDPRAnonymizeResponse(
             user_id=user.id,
             anonymized_at=user.gdpr_anonymized_at,
-            tables_affected=tables_affected,
-            records_modified=records_modified,
+            tables_affected=result.tables_affected,
+            records_modified=result.records_modified,
         ),
         message="User data has been anonymized",
     )

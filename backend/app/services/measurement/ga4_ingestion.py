@@ -15,7 +15,7 @@ GA4 sessions came from Facebook / Instagram / WhatsApp.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -351,40 +351,6 @@ async def upsert_fact_rows(db: AsyncSession, values: list[dict[str, Any]]) -> in
     return written
 
 
-def _record_emq_baseline(values: list[dict[str, Any]]) -> None:
-    """Feed Meta rows into the in-process EMQ diagnostics (best effort)."""
-    try:
-        from app.services.emq_measurement_service import (
-            GA4ConversionData,
-            real_emq_service,
-        )
-    except Exception:  # noqa: BLE001 - pragma: no cover - defensive
-        return
-
-    totals: dict[tuple[str, date], dict[str, float]] = {}
-    for value in values:
-        if not value.get("is_meta_traffic"):
-            continue
-        platform = value.get("meta_channel") or "meta"
-        key = (platform, value["date"])
-        agg = totals.setdefault(key, {"conversions": 0, "revenue": 0.0})
-        agg["conversions"] += int(value.get("conversions") or 0)
-        agg["revenue"] += float(value.get("revenue") or 0.0)
-
-    for (platform, day), agg in totals.items():
-        try:
-            real_emq_service.record_ga4_data(
-                GA4ConversionData(
-                    platform=platform,
-                    conversions=int(agg["conversions"]),
-                    revenue=float(agg["revenue"]),
-                    date=datetime.combine(day, time.min, tzinfo=UTC),
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - pragma: no cover - never fail the sync
-            logger.debug("ga4_emq_record_failed", platform=platform, error=str(exc))
-
-
 async def sync_ga4_for_tenant(
     db: AsyncSession,
     tenant_id: int,
@@ -472,7 +438,6 @@ async def sync_ga4_for_tenant(
             message=f"Failed to store GA4 rows: {exc}",
         )
 
-    _record_emq_baseline(values)
 
     logger.info(
         "ga4_sync_complete",

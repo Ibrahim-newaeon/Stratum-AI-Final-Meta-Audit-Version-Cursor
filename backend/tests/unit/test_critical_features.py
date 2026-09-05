@@ -182,31 +182,207 @@ class TestRateLimiter:
         assert rl.acquire(1) == False
 
 
-class TestEventDeliveryLog:
-    """Tests for event delivery logging."""
+class TestCAPIDeliveryPersistence:
+    """
+    CAPI delivery attempts must be persisted, and attributed to a tenant.
 
-    def test_log_event_delivery(self):
-        """Should log event delivery for EMQ measurement."""
+    They used to be appended to a module-level ``_event_delivery_logs`` list in
+    platform_connectors: capped at 10000 entries, lost on restart, invisible to
+    any other process, and not scoped by tenant at all. Signal health and EMQ
+    were computed from it, which is why they were computed from nothing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delivery_is_recorded_against_the_tenant(self, monkeypatch):
+        """A delivery attempt is written to capi_delivery_logs for its tenant."""
+        from app.services.capi import delivery_logger as delivery_logger_module
         from app.services.capi.platform_connectors import (
-            EventDeliveryLog,
-            get_event_delivery_logs,
-            log_event_delivery,
+            CAPIResponse,
+            MetaCAPIConnector,
         )
 
-        log = EventDeliveryLog(
-            event_id="test_event_123",
-            platform="meta",
-            event_name="Purchase",
-            timestamp=datetime.now(UTC),
+        recorded: list[dict] = []
+
+        class _RecordingLogger:
+            async def log_delivery(self, **kwargs):
+                recorded.append(kwargs)
+
+        monkeypatch.setattr(
+            delivery_logger_module, "get_delivery_logger", lambda: _RecordingLogger()
+        )
+
+        connector = MetaCAPIConnector(tenant_id=42)
+        response = CAPIResponse(
             success=True,
-            latency_ms=150.0,
+            events_received=1,
+            events_processed=1,
+            errors=[],
+            platform="meta",
+            request_id="req_1",
+        )
+        await connector._record_delivery(
+            {"event_id": "evt_1", "event_name": "Purchase", "user_data": {"em": "hash"}},
+            response,
+            latency_ms=120.0,
+            retry=0,
         )
 
-        log_event_delivery(log)
+        assert len(recorded) == 1
+        assert recorded[0]["tenant_id"] == 42
+        assert recorded[0]["platform"] == "meta"
+        assert recorded[0]["event_id"] == "evt_1"
+        # Identifiers are recorded as a hash so match quality is measurable
+        # without any PII reaching the table.
+        assert recorded[0]["user_data_hash"] is not None
+        assert "em" not in str(recorded[0]["user_data_hash"])
 
-        logs = get_event_delivery_logs(platform="meta")
-        assert len(logs) > 0
-        assert any(log.event_id == "test_event_123" for log in logs)
+    @pytest.mark.asyncio
+    async def test_delivery_without_a_tenant_is_not_recorded(self, monkeypatch):
+        """An unattributable delivery is dropped, never filed under a guess."""
+        from app.services.capi import delivery_logger as delivery_logger_module
+        from app.services.capi.platform_connectors import (
+            CAPIResponse,
+            MetaCAPIConnector,
+        )
+
+        recorded: list[dict] = []
+
+        class _RecordingLogger:
+            async def log_delivery(self, **kwargs):
+                recorded.append(kwargs)
+
+        monkeypatch.setattr(
+            delivery_logger_module, "get_delivery_logger", lambda: _RecordingLogger()
+        )
+
+        connector = MetaCAPIConnector()
+        await connector._record_delivery(
+            {"event_id": "evt_1", "event_name": "Purchase"},
+            CAPIResponse(
+                success=True,
+                events_received=1,
+                events_processed=1,
+                errors=[],
+                platform="meta",
+            ),
+            latency_ms=10.0,
+            retry=0,
+        )
+
+        assert recorded == []
+
+    @pytest.mark.asyncio
+    async def test_events_dropped_before_a_send_are_still_recorded(self, monkeypatch):
+        """
+        A dropped event is a recorded failure, not a gap in the evidence.
+
+        ``send_events`` returned early when the connector was disconnected or
+        the circuit breaker was open, without reaching ``_record_delivery``.
+        Signal health computes event loss as a share of *recorded* attempts, so
+        those drops were invisible: with a 60s recovery timeout a sustained
+        outage recorded five failed batches and then nothing at all, and the
+        measured success rate recovered while the platform was still refusing
+        everything.
+        """
+        from app.services.capi import delivery_logger as delivery_logger_module
+        from app.services.capi.platform_connectors import MetaCAPIConnector
+
+        recorded: list[dict] = []
+        flushed: list[int] = []
+
+        class _RecordingLogger:
+            async def log_delivery(self, **kwargs):
+                recorded.append(kwargs)
+
+            async def flush(self):
+                flushed.append(len(recorded))
+
+        monkeypatch.setattr(
+            delivery_logger_module, "get_delivery_logger", lambda: _RecordingLogger()
+        )
+
+        events = [{"event_id": "a", "event_name": "Purchase"}, {"event_id": "b"}]
+
+        # 1. Not connected.
+        connector = MetaCAPIConnector(tenant_id=7)
+        response = await connector.send_events(events)
+        assert response.success is False
+        assert [entry["status"].value for entry in recorded] == ["failed", "failed"]
+
+        # 2. Circuit breaker open.
+        recorded.clear()
+        connector._connected = True
+        for _ in range(connector._circuit_breaker.failure_threshold):
+            connector._circuit_breaker.record_failure()
+
+        response = await connector.send_events(events)
+        assert response.success is False
+        assert [entry["status"].value for entry in recorded] == [
+            "circuit_open",
+            "circuit_open",
+        ]
+        # Recorded rows are persisted at the end of the send, not left in a
+        # buffer that only flushes from inside a later log_delivery call.
+        assert flushed
+
+    def test_only_match_quality_identifiers_count_as_identified(self):
+        """
+        ``user_data_hash`` reflects real identifiers, and hashes their values.
+
+        It used to hash the field *names* - ``sha256("em|ph")`` - so every event
+        with the same key set produced a byte-identical digest that correlated
+        nothing, under a comment claiming it hashed the identifiers. It was also
+        non-null for any non-empty ``user_data``, including the IP/user-agent
+        pair the landing-page path sends on every event, so a tenant sending no
+        email, phone or external id scored 100% identifier coverage - 30% of the
+        EMQ component.
+        """
+        from app.services.capi.platform_connectors import _match_quality_hash
+
+        assert _match_quality_hash(None) is None
+        assert _match_quality_hash({}) is None
+        assert (
+            _match_quality_hash(
+                {"client_ip_address": "1.2.3.4", "client_user_agent": "Mozilla"}
+            )
+            is None
+        )
+
+        one = _match_quality_hash({"em": "a@example.com"})
+        two = _match_quality_hash({"em": "b@example.com"})
+        assert one is not None and two is not None
+        # Different identifiers hash differently: the digest is of the values,
+        # not of the key set.
+        assert one != two
+        # And no PII survives into the column.
+        assert "example.com" not in one
+
+    def test_delivery_logger_buffers_per_instance(self):
+        """
+        The buffer is per-instance, not shared by every DeliveryLogger.
+
+        ``_buffer`` and ``_last_flush`` were class attributes, so two loggers
+        shared one list - harmless for the module singleton, a silent
+        cross-instance leak for anyone who constructed a second one.
+        """
+        from app.services.capi.delivery_logger import DeliveryLogger
+
+        first, second = DeliveryLogger(), DeliveryLogger()
+        first._buffer.append(object())
+
+        assert second._buffer == []
+
+    def test_connector_health_is_unknown_without_delivery_attempts(self):
+        """No delivery attempts to judge means unknown, not 100% healthy."""
+        from app.services.capi.platform_connectors import (
+            ConnectorHealthMonitor,
+            MetaCAPIConnector,
+        )
+
+        health = ConnectorHealthMonitor().check_health(MetaCAPIConnector())
+
+        assert health.status == "unknown"
+        assert health.success_rate_1h is None
 
 
 class TestMetaCAPIConnector:
@@ -404,102 +580,6 @@ class TestRetrainingPipeline:
 
 
 # =============================================================================
-# 4. Real EMQ Measurement Tests
-# =============================================================================
-
-
-class TestRealEMQMeasurement:
-    """Tests for real EMQ measurement service."""
-
-    def test_record_pixel_event(self):
-        """Should record pixel events for matching."""
-        from app.services.emq_measurement_service import (
-            PixelEvent,
-            _pixel_events,
-            record_pixel_event,
-        )
-
-        event = PixelEvent(
-            event_id="pixel_test_123",
-            platform="meta",
-            event_name="Purchase",
-            timestamp=datetime.now(UTC),
-        )
-
-        initial_count = len(_pixel_events)
-        record_pixel_event(event)
-
-        assert len(_pixel_events) > initial_count
-
-    def test_real_emq_metrics_calculation(self):
-        """Should calculate real EMQ metrics from data."""
-        from app.services.emq_measurement_service import (
-            PixelEvent,
-            calculate_real_emq_metrics,
-            record_pixel_event,
-        )
-
-        # Record some test events
-        for i in range(5):
-            record_pixel_event(
-                PixelEvent(
-                    event_id=f"test_pixel_{i}",
-                    platform="meta",
-                    event_name="Purchase",
-                    timestamp=datetime.now(UTC),
-                )
-            )
-
-        metrics = calculate_real_emq_metrics("meta", period_hours=1)
-
-        assert metrics.platform == "meta"
-        assert metrics.pixel_events_count >= 0
-
-    def test_convert_real_to_platform_metrics(self):
-        """Should convert real metrics to PlatformMetrics format."""
-        from app.services.emq_measurement_service import (
-            RealEMQMetrics,
-            convert_real_to_platform_metrics,
-        )
-
-        real = RealEMQMetrics(
-            platform="meta",
-            period_start=datetime.now(UTC) - timedelta(hours=24),
-            period_end=datetime.now(UTC),
-            pixel_events_count=1000,
-            capi_events_count=950,
-            matched_events_count=900,
-            match_rate=90.0,
-            avg_capi_latency_ms=200,
-            capi_success_count=950,
-            capi_failure_count=50,
-            capi_delivery_rate=95.0,
-        )
-
-        platform_metrics = convert_real_to_platform_metrics(real)
-
-        assert platform_metrics.platform == "meta"
-        assert platform_metrics.pixel_events == 1000
-        assert platform_metrics.capi_events == 950
-        assert platform_metrics.matched_events == 900
-
-    def test_real_emq_service_caching(self):
-        """Should cache EMQ results."""
-        from app.services.emq_measurement_service import RealEMQService
-
-        service = RealEMQService()
-
-        # First call
-        result1 = service.get_platform_emq("meta", period_hours=24)
-
-        # Second call should use cache
-        result2 = service.get_platform_emq("meta", period_hours=24)
-
-        # Same object from cache
-        assert result1.calculated_at == result2.calculated_at
-
-
-# =============================================================================
 # 5. Offline Conversion Upload Tests
 # =============================================================================
 
@@ -604,48 +684,6 @@ test@example.com,,99.99
 
 class TestCriticalFeaturesIntegration:
     """Integration tests for critical features."""
-
-    def test_emq_measurement_with_capi_logs(self):
-        """EMQ measurement should use CAPI delivery logs."""
-        from app.services.capi.platform_connectors import (
-            EventDeliveryLog,
-            log_event_delivery,
-        )
-        from app.services.emq_measurement_service import (
-            PixelEvent,
-            calculate_real_emq_metrics,
-            record_pixel_event,
-        )
-
-        # Simulate CAPI events
-        for i in range(10):
-            log_event_delivery(
-                EventDeliveryLog(
-                    event_id=f"integration_test_{i}",
-                    platform="whatsapp",
-                    event_name="Purchase",
-                    timestamp=datetime.now(UTC),
-                    success=i < 9,  # 90% success rate
-                    latency_ms=100 + i * 10,
-                )
-            )
-
-        # Simulate pixel events
-        for i in range(10):
-            record_pixel_event(
-                PixelEvent(
-                    event_id=f"integration_test_{i}",
-                    platform="whatsapp",
-                    event_name="Purchase",
-                    timestamp=datetime.now(UTC),
-                )
-            )
-
-        # Calculate EMQ
-        metrics = calculate_real_emq_metrics("whatsapp", period_hours=1)
-
-        assert metrics.capi_events_count >= 10
-        assert metrics.capi_delivery_rate >= 80  # At least 80%
 
     def test_ml_training_end_to_end(self, sample_training_data):
         """End-to-end ML training test."""

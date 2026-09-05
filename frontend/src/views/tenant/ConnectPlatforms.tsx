@@ -67,20 +67,12 @@ const platforms: PlatformConnection[] = [
   },
 ];
 
-// Connection health based on signal reliability
-type ConnectionHealth = 'healthy' | 'degraded' | 'unhealthy';
-const platformHealthMock: Record<string, { health: ConnectionHealth; emqScore: number; lastSync: string; dataVolume: string }> = {
-  meta: { health: 'healthy', emqScore: 92, lastSync: '2 min ago', dataVolume: '12.4k events/day' },
-  facebook: { health: 'healthy', emqScore: 88, lastSync: '5 min ago', dataVolume: '8.2k events/day' },
-  instagram: { health: 'degraded', emqScore: 0, lastSync: 'Never', dataVolume: '0 events' },
-  whatsapp: { health: 'unhealthy', emqScore: 0, lastSync: 'Never', dataVolume: '0 events' },
-};
-
-const healthDotColor: Record<ConnectionHealth, string> = {
-  healthy: 'bg-green-500',
-  degraded: 'bg-amber-500',
-  unhealthy: 'bg-gray-500',
-};
+// Connection health used to be a per-platform mock here - meta "healthy" with
+// "EMQ 92%", a "2 min ago" last sync and "12.4k events/day" - shown for any
+// connected platform regardless of what that account had actually done. Signal
+// health is measured per tenant by the trust engine and surfaced on the
+// dashboard; this view reports connection state only, and does not restate a
+// health it has not measured.
 
 const statusConfig = {
   connected: {
@@ -264,18 +256,6 @@ export default function ConnectPlatforms() {
                     </div>
                   </div>
                 </div>
-                {/* Health indicator */}
-                {platform.status === 'connected' && platformHealthMock[platform.id] && (
-                  <div className="flex items-center gap-2">
-                    <span className={cn('h-2.5 w-2.5 rounded-full', healthDotColor[platformHealthMock[platform.id].health])} />
-                    <span className="text-xs text-muted-foreground capitalize">{platformHealthMock[platform.id].health}</span>
-                    {platformHealthMock[platform.id].emqScore > 0 && (
-                      <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                        EMQ {platformHealthMock[platform.id].emqScore}%
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Connection details */}
@@ -293,18 +273,6 @@ export default function ConnectPlatforms() {
                     <span className="text-muted-foreground">Token Expires</span>
                     <span className="font-medium">{platform.expiresAt}</span>
                   </div>
-                  {platformHealthMock[platform.id] && (
-                    <>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Last Sync</span>
-                        <span className="font-medium">{platformHealthMock[platform.id].lastSync}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Data Volume</span>
-                        <span className="font-medium">{platformHealthMock[platform.id].dataVolume}</span>
-                      </div>
-                    </>
-                  )}
                 </div>
               )}
 
