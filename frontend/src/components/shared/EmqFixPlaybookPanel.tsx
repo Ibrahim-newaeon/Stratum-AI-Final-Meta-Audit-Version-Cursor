@@ -98,6 +98,11 @@ export function EmqFixPlaybookPanel({
 
       {/* Items */}
       <div className="divide-y divide-white/5">
+        {items.length === 0 && (
+          <p className="p-4 text-sm text-text-muted">
+            No fixes have been derived for this tenant.
+          </p>
+        )}
         {displayItems.map((item, index) => {
           const priority = priorityConfig[item.priority];
           const isCompleted = item.status === 'completed';

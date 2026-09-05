@@ -17,7 +17,8 @@ import {
 
 interface ActionsPanelProps {
   actions: Action[];
-  autopilotMode?: AutopilotMode;
+  /** Null means the mode is unknown, which holds actions rather than allowing them. */
+  autopilotMode?: AutopilotMode | null;
   onApply?: (action: Action) => void;
   onDismiss?: (action: Action) => void;
   onQueue?: (action: Action) => void;
@@ -34,7 +35,10 @@ const filterTabs: { type: ActionType | 'all'; label: string; icon: typeof Sparkl
   { type: 'fix', label: 'Fixes', icon: WrenchScrewdriverIcon },
 ];
 
-function getAutopilotRestrictionMessage(mode: AutopilotMode): string | null {
+function getAutopilotRestrictionMessage(mode: AutopilotMode | null): string | null {
+  if (mode === null) {
+    return 'Autopilot mode is not measured. Actions are held until signal health is known.';
+  }
   switch (mode) {
     case 'limited':
       return 'Scaling capped at +10%. Some actions may be restricted.';
@@ -49,7 +53,7 @@ function getAutopilotRestrictionMessage(mode: AutopilotMode): string | null {
 
 export function ActionsPanel({
   actions,
-  autopilotMode = 'normal',
+  autopilotMode = null,
   onApply,
   onDismiss,
   onQueue,
@@ -66,7 +70,10 @@ export function ActionsPanel({
   const displayActions = pendingActions.slice(0, maxActions);
 
   const restrictionMessage = getAutopilotRestrictionMessage(autopilotMode);
-  const isActionsDisabled = autopilotMode === 'frozen';
+  // Fail closed: an unmeasured mode is not permission to act. This defaulted
+  // to 'normal', so a tenant whose autopilot state could not be read was
+  // offered every action as if full automation had been cleared.
+  const isActionsDisabled = autopilotMode === 'frozen' || autopilotMode === null;
 
   // Count by type
   const countByType = actions.reduce(
@@ -108,7 +115,9 @@ export function ActionsPanel({
           <div
             className={cn(
               'flex items-center gap-2 mt-3 p-2 rounded-lg text-sm',
-              autopilotMode === 'frozen' ? 'bg-danger/10 text-danger' : 'bg-warning/10 text-warning'
+              autopilotMode === 'frozen' || autopilotMode === null
+                ? 'bg-danger/10 text-danger'
+                : 'bg-warning/10 text-warning'
             )}
           >
             <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0" />

@@ -952,6 +952,26 @@ def _tsx_code_only(relative_path: str) -> str:
     return re.sub(r"^\s*//.*$", "", source, flags=re.MULTILINE)
 
 
+def _tsx_dense(relative_path: str) -> str:
+    """
+    Return a TSX file's comment-free source with all whitespace removed.
+
+    The fabrications this pins are literals rather than identifiers - ``?? 65``,
+    ``value: 120000``, ``svi={35}`` - and Prettier is free to rewrap any of them
+    across lines. Collapsing whitespace makes the guards insensitive to that,
+    the same way :func:`_code_only` joins Python tokens without separators.
+
+    Args:
+        relative_path: Path relative to the repository root.
+
+    Returns:
+        The comment-free source with every whitespace character removed.
+    """
+    import re
+
+    return re.sub(r"\s+", "", _tsx_code_only(relative_path))
+
+
 def _thresholds(healthy: float = 70.0, degraded: float = 40.0):
     """Build an explicit threshold pair."""
     from app.services.signal_health import SignalHealthThresholds
@@ -1237,6 +1257,82 @@ def test_no_frontend_view_invents_an_emq_score():
 
     connect = _tsx_code_only("frontend/src/views/tenant/ConnectPlatforms.tsx")
     assert "platformHealthMock" not in connect
+
+
+def test_no_tenant_detail_view_invents_a_metric_beside_the_real_name():
+    """
+    The two per-tenant detail views no longer pad real identity with literals.
+
+    Both built their view model from hardcoded literals used as ``??``
+    fallbacks. Once ``useTenant()`` resolved, the tenant's *real* name and plan
+    rendered directly beside invented data, which reads worse than a uniformly
+    fake page: the account manager's client-facing narrative showed a primary
+    contact "Jennifer Smith / jennifer@fashionforward.com", a last contact and
+    a renewal date, EMQ 65, $12,000 budget at risk, $120,000 spend, $336,000
+    revenue, 2.80x ROAS, $42 CPA and a recovery strip (+8pts EMQ, -15% ROAS,
+    +18hrs MTTR, +5 blocked actions) - and exported all of it into the report
+    handed to the client. The superadmin profile showed an account manager
+    "Sarah Johnson", "Customer Since Jan 2024", EMQ 72, $8,500 budget at risk,
+    $120,000 spend, 8 active users and 99.2% data uptime.
+
+    The contract is the one ``feat/real-signal-health`` established: a metric
+    with no source stays ``null`` and renders as a dash or "not measured".
+    An account manager, a primary contact and a "customer since" date have no
+    source at all, so they are dropped rather than filled.
+    """
+    narrative = _tsx_dense("frontend/src/views/am/TenantNarrative.tsx")
+
+    # The invented human beings and the dates attached to them.
+    assert "JenniferSmith" not in narrative
+    assert "jennifer@fashionforward.com" not in narrative
+    assert "FashionForward" not in narrative
+    assert "lastContact" not in narrative
+    assert "renewalDate" not in narrative
+    assert "primaryContact" not in narrative
+
+    # The invented trust status. `industry` was read through a cast that could
+    # never succeed, so it always resolved to the literal 'Retail'.
+    assert "??65" not in narrative
+    assert "??12000" not in narrative
+    assert "??78" not in narrative
+    assert "industry?:string" not in narrative
+
+    # The invented performance and recovery numbers.
+    assert "120000" not in narrative
+    assert "336000" not in narrative
+    assert "recoveryMetrics" not in narrative
+    assert "blockedActions" not in narrative
+    assert "svi={35}" not in narrative
+
+    # What replaced them: the API's value, or null.
+    assert "emqData?.score??null" in narrative
+    assert "autopilotData?.budgetAtRisk??null" in narrative
+
+    profile = _tsx_dense("frontend/src/views/superadmin/TenantProfile.tsx")
+
+    assert "SarahJohnson" not in profile
+    assert "accountManager" not in profile
+    assert "FashionForward" not in profile
+    assert "2024-01-15" not in profile
+
+    assert "??72" not in profile
+    assert "??8500" not in profile
+    assert "??78" not in profile
+    assert "??'Pro'" not in profile
+
+    assert "120000" not in profile
+    assert "99.2" not in profile
+    assert "svi={32}" not in profile
+
+    assert "emqData?.score??null" in profile
+    assert "autopilotData?.budgetAtRisk??null" in profile
+
+    # The EMQ breakdown both views render came from the card's own default
+    # table - Freshness 95 / Data Loss 88 / Variance 72 / Errors 98 - so a
+    # tenant whose drivers had never been computed saw that as their own.
+    card = _tsx_dense("frontend/src/components/shared/EmqScoreCard.tsx")
+    assert "defaultDrivers" not in card
+    assert "score:number|null" in card
 
 
 def test_no_endpoint_still_hardcodes_a_healthy_signal():

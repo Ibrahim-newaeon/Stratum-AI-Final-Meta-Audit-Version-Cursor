@@ -1,6 +1,11 @@
 /**
  * KPI Strip
  * Displays a row of KPIs with confidence stamps
+ *
+ * `value`, `previousValue` and `confidence` are nullable and null means "not
+ * measured". A KPI with no source renders as a dash: a `0` here would read as
+ * a real, terrible reading, and a fabricated `previousValue` would invent a
+ * trend arrow on top of it.
  */
 
 import { cn } from '@/lib/utils';
@@ -10,10 +15,10 @@ import { ArrowDownIcon, ArrowUpIcon, MinusIcon } from '@heroicons/react/24/solid
 export interface Kpi {
   id: string;
   label: string;
-  value: number | string;
+  value: number | string | null;
   format?: 'currency' | 'percentage' | 'number' | 'multiplier' | 'raw';
-  previousValue?: number;
-  confidence?: number; // 0-100
+  previousValue?: number | null;
+  confidence?: number | null; // 0-100
   trend?: 'up' | 'down' | 'flat';
   trendIsPositive?: boolean; // If false, "up" trend is bad (e.g., CPA going up)
   unit?: string;
@@ -22,15 +27,16 @@ export interface Kpi {
 
 interface KpiStripProps {
   kpis: Kpi[];
-  emqScore?: number; // Overall EMQ score for stamp
+  emqScore?: number | null; // Overall EMQ score for stamp
   showConfidence?: boolean;
   compact?: boolean;
   className?: string;
 }
 
 function formatValue(kpi: Kpi): string {
-  const value = typeof kpi.value === 'string' ? kpi.value : kpi.value;
+  const value = kpi.value;
 
+  if (value === null) return '\u2014';
   if (typeof value === 'string') return value;
 
   switch (kpi.format) {
@@ -70,7 +76,7 @@ function KpiItem({
   compact: boolean;
 }) {
   const change =
-    kpi.previousValue !== undefined && typeof kpi.value === 'number'
+    kpi.previousValue !== undefined && kpi.previousValue !== null && typeof kpi.value === 'number'
       ? calculateChange(kpi.value, kpi.previousValue)
       : null;
 
@@ -86,17 +92,25 @@ function KpiItem({
       {/* Label with confidence */}
       <div className="flex items-center gap-1.5">
         <span className={cn('text-text-muted', compact ? 'text-xs' : 'text-sm')}>{kpi.label}</span>
-        {showConfidence && kpi.confidence !== undefined && (
+        {showConfidence && kpi.confidence !== undefined && kpi.confidence !== null && (
           <ConfidenceBandBadge score={kpi.confidence} size="sm" showLabel={false} />
         )}
       </div>
 
       {/* Value */}
       <div className="flex items-baseline gap-2">
-        <span className={cn('font-semibold text-white', compact ? 'text-lg' : 'text-2xl')}>
+        <span
+          className={cn(
+            'font-semibold',
+            kpi.value === null ? 'text-text-muted' : 'text-white',
+            compact ? 'text-lg' : 'text-2xl'
+          )}
+        >
           {formatValue(kpi)}
         </span>
-        {kpi.unit && <span className="text-sm text-text-muted">{kpi.unit}</span>}
+        {kpi.unit && kpi.value !== null && (
+          <span className="text-sm text-text-muted">{kpi.unit}</span>
+        )}
       </div>
 
       {/* Trend */}
@@ -124,12 +138,13 @@ export function KpiStrip({
   compact = false,
   className,
 }: KpiStripProps) {
-  const band = emqScore !== undefined ? getConfidenceBand(emqScore) : null;
+  const stampScore = emqScore ?? null;
+  const band = stampScore !== null ? getConfidenceBand(stampScore) : null;
 
   return (
     <div className={cn('rounded-xl bg-surface-secondary border border-white/10', className)}>
       {/* Header with EMQ stamp */}
-      {band && (
+      {band !== null && stampScore !== null && (
         <div
           className={cn(
             'flex items-center justify-between px-4 py-2 border-b border-white/10',
@@ -152,7 +167,7 @@ export function KpiStrip({
                 ? 'Directional metrics'
                 : 'Low confidence metrics'}
           </span>
-          <ConfidenceBandBadge score={emqScore!} size="sm" />
+          <ConfidenceBandBadge score={stampScore} size="sm" />
         </div>
       )}
 

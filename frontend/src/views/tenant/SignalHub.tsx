@@ -80,8 +80,9 @@ export default function SignalHub() {
     dateRange.end
   );
 
-  const emqScore = emqData?.score ?? 85;
-  const svi = volatilityData?.svi ?? 25;
+  // Null means "not measured" rather than a healthy 85 and a calm SVI of 25.
+  const emqScore = emqData?.score ?? null;
+  const svi = volatilityData?.svi ?? null;
 
   // Sample platform signals
   const platformSignals: PlatformSignal[] = [
@@ -388,7 +389,8 @@ export default function SignalHub() {
           <div data-tour="emq-drivers">
             <EmqScoreCard
               score={emqScore}
-              previousScore={emqData?.previousScore ?? 82}
+              previousScore={emqData?.previousScore ?? null}
+              drivers={emqData?.drivers}
               showDrivers
             />
           </div>

@@ -3,6 +3,20 @@
  *
  * Detailed health profile for a specific tenant
  * Shows EMQ history, incidents, actions, and allows admin controls
+ *
+ * Every number on this page used to be a hardcoded literal used as a `??`
+ * fallback, so a named tenant was shown an invented account manager
+ * ("Sarah Johnson"), an invented "Customer Since Jan 2024", an invented EMQ of
+ * 72, an invented $8,500 budget at risk, an invented $120,000 monthly spend /
+ * 8 active users / 99.2% data uptime, an invented three-platform connector list
+ * and - via `EmqScoreCard`'s `defaultDrivers` - an invented EMQ breakdown of
+ * Freshness 95 / Data Loss 88 / Variance 72 / Errors 98, all beside the
+ * tenant's real name and plan.
+ *
+ * The contract, matching `feat/real-signal-health` and Portfolio.tsx: a metric
+ * with no source stays null and renders as a dash or "not measured". There is
+ * no source at all for an account manager, a connector list or a
+ * "customer since" date, so those are gone rather than filled.
  */
 
 import { useState } from 'react';
@@ -32,8 +46,6 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   ArrowLeftIcon,
   ArrowPathIcon,
-  BuildingOfficeIcon,
-  CalendarIcon,
   CheckCircleIcon,
   ClockIcon,
   Cog6ToothIcon,
@@ -168,26 +180,21 @@ export default function TenantProfile() {
   const updateAutopilotModeMutation = useUpdateAutopilotMode(tid);
   const suspendTenantMutation = useSuspendTenant();
 
-  const emqScore = emqData?.score ?? 72;
-  const autopilotMode: AutopilotMode = autopilotData?.mode ?? 'limited';
-  const budgetAtRisk = autopilotData?.budgetAtRisk ?? 8500;
+  // Null means "not measured". A fallback score here would be graded by the
+  // trust gate's own bands and rendered as this tenant's data quality.
+  const emqScore = emqData?.score ?? null;
+  const previousEmqScore = emqData?.previousScore ?? null;
+  const autopilotMode: AutopilotMode | null = autopilotData?.mode ?? null;
+  const budgetAtRisk = autopilotData?.budgetAtRisk ?? null;
 
-  // Sample tenant details
-  const tenant = {
-    id: tenantId,
-    name: tenantData?.name ?? 'Fashion Forward',
-    industry: 'Retail', // Industry not in API, using default
-    plan: tenantData?.plan ?? 'Pro',
-    accountManager: 'Sarah Johnson',
-    createdAt: new Date('2024-01-15'),
-    platforms: ['Facebook', 'Instagram', 'WhatsApp'],
-    users: 8,
-    monthlySpend: 120000,
-    mrr: 499,
-    status: 'active' as const,
-    features: localFeatures,
-    restrictions: [] as string[],
-  };
+  // Tenant identity and the fields the API actually carries. Anything absent
+  // stays null and renders as a dash rather than a plausible placeholder.
+  const tenantName = tenantData?.name ?? null;
+  const plan = tenantData?.plan ?? null;
+  const status = tenantData?.status ?? null;
+  const monthlySpend = tenantData?.monthlySpend ?? null;
+  const userCount = tenantData?.userCount ?? null;
+  const restrictions: string[] = [];
 
   // Close confirmation dialog
   const closeConfirmDialog = () => {
@@ -224,7 +231,9 @@ export default function TenantProfile() {
     setConfirmDialog({
       isOpen: true,
       title: 'Override Autopilot Mode?',
-      message: `Are you sure you want to change the autopilot mode from "${autopilotMode.replace('_', ' ')}" to "${newMode.replace('_', ' ')}"? This will override the automated mode selection.`,
+      message: `Are you sure you want to change the autopilot mode from "${
+        autopilotMode?.replace('_', ' ') ?? 'not measured'
+      }" to "${newMode.replace('_', ' ')}"? This will override the automated mode selection.`,
       confirmLabel: 'Override Mode',
       confirmVariant: 'warning',
       onConfirm: async () => {
@@ -237,7 +246,7 @@ export default function TenantProfile() {
             title: 'Mode Updated',
             description: `Autopilot mode has been changed to ${newMode.replace('_', ' ')}.`,
           });
-          refetchAutopilot();
+          void refetchAutopilot();
         } catch (error) {
           toast({
             title: 'Error',
@@ -255,7 +264,7 @@ export default function TenantProfile() {
     setConfirmDialog({
       isOpen: true,
       title: 'Suspend Tenant?',
-      message: `Are you sure you want to suspend "${tenant.name}"? This will temporarily disable all access and automation for this tenant.`,
+      message: `Are you sure you want to suspend "${tenantName ?? `tenant ${tid}`}"? This will temporarily disable all access and automation for this tenant.`,
       confirmLabel: 'Suspend Tenant',
       confirmVariant: 'danger',
       onConfirm: async () => {
@@ -266,7 +275,7 @@ export default function TenantProfile() {
           });
           toast({
             title: 'Tenant Suspended',
-            description: `${tenant.name} has been suspended.`,
+            description: `${tenantName ?? `Tenant ${tid}`} has been suspended.`,
           });
         } catch (error) {
           toast({
@@ -297,108 +306,42 @@ export default function TenantProfile() {
     }
   };
 
+  // MRR and data uptime have no source this view can read, so they stay null.
+  // No `previousValue` is supplied for any KPI: the prior-period figures were
+  // literals too, and they drove the trend arrows.
   const kpis: Kpi[] = [
     {
       id: 'spend',
       label: 'Monthly Spend',
-      value: tenant.monthlySpend,
+      value: monthlySpend,
       format: 'currency',
-      previousValue: 115000,
       confidence: emqScore,
     },
-    {
-      id: 'mrr',
-      label: 'MRR',
-      value: tenant.mrr,
-      format: 'currency',
-      previousValue: 499,
-      confidence: 100,
-    },
-    {
-      id: 'users',
-      label: 'Active Users',
-      value: tenant.users,
-      format: 'number',
-      previousValue: 7,
-      confidence: 100,
-    },
+    { id: 'mrr', label: 'MRR', value: null, format: 'currency' },
+    { id: 'users', label: 'Active Users', value: userCount, format: 'number' },
     {
       id: 'uptime',
       label: 'Data Uptime',
-      value: 99.2,
+      value: null,
       format: 'percentage',
-      previousValue: 98.5,
       confidence: emqScore,
     },
   ];
 
-  const playbook: PlaybookItem[] = playbookData ?? [
-    {
-      id: '1',
-      title: 'Fix Instagram conversion variance',
-      description: 'Instagram reporting 22% lower conversions than GA4',
-      priority: 'critical',
-      owner: 'Data Team',
-      estimatedImpact: 12,
-      estimatedTime: '2 hours',
-      platform: 'Instagram',
-      status: 'in_progress',
-      actionUrl: null,
-    },
-    {
-      id: '2',
-      title: 'Resolve WhatsApp API timeout',
-      description: 'Intermittent 504 errors causing data freshness issues',
-      priority: 'high',
-      owner: null,
-      estimatedImpact: 8,
-      estimatedTime: '1 hour',
-      platform: 'WhatsApp',
-      status: 'pending',
-      actionUrl: null,
-    },
-  ];
+  const playbook: PlaybookItem[] = playbookData ?? [];
 
-  const timeline: TimelineEvent[] = incidentsData?.map((i) => ({
-    id: i.id,
-    type: i.type,
-    title: i.title,
-    description: i.description ?? undefined,
-    timestamp: new Date(i.timestamp),
-    platform: i.platform ?? undefined,
-    severity: i.severity,
-    recoveryHours: i.recoveryHours ?? undefined,
-    emqImpact: i.emqImpact ?? undefined,
-  })) ?? [
-    {
-      id: '1',
-      type: 'incident_opened',
-      title: 'Instagram conversion tracking degraded',
-      description: 'Significant variance detected',
-      timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      platform: 'Instagram',
-      severity: 'high',
-    },
-    {
-      id: '2',
-      type: 'mode_change',
-      title: 'Autopilot mode changed to Limited',
-      description: 'Due to signal degradation',
-      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
-      severity: 'medium',
-    },
-    {
-      id: '3',
-      type: 'recovery',
-      title: 'Meta pixel issue resolved',
-      description: 'Data loss recovered',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      platform: 'Meta',
-      severity: 'low',
-      recoveryHours: 6,
-      emqImpact: 8,
-    },
-  ];
+  const timeline: TimelineEvent[] =
+    incidentsData?.map((i) => ({
+      id: i.id,
+      type: i.type,
+      title: i.title,
+      description: i.description ?? undefined,
+      timestamp: new Date(i.timestamp),
+      platform: i.platform ?? undefined,
+      severity: i.severity,
+      recoveryHours: i.recoveryHours ?? undefined,
+      emqImpact: i.emqImpact ?? undefined,
+    })) ?? [];
 
   const handleAdminAction = (action: AdminAction) => {
     switch (action) {
@@ -446,15 +389,18 @@ export default function TenantProfile() {
           </Link>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-white">{tenant.name}</h1>
-              <span className="px-2 py-1 rounded-full text-xs bg-stratum-500/10 text-stratum-400">
-                {tenant.plan}
-              </span>
-              <span className="px-2 py-1 rounded-full text-xs bg-success/10 text-success">
-                {tenant.status}
-              </span>
+              <h1 className="text-2xl font-bold text-white">{tenantName ?? 'Unknown tenant'}</h1>
+              {plan && (
+                <span className="px-2 py-1 rounded-full text-xs bg-stratum-500/10 text-stratum-400">
+                  {plan}
+                </span>
+              )}
+              {status && (
+                <span className="px-2 py-1 rounded-full text-xs bg-success/10 text-success">
+                  {status}
+                </span>
+              )}
             </div>
-            <p className="text-text-muted">{tenant.industry}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -480,42 +426,19 @@ export default function TenantProfile() {
         emqScore={emqScore}
         autopilotMode={autopilotMode}
         budgetAtRisk={budgetAtRisk}
-        svi={32}
         onViewDetails={() => setActiveTab('incidents')}
       />
 
-      {/* Tenant Info Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
-          <div className="flex items-center gap-3 mb-2">
-            <BuildingOfficeIcon className="w-5 h-5 text-text-muted" />
-            <span className="text-text-muted">Platforms</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {tenant.platforms.map((p) => (
-              <span key={p} className="px-2 py-1 rounded bg-surface-tertiary text-white text-sm">
-                {p}
-              </span>
-            ))}
-          </div>
-        </div>
-
+      {/* Tenant Info Cards
+          The platform/connector list, account manager and "customer since" cards
+          that used to sit here had no source behind them at all. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
           <div className="flex items-center gap-3 mb-2">
             <UserGroupIcon className="w-5 h-5 text-text-muted" />
-            <span className="text-text-muted">Account Manager</span>
+            <span className="text-text-muted">Users</span>
           </div>
-          <span className="text-white font-medium">{tenant.accountManager}</span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
-          <div className="flex items-center gap-3 mb-2">
-            <CalendarIcon className="w-5 h-5 text-text-muted" />
-            <span className="text-text-muted">Customer Since</span>
-          </div>
-          <span className="text-white font-medium">
-            {tenant.createdAt.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-          </span>
+          <span className="text-white font-medium">{userCount ?? '—'}</span>
         </div>
 
         <div className="p-4 rounded-xl bg-surface-secondary border border-white/10">
@@ -524,7 +447,7 @@ export default function TenantProfile() {
             <span className="text-text-muted">Features</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            {Object.entries(tenant.features)
+            {Object.entries(localFeatures)
               .filter(([, enabled]) => enabled)
               .map(([feature]) => (
                 <span
@@ -565,7 +488,8 @@ export default function TenantProfile() {
           <div className="lg:col-span-2 space-y-6">
             <EmqScoreCard
               score={emqScore}
-              previousScore={emqData?.previousScore ?? 78}
+              previousScore={previousEmqScore}
+              drivers={emqData?.drivers}
               showDrivers
             />
             <EmqFixPlaybookPanel
@@ -615,6 +539,13 @@ export default function TenantProfile() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
+                {timeline.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-text-muted">
+                      No incidents recorded for this period.
+                    </td>
+                  </tr>
+                )}
                 {timeline.map((event) => (
                   <tr key={event.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4">
@@ -697,7 +628,7 @@ export default function TenantProfile() {
           <div className="rounded-2xl bg-surface-secondary border border-white/10 p-6">
             <h3 className="font-medium text-white mb-4">Feature Access</h3>
             <div className="space-y-4">
-              {Object.entries(tenant.features).map(([feature, enabled]) => (
+              {Object.entries(localFeatures).map(([feature, enabled]) => (
                 <div key={feature} className="flex items-center justify-between">
                   <div>
                     <span className="text-white capitalize">
@@ -757,9 +688,9 @@ export default function TenantProfile() {
           {/* Restrictions */}
           <div className="rounded-2xl bg-surface-secondary border border-white/10 p-6">
             <h3 className="font-medium text-white mb-4">Active Restrictions</h3>
-            {tenant.restrictions.length > 0 ? (
+            {restrictions.length > 0 ? (
               <div className="space-y-2">
-                {tenant.restrictions.map((r, i) => (
+                {restrictions.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-warning">
                     <ExclamationTriangleIcon className="w-4 h-4" />
                     {r}
