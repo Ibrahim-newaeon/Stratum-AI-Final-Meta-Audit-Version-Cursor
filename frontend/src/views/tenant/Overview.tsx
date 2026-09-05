@@ -72,10 +72,12 @@ export default function TenantOverview() {
   const { data: overviewData } = useTenantOverview(tid);
   const { data: recommendationsData } = useTenantRecommendations(tid);
 
-  // Transform data for components
-  const emqScore = emqData?.score ?? 85;
-  const autopilotMode = autopilotData?.mode ?? 'normal';
-  const budgetAtRisk = autopilotData?.budgetAtRisk ?? 0;
+  // Transform data for components. Null means "not measured": these were
+  // `?? 85` / `?? 'normal'` / `?? 0`, so a tenant whose signal health could
+  // not be read was shown a healthy score and told full automation was live.
+  const emqScore = emqData?.score ?? null;
+  const autopilotMode = autopilotData?.mode ?? null;
+  const budgetAtRisk = autopilotData?.budgetAtRisk ?? null;
 
   const kpis: Kpi[] = [
     {
@@ -412,9 +414,11 @@ export default function TenantOverview() {
       lines.push(`Generated: ${new Date().toLocaleString()}`);
       lines.push(`Date Range: ${dateRange.start} to ${dateRange.end}`);
       lines.push('');
-      lines.push(`EMQ Score: ${emqScore}`);
-      lines.push(`Autopilot Mode: ${autopilotMode}`);
-      lines.push(`Budget at Risk: $${budgetAtRisk.toLocaleString()}`);
+      lines.push(`EMQ Score: ${emqScore ?? 'Not measured'}`);
+      lines.push(`Autopilot Mode: ${autopilotMode ?? 'Not measured'}`);
+      lines.push(
+        `Budget at Risk: ${budgetAtRisk === null ? 'Not measured' : `$${budgetAtRisk.toLocaleString()}`}`
+      );
       lines.push('');
 
       // KPIs
@@ -497,7 +501,6 @@ export default function TenantOverview() {
           emqScore={emqScore}
           autopilotMode={autopilotMode}
           budgetAtRisk={budgetAtRisk}
-          svi={25}
           onViewDetails={handleViewDetails}
         />
       </div>
@@ -512,7 +515,12 @@ export default function TenantOverview() {
         {/* Left column - EMQ Details */}
         <div className="lg:col-span-2 space-y-6">
           {/* EMQ Score Card */}
-          <EmqScoreCard score={emqScore} previousScore={emqData?.previousScore ?? 82} showDrivers />
+          <EmqScoreCard
+            score={emqScore}
+            previousScore={emqData?.previousScore ?? null}
+            drivers={emqData?.drivers}
+            showDrivers
+          />
 
           {/* Fix Playbook */}
           <div data-tour="fix-playbook">

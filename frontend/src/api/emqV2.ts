@@ -2,6 +2,17 @@
  * Stratum AI - EMQ v2 Enhanced API
  *
  * Event Measurement Quality endpoints with Trust Layer integration
+ *
+ * The paths below are the ones `emq_v2.router` actually mounts. It is
+ * registered with no prefix, so its routes are `/tenants/{id}/emq/<thing>` -
+ * this client asked for `/emq/v2/tenants/{id}/<thing>`, which never existed.
+ * Every hook here 404'd, in every view that used one, and what rendered was
+ * whatever `??` fallback the view had written down.
+ *
+ * Every measured field is nullable and null means "not measured". The backend
+ * used to substitute a default (score 75, SVI 15.3, $24,350 of recovered
+ * revenue) wherever a tenant had no persisted signal health; it now returns
+ * null, and these types are what let a view say so instead of guessing.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,20 +24,23 @@ export interface EmqDriver {
   value: number;
   weight: number;
   status: 'good' | 'warning' | 'critical';
-  trend: 'up' | 'down' | 'flat';
+  /** Null when the same component was not measured the day before. */
+  trend: 'up' | 'down' | 'flat' | null;
 }
 
 export interface EmqScore {
-  score: number;
-  previousScore: number;
-  confidenceBand: 'reliable' | 'directional' | 'unsafe';
+  /** Null when the tenant has no measured signal health. */
+  score: number | null;
+  previousScore: number | null;
+  confidenceBand: 'reliable' | 'directional' | 'unsafe' | null;
+  /** Only the components that were measured; empty when none were. */
   drivers: EmqDriver[];
   lastUpdated: string;
 }
 
 export interface ConfidenceData {
-  band: 'reliable' | 'directional' | 'unsafe';
-  score: number;
+  band: 'reliable' | 'directional' | 'unsafe' | null;
+  score: number | null;
   thresholds: {
     reliable: number;
     directional: number;
@@ -64,20 +78,22 @@ export interface EmqIncident {
 }
 
 export interface EmqImpact {
-  totalImpact: number;
+  totalImpact: number | null;
   currency: string;
   breakdown: {
     platform: string;
     actualRoas: number;
-    estimatedRoas: number;
+    /** Null: nothing models ROAS under perfect attribution. */
+    estimatedRoas: number | null;
     confidence: number;
-    revenueImpact: number;
+    revenueImpact: number | null;
   }[];
 }
 
 export interface EmqVolatility {
-  svi: number; // Signal Volatility Index
-  trend: 'increasing' | 'decreasing' | 'stable';
+  svi: number | null; // Signal Volatility Index; null when not measured
+  /** Null when there is too little history to state a direction. */
+  trend: 'increasing' | 'decreasing' | 'stable' | null;
   weeklyData: {
     date: string;
     value: number;
@@ -86,11 +102,12 @@ export interface EmqVolatility {
 
 export interface EmqBenchmark {
   platform: string;
-  p25: number;
-  p50: number;
-  p75: number;
-  tenantScore: number;
-  percentile: number;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  /** Null: the benchmarks endpoint is not tenant-scoped. */
+  tenantScore: number | null;
+  percentile: number | null;
 }
 
 export interface EmqPortfolio {
@@ -100,8 +117,8 @@ export interface EmqPortfolio {
     directional: number;
     unsafe: number;
   };
-  atRiskBudget: number;
-  avgScore: number;
+  atRiskBudget: number | null;
+  avgScore: number | null;
   topIssues: {
     driver: string;
     affectedTenants: number;
@@ -113,7 +130,8 @@ export type AutopilotMode = 'normal' | 'limited' | 'cuts_only' | 'frozen';
 export interface AutopilotState {
   mode: AutopilotMode;
   reason: string | null;
-  budgetAtRisk: number;
+  /** Null: fact_actions_queue carries no budget column. */
+  budgetAtRisk: number | null;
   allowedActions: string[];
   restrictedActions: string[];
 }
@@ -126,7 +144,7 @@ export const emqV2Api = {
   getEmqScore: async (tenantId: number, date?: string): Promise<EmqScore> => {
     const params = date ? { date } : {};
     const response = await apiClient.get<ApiResponse<EmqScore>>(
-      `/emq/v2/tenants/${tenantId}/score`,
+      `/tenants/${tenantId}/emq/score`,
       { params }
     );
     return response.data.data;
@@ -138,7 +156,7 @@ export const emqV2Api = {
   getConfidence: async (tenantId: number, date?: string): Promise<ConfidenceData> => {
     const params = date ? { date } : {};
     const response = await apiClient.get<ApiResponse<ConfidenceData>>(
-      `/emq/v2/tenants/${tenantId}/confidence`,
+      `/tenants/${tenantId}/emq/confidence`,
       { params }
     );
     return response.data.data;
@@ -149,7 +167,7 @@ export const emqV2Api = {
    */
   getPlaybook: async (tenantId: number): Promise<PlaybookItem[]> => {
     const response = await apiClient.get<ApiResponse<PlaybookItem[]>>(
-      `/emq/v2/tenants/${tenantId}/playbook`
+      `/tenants/${tenantId}/emq/playbook`
     );
     return response.data.data;
   },
@@ -163,7 +181,7 @@ export const emqV2Api = {
     updates: Partial<Pick<PlaybookItem, 'status' | 'owner'>>
   ): Promise<PlaybookItem> => {
     const response = await apiClient.patch<ApiResponse<PlaybookItem>>(
-      `/emq/v2/tenants/${tenantId}/playbook/${itemId}`,
+      `/tenants/${tenantId}/emq/playbook/${itemId}`,
       updates
     );
     return response.data.data;
@@ -178,7 +196,7 @@ export const emqV2Api = {
     endDate: string
   ): Promise<EmqIncident[]> => {
     const response = await apiClient.get<ApiResponse<EmqIncident[]>>(
-      `/emq/v2/tenants/${tenantId}/incidents`,
+      `/tenants/${tenantId}/emq/incidents`,
       { params: { start_date: startDate, end_date: endDate } }
     );
     return response.data.data;
@@ -189,7 +207,7 @@ export const emqV2Api = {
    */
   getImpact: async (tenantId: number, startDate: string, endDate: string): Promise<EmqImpact> => {
     const response = await apiClient.get<ApiResponse<EmqImpact>>(
-      `/emq/v2/tenants/${tenantId}/impact`,
+      `/tenants/${tenantId}/emq/impact`,
       { params: { start_date: startDate, end_date: endDate } }
     );
     return response.data.data;
@@ -198,10 +216,10 @@ export const emqV2Api = {
   /**
    * Get signal volatility data
    */
-  getVolatility: async (tenantId: number, week?: string): Promise<EmqVolatility> => {
-    const params = week ? { week } : {};
+  getVolatility: async (tenantId: number, weeks?: number): Promise<EmqVolatility> => {
+    const params = weeks ? { weeks } : {};
     const response = await apiClient.get<ApiResponse<EmqVolatility>>(
-      `/emq/v2/tenants/${tenantId}/volatility`,
+      `/tenants/${tenantId}/emq/volatility`,
       { params }
     );
     return response.data.data;
@@ -212,7 +230,7 @@ export const emqV2Api = {
    */
   getAutopilotState: async (tenantId: number): Promise<AutopilotState> => {
     const response = await apiClient.get<ApiResponse<AutopilotState>>(
-      `/emq/v2/tenants/${tenantId}/autopilot`
+      `/tenants/${tenantId}/emq/autopilot-state`
     );
     return response.data.data;
   },
@@ -226,7 +244,7 @@ export const emqV2Api = {
     reason?: string
   ): Promise<AutopilotState> => {
     const response = await apiClient.put<ApiResponse<AutopilotState>>(
-      `/emq/v2/tenants/${tenantId}/autopilot`,
+      `/tenants/${tenantId}/emq/autopilot-mode`,
       { mode, reason }
     );
     return response.data.data;
@@ -240,7 +258,7 @@ export const emqV2Api = {
     const params: Record<string, string> = {};
     if (date) params.date = date;
     if (platform) params.platform = platform;
-    const response = await apiClient.get<ApiResponse<EmqBenchmark[]>>('/emq/v2/benchmarks', {
+    const response = await apiClient.get<ApiResponse<EmqBenchmark[]>>('/emq/benchmarks', {
       params,
     });
     return response.data.data;
@@ -251,7 +269,7 @@ export const emqV2Api = {
    */
   getPortfolio: async (date?: string): Promise<EmqPortfolio> => {
     const params = date ? { date } : {};
-    const response = await apiClient.get<ApiResponse<EmqPortfolio>>('/emq/v2/portfolio', {
+    const response = await apiClient.get<ApiResponse<EmqPortfolio>>('/emq/portfolio', {
       params,
     });
     return response.data.data;
@@ -318,10 +336,10 @@ export function useEmqImpact(tenantId: number, startDate: string, endDate: strin
   });
 }
 
-export function useEmqVolatility(tenantId: number, week?: string) {
+export function useEmqVolatility(tenantId: number, weeks?: number) {
   return useQuery({
-    queryKey: ['emq', 'volatility', tenantId, week],
-    queryFn: () => emqV2Api.getVolatility(tenantId, week),
+    queryKey: ['emq', 'volatility', tenantId, weeks],
+    queryFn: () => emqV2Api.getVolatility(tenantId, weeks),
     staleTime: 60 * 1000,
   });
 }

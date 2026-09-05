@@ -49,8 +49,22 @@ class TestEmqScoreEndpoint:
         # Confidence band should be one of the valid values
         assert data["data"]["confidenceBand"] in ["reliable", "directional", "unsafe"]
 
-        # Should have 5 drivers
-        assert len(data["data"]["drivers"]) == 5
+        # One driver per measured column of fact_signal_health_daily, and no
+        # more. This asserted 5, because the service used to invent the
+        # breakdown - Event Match Rate / Pixel Coverage / Conversion Latency /
+        # Attribution Accuracy / Data Freshness - by multiplying the score by
+        # fixed coefficients rather than reading the columns. The fixture
+        # populates all four, so all four appear.
+        drivers = {d["name"]: d for d in data["data"]["drivers"]}
+        assert set(drivers) == {
+            "Event Match Quality",
+            "Freshness",
+            "Delivery",
+            "API Reliability",
+        }
+        for driver in drivers.values():
+            assert 0 <= driver["value"] <= 100
+            assert driver["status"] in ["good", "warning", "critical"]
 
     @pytest.mark.asyncio
     async def test_get_emq_score_with_date(
@@ -67,6 +81,14 @@ class TestEmqScoreEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
+
+        # This tenant has no signal health for that day, so there is no score
+        # to report. The service used to answer 75.0 / 73.0 / "directional"
+        # with a full set of synthesised drivers for exactly this case.
+        assert data["data"]["score"] is None
+        assert data["data"]["previousScore"] is None
+        assert data["data"]["confidenceBand"] is None
+        assert data["data"]["drivers"] == []
 
     @pytest.mark.asyncio
     async def test_get_emq_score_invalid_date(
@@ -241,7 +263,14 @@ class TestVolatilityEndpoint:
         assert "trend" in data["data"]
         assert "weeklyData" in data["data"]
 
-        assert data["data"]["trend"] in ["increasing", "decreasing", "stable"]
+        # This tenant has no signal health history, so there is no volatility
+        # to report and no direction to state. This asserted one of the three
+        # trend strings, which held only because the service generated eight
+        # weeks of points from `12.5 + i * 0.8 - (i % 3) * 2.1` and an SVI of
+        # 15.3 whenever it found no rows.
+        assert data["data"]["svi"] is None
+        assert data["data"]["trend"] is None
+        assert data["data"]["weeklyData"] == []
 
 
 class TestAutopilotStateEndpoint:

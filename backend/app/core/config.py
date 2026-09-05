@@ -160,6 +160,25 @@ class Settings(BaseSettings):
         le=100.0,
         description="Signal health at or above which the trust gate HOLDs; below it BLOCKs",
     )
+    # The EMQ confidence band edges, published by the /emq/confidence endpoint
+    # and used by the frontend badge to colour the same number. They are a
+    # *presentation* band (reliable / directional / unsafe) and deliberately
+    # not the trust gate's 70/40: the gate decides whether automation may run,
+    # this decides how much to trust a figure on screen. They live here because
+    # the API graded at 80/60 while the UI badge graded at 90/60, so the band
+    # shown was not the band the API had computed.
+    emq_confidence_reliable_threshold: float = Field(
+        default=90.0,
+        ge=0.0,
+        le=100.0,
+        description="EMQ score at or above which measurements are labelled reliable",
+    )
+    emq_confidence_directional_threshold: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=100.0,
+        description="EMQ score at or above which measurements are labelled directional",
+    )
     signal_health_fresh_minutes: float = Field(
         default=60.0, gt=0.0, description="Data age scoring full marks for the freshness component"
     )

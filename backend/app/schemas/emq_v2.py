@@ -4,9 +4,15 @@
 """
 Pydantic models for EMQ (Event Measurement Quality) v2 API endpoints.
 These schemas match the frontend types defined in api/emqV2.ts.
+
+Every measured field is Optional and None means "not measured", not zero. The
+service behind these endpoints used to substitute a default wherever a tenant
+had no persisted signal health - a score of 75, an SVI of 15.3, $24,350 of
+recovered revenue - and these types were what made that expressible: a
+required ``score: float`` leaves no way to say "nothing was measured".
 """
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,15 +39,21 @@ class EmqDriver(EMQBaseSchema):
     value: float
     weight: float
     status: Literal["good", "warning", "critical"]
-    trend: Literal["up", "down", "flat"]
+    # None when the same component was not measured the day before: there is
+    # no direction to report against a day that was never recorded.
+    trend: Literal["up", "down", "flat"] | None = None
 
 
 class EmqScoreResponse(EMQBaseSchema):
     """EMQ score response with drivers."""
 
-    score: float = Field(..., ge=0, le=100, description="Overall EMQ score")
-    previousScore: float = Field(..., ge=0, le=100, description="Previous period score")
-    confidenceBand: Literal["reliable", "directional", "unsafe"]
+    score: float | None = Field(
+        default=None, ge=0, le=100, description="Overall EMQ score; None when not measured"
+    )
+    previousScore: float | None = Field(
+        default=None, ge=0, le=100, description="Previous period score; None when not measured"
+    )
+    confidenceBand: Literal["reliable", "directional", "unsafe"] | None = None
     drivers: list[EmqDriver]
     lastUpdated: str = Field(..., description="ISO timestamp of last update")
 
@@ -67,8 +79,8 @@ class ConfidenceThresholds(EMQBaseSchema):
 class ConfidenceDataResponse(EMQBaseSchema):
     """Confidence band details response."""
 
-    band: Literal["reliable", "directional", "unsafe"]
-    score: float
+    band: Literal["reliable", "directional", "unsafe"] | None = None
+    score: float | None = None
     thresholds: ConfidenceThresholds
     factors: list[ConfidenceFactor]
 
@@ -83,19 +95,19 @@ class PlaybookItemResponse(EMQBaseSchema):
     title: str
     description: str
     priority: Literal["critical", "high", "medium", "low"]
-    owner: Optional[str] = None
+    owner: str | None = None
     estimatedImpact: float = Field(..., description="Estimated EMQ score improvement")
-    estimatedTime: Optional[str] = None
-    platform: Optional[str] = None
+    estimatedTime: str | None = None
+    platform: str | None = None
     status: Literal["pending", "in_progress", "completed"]
-    actionUrl: Optional[str] = None
+    actionUrl: str | None = None
 
 
 class PlaybookItemUpdate(EMQBaseSchema):
     """Playbook item update request."""
 
-    status: Optional[Literal["pending", "in_progress", "completed"]] = None
-    owner: Optional[str] = None
+    status: Literal["pending", "in_progress", "completed"] | None = None
+    owner: str | None = None
 
 
 # =============================================================================
@@ -107,12 +119,12 @@ class EmqIncidentResponse(EMQBaseSchema):
     id: str
     type: Literal["incident_opened", "incident_closed", "degradation", "recovery"]
     title: str
-    description: Optional[str] = None
+    description: str | None = None
     timestamp: str = Field(..., description="ISO timestamp")
-    platform: Optional[str] = None
+    platform: str | None = None
     severity: Literal["critical", "high", "medium", "low"]
-    recoveryHours: Optional[float] = None
-    emqImpact: Optional[float] = None
+    recoveryHours: float | None = None
+    emqImpact: float | None = None
 
 
 # =============================================================================
@@ -123,15 +135,17 @@ class ImpactBreakdown(EMQBaseSchema):
 
     platform: str
     actualRoas: float
-    estimatedRoas: float
+    # Nothing models the counterfactual "ROAS under perfect attribution", so
+    # these stay None rather than asserting a 15% improvement.
+    estimatedRoas: float | None = None
     confidence: float
-    revenueImpact: float
+    revenueImpact: float | None = None
 
 
 class EmqImpactResponse(EMQBaseSchema):
     """ROAS impact estimate response."""
 
-    totalImpact: float
+    totalImpact: float | None = None
     currency: str = "USD"
     breakdown: list[ImpactBreakdown]
 
@@ -149,8 +163,10 @@ class VolatilityDataPoint(EMQBaseSchema):
 class EmqVolatilityResponse(EMQBaseSchema):
     """Signal Volatility Index response."""
 
-    svi: float = Field(..., description="Signal Volatility Index")
-    trend: Literal["increasing", "decreasing", "stable"]
+    svi: float | None = Field(default=None, description="Signal Volatility Index")
+    # A direction needs two ends to compare; None when there is too little
+    # history to state one.
+    trend: Literal["increasing", "decreasing", "stable"] | None = None
     weeklyData: list[VolatilityDataPoint]
 
 
@@ -161,8 +177,10 @@ class AutopilotStateResponse(EMQBaseSchema):
     """Autopilot state response."""
 
     mode: Literal["normal", "limited", "cuts_only", "frozen"]
-    reason: Optional[str] = None
-    budgetAtRisk: float
+    reason: str | None = None
+    # fact_actions_queue carries no budget column, so this is None until a
+    # source exists. It was the queued row count multiplied by a flat $5,000.
+    budgetAtRisk: float | None = None
     allowedActions: list[str]
     restrictedActions: list[str]
 
@@ -171,7 +189,7 @@ class AutopilotModeUpdate(EMQBaseSchema):
     """Autopilot mode update request."""
 
     mode: Literal["normal", "limited", "cuts_only", "frozen"]
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 # =============================================================================
@@ -181,11 +199,13 @@ class EmqBenchmarkResponse(EMQBaseSchema):
     """Platform benchmark data."""
 
     platform: str
-    p25: float
-    p50: float
-    p75: float
-    tenantScore: float
-    percentile: float
+    p25: float | None = None
+    p50: float | None = None
+    p75: float | None = None
+    # This endpoint is not tenant-scoped, so it cannot report a tenant's own
+    # score or where that score falls in the distribution.
+    tenantScore: float | None = None
+    percentile: float | None = None
 
 
 # =============================================================================
@@ -211,6 +231,6 @@ class EmqPortfolioResponse(EMQBaseSchema):
 
     totalTenants: int
     byBand: BandDistribution
-    atRiskBudget: float
-    avgScore: float
+    atRiskBudget: float | None = None
+    avgScore: float | None = None
     topIssues: list[TopIssue]

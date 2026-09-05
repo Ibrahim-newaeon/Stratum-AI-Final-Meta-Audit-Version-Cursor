@@ -127,6 +127,9 @@ export function EmqTimeline({
 
       {/* Timeline */}
       <div className="p-4">
+        {events.length === 0 && (
+          <p className="text-sm text-text-muted">No incidents recorded for this period.</p>
+        )}
         <div className="relative">
           {displayEvents.map((event, index) => {
             const config = eventConfig[event.type];

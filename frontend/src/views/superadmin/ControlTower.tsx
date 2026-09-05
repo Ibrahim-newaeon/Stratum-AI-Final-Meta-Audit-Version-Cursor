@@ -53,7 +53,9 @@ export default function ControlTower() {
     arr: revenueData?.arr ?? (overviewData?.totalRevenue ?? 125000) * 12,
     churnRisk: churnRisksData?.length ?? overviewData?.atRiskTenants ?? 3,
     margin: 68,
-    totalBudgetAtRisk: portfolioData?.atRiskBudget ?? overviewData?.totalBudgetAtRisk ?? 45000,
+    // fact_actions_queue carries no budget column, so the EMQ portfolio
+    // endpoint reports null rather than sizing it from a queued row count.
+    totalBudgetAtRisk: portfolioData?.atRiskBudget ?? overviewData?.totalBudgetAtRisk ?? null,
   };
 
   // Tenant health data
@@ -120,19 +122,19 @@ export default function ControlTower() {
     },
   ];
 
-  // EMQ benchmarks
-  const benchmarks = benchmarksData ?? [
-    { platform: 'Facebook', p25: 65, p50: 78, p75: 89, tenantScore: 82, percentile: 68 },
-    { platform: 'Instagram', p25: 72, p50: 85, p75: 94, tenantScore: 88, percentile: 72 },
-    { platform: 'WhatsApp', p25: 55, p50: 70, p75: 82, tenantScore: 75, percentile: 65 },
-  ];
+  // EMQ benchmarks. The fallback list here published invented percentiles for
+  // Facebook, Instagram and WhatsApp; the endpoint returns only the platforms
+  // that actually have scores that day, and an empty list when none do. Only
+  // rows with all three percentiles measured can be drawn as a bar.
+  const benchmarks = (benchmarksData ?? []).filter(
+    (b): b is typeof b & { p25: number; p50: number; p75: number } =>
+      b.p25 !== null && b.p50 !== null && b.p75 !== null
+  );
 
-  // Top issues
-  const topIssues = portfolioData?.topIssues ?? [
-    { driver: 'Freshness', affectedTenants: 3 },
-    { driver: 'Data Loss', affectedTenants: 2 },
-    { driver: 'Variance', affectedTenants: 4 },
-  ];
+  // Top issues. There is no per-driver storage to rank issues from, so the
+  // endpoint returns an empty list rather than assigning fixed issue names a
+  // share of the tenant count.
+  const topIssues = portfolioData?.topIssues ?? [];
 
   // Count by status
   const statusCounts = tenantHealth.reduce(
@@ -233,10 +235,19 @@ export default function ControlTower() {
             <ExclamationTriangleIcon className="w-4 h-4 text-danger" />
             <span className="text-sm">Budget at Risk</span>
           </div>
-          <div className="text-2xl font-bold text-danger">
-            ${(portfolioKpis.totalBudgetAtRisk / 1000).toFixed(0)}K
+          <div
+            className={cn(
+              'text-2xl font-bold',
+              portfolioKpis.totalBudgetAtRisk === null ? 'text-text-muted' : 'text-danger'
+            )}
+          >
+            {portfolioKpis.totalBudgetAtRisk === null
+              ? '\u2014'
+              : `$${(portfolioKpis.totalBudgetAtRisk / 1000).toFixed(0)}K`}
           </div>
-          <div className="text-sm text-text-muted mt-1">across all tenants</div>
+          <div className="text-sm text-text-muted mt-1">
+            {portfolioKpis.totalBudgetAtRisk === null ? 'Not measured' : 'across all tenants'}
+          </div>
         </div>
       </div>
 
@@ -332,6 +343,9 @@ export default function ControlTower() {
               <p className="text-sm text-text-muted">P25 / P50 / P75 by platform</p>
             </div>
             <div className="p-4 space-y-4">
+              {benchmarks.length === 0 && (
+                <p className="text-sm text-text-muted">No platform has a measured score today.</p>
+              )}
               {benchmarks.map((b) => (
                 <div key={b.platform}>
                   <div className="flex items-center justify-between mb-2">
@@ -372,6 +386,9 @@ export default function ControlTower() {
               <p className="text-sm text-text-muted">Affecting most tenants</p>
             </div>
             <div className="p-4 space-y-3">
+              {topIssues.length === 0 && (
+                <p className="text-sm text-text-muted">Not measured: no per-driver history.</p>
+              )}
               {topIssues.map((issue, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <span className="text-sm text-white">{issue.driver}</span>

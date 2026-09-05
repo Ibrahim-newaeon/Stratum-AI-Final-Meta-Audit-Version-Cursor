@@ -41,9 +41,11 @@ export default function Console() {
   const { data: autopilotData } = useAutopilotState(tid);
   const { data: _recommendationsData } = useTenantRecommendations(tid);
 
-  const emqScore = emqData?.score ?? 85;
-  const autopilotMode: AutopilotMode = autopilotData?.mode ?? 'normal';
-  const budgetAtRisk = autopilotData?.budgetAtRisk ?? 0;
+  // Null means "not measured". These were `?? 85` / `?? 'normal'` / `?? 0`,
+  // and the mode gates whether an action may be applied at all.
+  const emqScore = emqData?.score ?? null;
+  const autopilotMode: AutopilotMode | null = autopilotData?.mode ?? null;
+  const budgetAtRisk = autopilotData?.budgetAtRisk ?? null;
 
   // Sample actions data
   const allActions: Action[] = [
@@ -125,8 +127,10 @@ export default function Console() {
       return true;
     });
 
-  // Mode restrictions
-  const isFrozen = autopilotMode === 'frozen';
+  // Mode restrictions. An unmeasured mode is not permission to act: it used
+  // to resolve to 'normal', which cleared every action for a tenant whose
+  // autopilot state could not be read at all.
+  const isFrozen = autopilotMode === 'frozen' || autopilotMode === null;
   const isCutsOnly = autopilotMode === 'cuts_only';
 
   const canApplyAction = (action: Action): boolean => {
@@ -177,18 +181,35 @@ export default function Console() {
           <div className="flex items-center gap-4">
             {/* EMQ Score */}
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-secondary border border-white/10">
-              <span className="text-2xl font-bold text-white">{emqScore}</span>
+              <span
+                className={cn(
+                  'text-2xl font-bold',
+                  emqScore === null ? 'text-text-muted' : 'text-white'
+                )}
+              >
+                {emqScore ?? '\u2014'}
+              </span>
               <div className="flex flex-col">
                 <span className="text-xs text-text-muted">EMQ</span>
-                <ConfidenceBandBadge score={emqScore} size="sm" />
+                {emqScore === null ? (
+                  <span className="text-xs text-text-muted">Not measured</span>
+                ) : (
+                  <ConfidenceBandBadge score={emqScore} size="sm" />
+                )}
               </div>
             </div>
 
             {/* Autopilot Mode */}
-            <AutopilotModeBanner mode={autopilotMode} compact />
+            {autopilotMode === null ? (
+              <span className="text-sm text-text-muted">Autopilot mode not measured</span>
+            ) : (
+              <AutopilotModeBanner mode={autopilotMode} compact />
+            )}
 
             {/* Budget at Risk */}
-            {budgetAtRisk > 0 && <BudgetAtRiskChip amount={budgetAtRisk} />}
+            {budgetAtRisk !== null && budgetAtRisk > 0 && (
+              <BudgetAtRiskChip amount={budgetAtRisk} />
+            )}
           </div>
         </div>
 

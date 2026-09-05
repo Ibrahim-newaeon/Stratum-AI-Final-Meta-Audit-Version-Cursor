@@ -4,16 +4,38 @@
 """
 EMQ (Event Measurement Quality) Service.
 
-Handles:
-- Fetching EMQ metrics from database
-- Calculating EMQ scores from platform data
-- Storing EMQ results
-- Aggregating EMQ data across tenants (for super admin)
+Reads a tenant's persisted signal health and reports it. The one invariant, the
+same one ``app.services.signal_health`` exists to protect: **a value that was
+not measured is absent, never a default**. Every method here returns ``None``
+(or an empty list) where it used to return a plausible number:
+
+- ``_get_default_emq_response`` returned score 75.0 / previousScore 73.0 /
+  ``directional`` with a full set of synthesised drivers, so a tenant the
+  rollup had deliberately written no row for - the normal state of a tenant
+  whose signal cannot be substantiated - was shown a mid-band score and the
+  autopilot mode derived from it.
+- ``_calculate_emq_from_records`` invented the driver breakdown by multiplying
+  the score by fixed coefficients (1.05, 1.10, 0.85, 0.95, 1.15) and fell back
+  to ``score - 2.0`` for the previous day.
+- ``_calculate_emq_from_variance`` extrapolated a whole EMQ from attribution
+  accuracy alone and gave it a "slight boost since this is partial data".
+- ``_get_default_volatility`` generated eight weeks of points from a formula,
+  ``_get_default_impact`` published $24,350, ``_get_default_benchmarks``
+  published a **LinkedIn** row (not a Meta channel at all), and
+  ``_get_default_portfolio`` published 156 tenants and $2,450,000 at risk.
+- ``get_autopilot_state`` sized budget at risk as ``queued_count * 5000.0``.
+
+The composite is computed with ``app.services.signal_health.weighted_score``
+over the four components ``fact_signal_health_daily`` actually carries, so the
+number this endpoint publishes is the number the daily rollup wrote and the
+trust gate grades - not a second, differently-defined "EMQ". That function
+drops unmeasured components, renormalises the rest, and returns ``None`` when
+less than ``signal_health_min_component_weight`` of the evidence is present.
 """
 
 import json
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,12 +43,91 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.logic.emq_calculation import (
     determine_autopilot_mode,
 )
+from app.core.config import settings
 from app.models.trust_layer import (
     FactActionsQueue,
     FactAttributionVarianceDaily,
     FactSignalHealthDaily,
     SignalHealthStatus,
 )
+from app.services.signal_health import (
+    COMPONENT_DELIVERY,
+    COMPONENT_EMQ,
+    COMPONENT_FRESHNESS,
+    COMPONENT_RELIABILITY,
+    STATUS_CRITICAL,
+    STATUS_DEGRADED,
+    STATUS_HEALTHY,
+    component_weights,
+    freshness_component_score,
+    status_for_score,
+    weighted_score,
+)
+
+# Display names for the four components, in the order the UI lists them. They
+# are labels only: the values, weights and statuses all come from the shared
+# scoring module, so nothing here can drift from what the trust gate enforces.
+DRIVER_LABELS: dict[str, str] = {
+    COMPONENT_EMQ: "Event Match Quality",
+    COMPONENT_FRESHNESS: "Freshness",
+    COMPONENT_DELIVERY: "Delivery",
+    COMPONENT_RELIABILITY: "API Reliability",
+}
+
+# How a component's health band maps onto the three states the UI draws.
+_DRIVER_STATUS = {
+    STATUS_HEALTHY: "good",
+    STATUS_DEGRADED: "warning",
+    STATUS_CRITICAL: "critical",
+}
+
+
+def _mean(values: list[float]) -> float | None:
+    """
+    Average the readings that exist.
+
+    Args:
+        values: Measured values; may be empty.
+
+    Returns:
+        The mean, or None when nothing was measured.
+    """
+    present = [float(v) for v in values if v is not None]
+    if not present:
+        return None
+    return sum(present) / len(present)
+
+
+def _clamp(value: float | None) -> float | None:
+    """Hold a component inside 0-100, passing None through untouched."""
+    if value is None:
+        return None
+    return min(max(value, 0.0), 100.0)
+
+
+def confidence_band(score: float | None) -> str | None:
+    """
+    Grade a composite into the band the UI renders.
+
+    The edges come from configuration rather than from literals here, because
+    the frontend badge grades the same number: they used to disagree (the API
+    called 80 "reliable" while the UI called it "directional"), which is the
+    "two thresholds, one shown and one enforced" failure the trust engine
+    documents.
+
+    Args:
+        score: The 0-100 composite, or None when it could not be computed.
+
+    Returns:
+        ``reliable``, ``directional``, ``unsafe``, or None for no score.
+    """
+    if score is None:
+        return None
+    if score >= settings.emq_confidence_reliable_threshold:
+        return "reliable"
+    if score >= settings.emq_confidence_directional_threshold:
+        return "directional"
+    return "unsafe"
 
 
 class EmqService:
@@ -37,284 +138,178 @@ class EmqService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    # -------------------------------------------------------------------------
+    # Score
+    # -------------------------------------------------------------------------
     async def get_emq_score(
         self,
         tenant_id: int,
-        target_date: Optional[date] = None,
+        target_date: date | None = None,
     ) -> dict[str, Any]:
         """
-        Get EMQ score for a tenant.
+        Get the EMQ score for a tenant from its persisted signal health.
 
         Args:
-            tenant_id: Tenant ID
-            target_date: Target date (defaults to today)
+            tenant_id: Tenant ID.
+            target_date: Target date (defaults to today).
 
         Returns:
-            Dict with score, previousScore, confidenceBand, drivers, lastUpdated
+            Dict with score, previousScore, confidenceBand, drivers and
+            lastUpdated. ``score``, ``previousScore`` and ``confidenceBand``
+            are None and ``drivers`` is empty for a tenant with no measured
+            signal health - there is no fallback score.
         """
         if target_date is None:
             target_date = datetime.now(UTC).date()
 
-        previous_date = target_date - timedelta(days=1)
+        current_records = await self._records_for(tenant_id, target_date)
+        previous_records = await self._records_for(tenant_id, target_date - timedelta(days=1))
 
-        # Fetch current day's signal health records
-        current_query = select(FactSignalHealthDaily).where(
-            and_(
-                FactSignalHealthDaily.tenant_id == tenant_id,
-                FactSignalHealthDaily.date == target_date,
-            )
-        )
-        current_result = await self.session.execute(current_query)
-        current_records = current_result.scalars().all()
+        components = self._components(current_records)
+        previous_components = self._components(previous_records)
 
-        # Fetch previous day's records for comparison
-        previous_query = select(FactSignalHealthDaily).where(
-            and_(
-                FactSignalHealthDaily.tenant_id == tenant_id,
-                FactSignalHealthDaily.date == previous_date,
-            )
-        )
-        previous_result = await self.session.execute(previous_query)
-        previous_records = previous_result.scalars().all()
-
-        # If no records, return calculated from available data
-        if not current_records:
-            # Check if we have attribution variance data instead
-            return await self._calculate_emq_from_variance(tenant_id, target_date)
-
-        # Calculate EMQ from signal health records
-        return self._calculate_emq_from_records(current_records, previous_records)
-
-    def _calculate_emq_from_records(
-        self,
-        current_records: list[FactSignalHealthDaily],
-        previous_records: list[FactSignalHealthDaily],
-    ) -> dict[str, Any]:
-        """Calculate EMQ from signal health records."""
-
-        if not current_records:
-            return self._get_default_emq_response()
-
-        # Aggregate scores across platforms
-        platform_scores = []
-        platform_previous = {}
-
-        # Build previous day lookup
-        for rec in previous_records:
-            platform_previous[rec.platform] = rec
-
-        drivers_aggregate = {
-            "Event Match Rate": [],
-            "Pixel Coverage": [],
-            "Conversion Latency": [],
-            "Attribution Accuracy": [],
-            "Data Freshness": [],
-        }
-
-        for record in current_records:
-            if record.emq_score is not None:
-                platform_scores.append(record.emq_score)
-
-                # Get previous score for this platform
-                prev_record = platform_previous.get(record.platform)
-                prev_score = prev_record.emq_score if prev_record else None
-
-                # Parse issues for driver breakdown (if stored as JSON)
-                issues = json.loads(record.issues) if record.issues else []
-
-                # Estimate driver scores from EMQ score
-                # In production, these would be stored separately
-                base_score = record.emq_score
-                drivers_aggregate["Event Match Rate"].append(base_score * 1.05)
-                drivers_aggregate["Pixel Coverage"].append(base_score * 1.10)
-                drivers_aggregate["Conversion Latency"].append(base_score * 0.85)
-                drivers_aggregate["Attribution Accuracy"].append(base_score * 0.95)
-                drivers_aggregate["Data Freshness"].append(base_score * 1.15)
-
-        if not platform_scores:
-            return self._get_default_emq_response()
-
-        # Calculate aggregate score
-        score = sum(platform_scores) / len(platform_scores)
-
-        # Calculate previous score
-        prev_scores = [r.emq_score for r in previous_records if r.emq_score]
-        previous_score = sum(prev_scores) / len(prev_scores) if prev_scores else score - 2.0
-
-        # Build drivers list
-        drivers = []
-        driver_weights = {
-            "Event Match Rate": 0.30,
-            "Pixel Coverage": 0.25,
-            "Conversion Latency": 0.20,
-            "Attribution Accuracy": 0.15,
-            "Data Freshness": 0.10,
-        }
-
-        for driver_name, values in drivers_aggregate.items():
-            if values:
-                avg_value = min(100, sum(values) / len(values))
-                weight = driver_weights[driver_name]
-
-                # Determine status
-                if avg_value >= 85:
-                    status = "good"
-                elif avg_value >= 70:
-                    status = "warning"
-                else:
-                    status = "critical"
-
-                # Determine trend (simplified)
-                trend = "flat"
-                if previous_score and score > previous_score + 2:
-                    trend = "up"
-                elif previous_score and score < previous_score - 2:
-                    trend = "down"
-
-                drivers.append(
-                    {
-                        "name": driver_name,
-                        "value": round(avg_value, 1),
-                        "weight": weight,
-                        "status": status,
-                        "trend": trend,
-                    }
-                )
-
-        # Determine confidence band
-        if score >= 80:
-            confidence_band = "reliable"
-        elif score >= 60:
-            confidence_band = "directional"
-        else:
-            confidence_band = "unsafe"
+        score, _, _ = weighted_score(components)
+        previous_score, _, _ = weighted_score(previous_components)
 
         last_updated = (
-            max(r.updated_at for r in current_records) if current_records else datetime.now(UTC)
+            max(r.updated_at for r in current_records)
+            if current_records
+            else None
         )
 
         return {
-            "score": round(score, 1),
-            "previousScore": round(previous_score, 1) if previous_score else None,
-            "confidenceBand": confidence_band,
-            "drivers": drivers,
-            "lastUpdated": last_updated.isoformat() + "Z",
+            "score": score,
+            "previousScore": previous_score,
+            "confidenceBand": confidence_band(score),
+            "drivers": self._drivers(components, previous_components),
+            "lastUpdated": (
+                last_updated.isoformat() if last_updated else datetime.now(UTC).isoformat()
+            ),
         }
 
-    async def _calculate_emq_from_variance(
-        self,
-        tenant_id: int,
-        target_date: date,
-    ) -> dict[str, Any]:
-        """Calculate EMQ from attribution variance data when signal health is not available."""
-
-        # Fetch attribution variance data
-        query = select(FactAttributionVarianceDaily).where(
-            and_(
-                FactAttributionVarianceDaily.tenant_id == tenant_id,
-                FactAttributionVarianceDaily.date == target_date,
+    async def _records_for(
+        self, tenant_id: int, target_date: date
+    ) -> list[FactSignalHealthDaily]:
+        """Fetch one day's signal health rows for a tenant."""
+        result = await self.session.execute(
+            select(FactSignalHealthDaily).where(
+                and_(
+                    FactSignalHealthDaily.tenant_id == tenant_id,
+                    FactSignalHealthDaily.date == target_date,
+                )
             )
         )
-        result = await self.session.execute(query)
-        variance_records = result.scalars().all()
+        return list(result.scalars().all())
 
-        if not variance_records:
-            return self._get_default_emq_response()
+    @staticmethod
+    def _components(
+        records: list[FactSignalHealthDaily],
+    ) -> dict[str, float | None]:
+        """
+        Turn a day's rows into the four scoring components.
 
-        # Calculate attribution accuracy from variance data
-        accuracy_scores = []
-        for record in variance_records:
-            # Convert variance percentage to accuracy score
-            # 0% variance = 100 score, 50% variance = 0 score
-            variance_pct = abs(record.revenue_delta_pct)
-            accuracy = max(0, 100 - (variance_pct * 2))
-            accuracy_scores.append(accuracy)
+        The mapping is the one the fact table's columns were built for:
+        ``emq_score`` is already 0-100, ``event_loss_pct`` and
+        ``api_error_rate`` are losses subtracted from full marks, and
+        ``freshness_minutes`` is converted by the shared freshness curve so a
+        deployment's fresh/stale bounds apply here too. A column that is NULL
+        across every row yields None, which ``weighted_score`` drops rather
+        than defaulting.
 
-        avg_accuracy = sum(accuracy_scores) / len(accuracy_scores) if accuracy_scores else 75.0
+        Args:
+            records: The rows measured for one day; may be empty.
 
-        # Build estimated EMQ from limited data
-        # Attribution accuracy is 15% of EMQ, so extrapolate
-        estimated_emq = min(100, avg_accuracy * 1.1)  # Slight boost since this is partial data
+        Returns:
+            Component name to 0-100 value, or None where unmeasured.
+        """
+        emq = _mean([r.emq_score for r in records])
+        loss = _mean([r.event_loss_pct for r in records])
+        freshness_minutes = _mean([r.freshness_minutes for r in records])
+        error_rate = _mean([r.api_error_rate for r in records])
 
         return {
-            "score": round(estimated_emq, 1),
-            "previousScore": round(estimated_emq - 2.0, 1),
-            "confidenceBand": "reliable"
-            if estimated_emq >= 80
-            else "directional"
-            if estimated_emq >= 60
-            else "unsafe",
-            "drivers": self._get_estimated_drivers(estimated_emq),
-            "lastUpdated": datetime.now(UTC).isoformat() + "Z",
+            COMPONENT_EMQ: _clamp(emq),
+            COMPONENT_DELIVERY: _clamp(None if loss is None else 100.0 - loss),
+            COMPONENT_FRESHNESS: _clamp(freshness_component_score(freshness_minutes)),
+            COMPONENT_RELIABILITY: _clamp(None if error_rate is None else 100.0 - error_rate),
         }
 
-    def _get_default_emq_response(self) -> dict[str, Any]:
-        """Return default EMQ response when no data is available."""
-        return {
-            "score": 75.0,
-            "previousScore": 73.0,
-            "confidenceBand": "directional",
-            "drivers": self._get_estimated_drivers(75.0),
-            "lastUpdated": datetime.now(UTC).isoformat() + "Z",
-        }
+    @staticmethod
+    def _drivers(
+        components: dict[str, float | None],
+        previous: dict[str, float | None],
+    ) -> list[dict[str, Any]]:
+        """
+        Describe each measured component for the UI.
 
-    def _get_estimated_drivers(self, base_score: float) -> list[dict[str, Any]]:
-        """Generate estimated driver values from a base EMQ score."""
-        return [
-            {
-                "name": "Event Match Rate",
-                "value": round(min(100, base_score * 1.05), 1),
-                "weight": 0.30,
-                "status": "good" if base_score >= 75 else "warning",
-                "trend": "flat",
-            },
-            {
-                "name": "Pixel Coverage",
-                "value": round(min(100, base_score * 1.10), 1),
-                "weight": 0.25,
-                "status": "good" if base_score >= 70 else "warning",
-                "trend": "flat",
-            },
-            {
-                "name": "Conversion Latency",
-                "value": round(min(100, base_score * 0.85), 1),
-                "weight": 0.20,
-                "status": "warning" if base_score < 85 else "good",
-                "trend": "flat",
-            },
-            {
-                "name": "Attribution Accuracy",
-                "value": round(min(100, base_score * 0.95), 1),
-                "weight": 0.15,
-                "status": "good" if base_score >= 70 else "warning",
-                "trend": "flat",
-            },
-            {
-                "name": "Data Freshness",
-                "value": round(min(100, base_score * 1.15), 1),
-                "weight": 0.10,
-                "status": "good",
-                "trend": "flat",
-            },
-        ]
+        Only measured components appear. ``trend`` is None unless the same
+        component was also measured the day before - there is no direction to
+        report against a day that was never recorded.
 
+        Args:
+            components: Today's component values.
+            previous: The previous day's component values.
+
+        Returns:
+            One entry per measured component, in ``DRIVER_LABELS`` order.
+        """
+        weights = component_weights()
+        drivers: list[dict[str, Any]] = []
+
+        for name, label in DRIVER_LABELS.items():
+            value = components.get(name)
+            if value is None:
+                continue
+
+            was = previous.get(name)
+            if was is None:
+                trend = None
+            elif value > was + 1:
+                trend = "up"
+            elif value < was - 1:
+                trend = "down"
+            else:
+                trend = "flat"
+
+            drivers.append(
+                {
+                    "name": label,
+                    "value": round(value, 1),
+                    "weight": weights.get(name, 0.0),
+                    "status": _DRIVER_STATUS.get(status_for_score(value), "critical"),
+                    "trend": trend,
+                }
+            )
+
+        return drivers
+
+    # -------------------------------------------------------------------------
+    # Confidence
+    # -------------------------------------------------------------------------
     async def get_confidence_data(
         self,
         tenant_id: int,
-        target_date: Optional[date] = None,
+        target_date: date | None = None,
     ) -> dict[str, Any]:
-        """Get confidence band details for a tenant."""
+        """
+        Get confidence band details for a tenant.
 
+        Args:
+            tenant_id: Tenant ID.
+            target_date: Target date (defaults to today).
+
+        Returns:
+            Dict with band, score, thresholds and per-driver factors. ``band``
+            and ``score`` are None when nothing was measured, and ``factors``
+            is then empty rather than a list of default contributions.
+        """
         emq_data = await self.get_emq_score(tenant_id, target_date)
-        score = emq_data["score"]
 
-        # Calculate confidence factors from drivers
         factors = []
         for driver in emq_data["drivers"]:
-            contribution = driver["value"] * driver["weight"]
-            if driver["value"] >= 80:
+            if driver["value"] >= settings.emq_confidence_reliable_threshold:
                 status = "positive"
-            elif driver["value"] >= 60:
+            elif driver["value"] >= settings.emq_confidence_directional_threshold:
                 status = "neutral"
             else:
                 status = "negative"
@@ -322,30 +317,44 @@ class EmqService:
             factors.append(
                 {
                     "name": driver["name"],
-                    "contribution": round(contribution, 1),
+                    "contribution": round(driver["value"] * driver["weight"], 1),
                     "status": status,
                 }
             )
 
         return {
             "band": emq_data["confidenceBand"],
-            "score": score,
+            "score": emq_data["score"],
             "thresholds": {
-                "reliable": 80.0,
-                "directional": 60.0,
+                "reliable": float(settings.emq_confidence_reliable_threshold),
+                "directional": float(settings.emq_confidence_directional_threshold),
             },
             "factors": factors,
         }
 
+    # -------------------------------------------------------------------------
+    # Incidents
+    # -------------------------------------------------------------------------
     async def get_incidents(
         self,
         tenant_id: int,
         start_date: date,
         end_date: date,
     ) -> list[dict[str, Any]]:
-        """Get EMQ incidents within a date range."""
+        """
+        Get EMQ incidents within a date range.
 
-        # Query signal health records with status changes
+        Args:
+            tenant_id: Tenant ID.
+            start_date: First day to report.
+            end_date: Last day to report.
+
+        Returns:
+            One entry per non-OK signal health row. ``emqImpact`` is always
+            None: a single row carries no baseline to measure an impact
+            against, and the previous code reported the row's distance from a
+            hardcoded 80 - or a flat -10 when the row had no score at all.
+        """
         query = (
             select(FactSignalHealthDaily)
             .where(
@@ -364,7 +373,6 @@ class EmqService:
 
         incidents = []
         for record in records:
-            # Determine incident type based on status
             if record.status == SignalHealthStatus.CRITICAL:
                 incident_type = "incident_opened"
                 severity = "critical"
@@ -375,13 +383,9 @@ class EmqService:
                 incident_type = "degradation"
                 severity = "medium"
 
-            # Parse issues for title/description
             issues = json.loads(record.issues) if record.issues else []
             title = issues[0] if issues else f"Signal health {record.status.value}"
             description = "; ".join(issues[1:]) if len(issues) > 1 else None
-
-            # Calculate EMQ impact (difference from baseline 80)
-            emq_impact = (record.emq_score - 80) if record.emq_score else -10
 
             incidents.append(
                 {
@@ -389,27 +393,40 @@ class EmqService:
                     "type": incident_type,
                     "title": title,
                     "description": description,
-                    "timestamp": record.created_at.isoformat() + "Z",
+                    "timestamp": record.created_at.isoformat(),
                     "platform": record.platform,
                     "severity": severity,
                     "recoveryHours": None,
-                    "emqImpact": round(emq_impact, 1),
+                    "emqImpact": None,
                 }
             )
 
         return incidents
 
+    # -------------------------------------------------------------------------
+    # Volatility
+    # -------------------------------------------------------------------------
     async def get_volatility(
         self,
         tenant_id: int,
         weeks: int = 8,
     ) -> dict[str, Any]:
-        """Get signal volatility index and weekly data."""
+        """
+        Get the signal volatility index and its weekly series.
 
+        Args:
+            tenant_id: Tenant ID.
+            weeks: How many weeks back to measure.
+
+        Returns:
+            Dict with svi, trend and weeklyData. All three are empty or None
+            for a tenant with no history: the previous code generated eight
+            weeks of points from ``12.5 + i * 0.8 - (i % 3) * 2.1`` and an SVI
+            of 15.3.
+        """
         end_date = datetime.now(UTC).date()
         start_date = end_date - timedelta(weeks=weeks)
 
-        # Query weekly EMQ scores
         week_col = func.date_trunc("week", FactSignalHealthDaily.date).label("week")
         query = (
             select(
@@ -431,27 +448,21 @@ class EmqService:
         result = await self.session.execute(query)
         weekly_data = result.all()
 
-        if not weekly_data:
-            # Return synthetic data if no records
-            return self._get_default_volatility(weeks)
-
-        # Calculate SVI (Signal Volatility Index) as average weekly stddev
         stddevs = [row.stddev for row in weekly_data if row.stddev is not None]
-        svi = sum(stddevs) / len(stddevs) if stddevs else 10.0
+        svi = round(sum(stddevs) / len(stddevs), 1) if stddevs else None
 
-        # Build weekly data points
-        data_points = []
-        for row in weekly_data:
-            if row.avg_score is not None:
-                data_points.append(
-                    {
-                        "date": row.week.strftime("%Y-%m-%d"),
-                        "value": round(row.stddev or 0, 1),
-                    }
-                )
+        data_points = [
+            {
+                "date": row.week.strftime("%Y-%m-%d"),
+                "value": round(row.stddev, 1),
+            }
+            for row in weekly_data
+            if row.stddev is not None
+        ]
 
-        # Determine trend
-        if len(data_points) >= 2:
+        # A direction needs two ends to compare. One point is a reading, not a
+        # trend, and no points is not "stable".
+        if len(data_points) >= 4:
             recent = sum(d["value"] for d in data_points[-2:]) / 2
             older = sum(d["value"] for d in data_points[:2]) / 2
             if recent < older - 2:
@@ -461,59 +472,45 @@ class EmqService:
             else:
                 trend = "stable"
         else:
-            trend = "stable"
+            trend = None
 
         return {
-            "svi": round(svi, 1),
+            "svi": svi,
             "trend": trend,
             "weeklyData": data_points,
         }
 
-    def _get_default_volatility(self, weeks: int) -> dict[str, Any]:
-        """Return default volatility data."""
-        today = datetime.now(UTC).date()
-        data_points = []
-        for i in range(weeks):
-            week_date = today - timedelta(weeks=weeks - 1 - i)
-            value = 12.5 + (i * 0.8) - (i % 3) * 2.1
-            data_points.append(
-                {
-                    "date": week_date.strftime("%Y-%m-%d"),
-                    "value": round(value, 1),
-                }
-            )
-
-        return {
-            "svi": 15.3,
-            "trend": "decreasing",
-            "weeklyData": data_points,
-        }
-
+    # -------------------------------------------------------------------------
+    # Autopilot
+    # -------------------------------------------------------------------------
     async def get_autopilot_state(
         self,
         tenant_id: int,
     ) -> dict[str, Any]:
-        """Get autopilot state based on current EMQ score."""
+        """
+        Get the autopilot state implied by the tenant's measured signal health.
 
+        Args:
+            tenant_id: Tenant ID.
+
+        Returns:
+            Dict with mode, reason, budgetAtRisk and the allowed/restricted
+            action lists. With no measured score the mode is ``frozen``: the
+            trust gate fails closed on absent signal health, so reporting
+            anything more permissive here would contradict what the gate will
+            actually do. ``budgetAtRisk`` is None - ``fact_actions_queue``
+            carries no budget column, and the previous code multiplied the
+            queued row count by a flat $5,000.
+        """
         emq_data = await self.get_emq_score(tenant_id)
         score = emq_data["score"]
 
-        mode, reason = determine_autopilot_mode(score)
+        if score is None:
+            mode = "frozen"
+            reason = "No signal health has been measured; automation is held closed"
+        else:
+            mode, reason = determine_autopilot_mode(score)
 
-        # Calculate budget at risk from pending actions
-        query = select(func.count()).where(
-            and_(
-                FactActionsQueue.tenant_id == tenant_id,
-                FactActionsQueue.status == "queued",
-            )
-        )
-        result = await self.session.execute(query)
-        pending_count = result.scalar() or 0
-
-        # Estimate budget at risk (would come from actual action data)
-        budget_at_risk = pending_count * 5000.0  # Rough estimate
-
-        # Define allowed/restricted actions by mode
         mode_config = {
             "normal": {
                 "allowed": [
@@ -563,25 +560,65 @@ class EmqService:
             },
         }
 
-        config = mode_config.get(mode, mode_config["limited"])
+        config = mode_config[mode]
 
         return {
             "mode": mode,
             "reason": reason,
-            "budgetAtRisk": budget_at_risk,
+            "budgetAtRisk": None,
             "allowedActions": config["allowed"],
             "restrictedActions": config["restricted"],
         }
 
+    async def count_queued_actions(self, tenant_id: int) -> int:
+        """
+        Count the actions currently waiting in the tenant's queue.
+
+        A real count, kept because it is the honest part of what budget at risk
+        used to be derived from.
+
+        Args:
+            tenant_id: Tenant ID.
+
+        Returns:
+            The number of queued rows.
+        """
+        result = await self.session.execute(
+            select(func.count()).where(
+                and_(
+                    FactActionsQueue.tenant_id == tenant_id,
+                    FactActionsQueue.status == "queued",
+                )
+            )
+        )
+        return result.scalar() or 0
+
+    # -------------------------------------------------------------------------
+    # Impact
+    # -------------------------------------------------------------------------
     async def get_impact(
         self,
         tenant_id: int,
         start_date: date,
         end_date: date,
     ) -> dict[str, Any]:
-        """Calculate ROAS impact from EMQ issues."""
+        """
+        Report measured attribution variance per platform.
 
-        # Query attribution variance for the period
+        Args:
+            tenant_id: Tenant ID.
+            start_date: First day to include.
+            end_date: Last day to include.
+
+        Returns:
+            Dict with totalImpact, currency and a per-platform breakdown.
+            ``actualRoas`` and ``confidence`` are measured from
+            ``fact_attribution_variance_daily``. ``estimatedRoas``,
+            ``revenueImpact`` and ``totalImpact`` are None: nothing in this
+            system models what ROAS *would* be under perfect attribution, and
+            the previous code simply asserted a 15% improvement and took a
+            tenth of it as recovered revenue.
+        """
         query = select(FactAttributionVarianceDaily).where(
             and_(
                 FactAttributionVarianceDaily.tenant_id == tenant_id,
@@ -592,73 +629,40 @@ class EmqService:
         result = await self.session.execute(query)
         records = result.scalars().all()
 
-        if not records:
-            return self._get_default_impact()
-
-        # Group by platform and calculate impact
         platform_data: dict[str, dict] = {}
         for record in records:
-            if record.platform not in platform_data:
-                platform_data[record.platform] = {
-                    "platform_revenue": 0,
-                    "ga4_revenue": 0,
-                    "platform_conversions": 0,
-                    "ga4_conversions": 0,
-                    "confidence_sum": 0,
+            data = platform_data.setdefault(
+                record.platform,
+                {
+                    "platform_revenue": 0.0,
+                    "ga4_revenue": 0.0,
+                    "confidence_sum": 0.0,
                     "count": 0,
-                }
-
-            data = platform_data[record.platform]
+                },
+            )
             data["platform_revenue"] += record.platform_revenue
             data["ga4_revenue"] += record.ga4_revenue
-            data["platform_conversions"] += record.platform_conversions
-            data["ga4_conversions"] += record.ga4_conversions
             data["confidence_sum"] += record.confidence
             data["count"] += 1
 
         breakdown = []
-        total_impact = 0
-
         for platform, data in platform_data.items():
-            if data["ga4_revenue"] > 0:
-                actual_roas = data["platform_revenue"] / max(1, data["ga4_revenue"])
-                # Estimate what ROAS would be with perfect attribution
-                estimated_roas = actual_roas * 1.15  # 15% improvement assumption
-                confidence = data["confidence_sum"] / data["count"] if data["count"] > 0 else 0.5
-
-                revenue_impact = (estimated_roas - actual_roas) * data["ga4_revenue"] * 0.1
-                total_impact += revenue_impact
-
-                breakdown.append(
-                    {
-                        "platform": platform.title(),
-                        "actualRoas": round(actual_roas, 2),
-                        "estimatedRoas": round(estimated_roas, 2),
-                        "confidence": round(confidence, 2),
-                        "revenueImpact": round(revenue_impact, 2),
-                    }
-                )
+            if data["ga4_revenue"] <= 0 or data["count"] == 0:
+                continue
+            breakdown.append(
+                {
+                    "platform": platform.title(),
+                    "actualRoas": round(data["platform_revenue"] / data["ga4_revenue"], 2),
+                    "estimatedRoas": None,
+                    "confidence": round(data["confidence_sum"] / data["count"], 2),
+                    "revenueImpact": None,
+                }
+            )
 
         return {
-            "totalImpact": round(total_impact, 2),
+            "totalImpact": None,
             "currency": "USD",
             "breakdown": breakdown,
-        }
-
-    def _get_default_impact(self) -> dict[str, Any]:
-        """Return default impact data."""
-        return {
-            "totalImpact": 24350.00,
-            "currency": "USD",
-            "breakdown": [
-                {
-                    "platform": "Meta",
-                    "actualRoas": 2.8,
-                    "estimatedRoas": 3.4,
-                    "confidence": 0.85,
-                    "revenueImpact": 15200.00,
-                },
-            ],
         }
 
 
@@ -670,21 +674,33 @@ class EmqAdminService:
 
     async def get_benchmarks(
         self,
-        target_date: Optional[date] = None,
-        platform: Optional[str] = None,
+        target_date: date | None = None,
+        platform: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Get EMQ benchmarks across all tenants."""
+        """
+        Get EMQ percentile benchmarks across all tenants.
 
+        Args:
+            target_date: Day to measure (defaults to today).
+            platform: Optional platform filter.
+
+        Returns:
+            One entry per platform with measured percentiles, or an empty list
+            when no tenant has a score that day. ``tenantScore`` and
+            ``percentile`` are None: this endpoint has no tenant scope, and the
+            previous code filled them with the cross-tenant average and with
+            that average restated as a percentile. The removed no-data fallback
+            also published a **LinkedIn** benchmark, which is not a Meta
+            channel and never had a source.
+        """
         if target_date is None:
             target_date = datetime.now(UTC).date()
 
-        # Query EMQ scores grouped by platform
         query = select(
             FactSignalHealthDaily.platform,
             func.percentile_cont(0.25).within_group(FactSignalHealthDaily.emq_score).label("p25"),
             func.percentile_cont(0.50).within_group(FactSignalHealthDaily.emq_score).label("p50"),
             func.percentile_cont(0.75).within_group(FactSignalHealthDaily.emq_score).label("p75"),
-            func.avg(FactSignalHealthDaily.emq_score).label("avg_score"),
         ).where(
             and_(
                 FactSignalHealthDaily.date == target_date,
@@ -700,72 +716,59 @@ class EmqAdminService:
         result = await self.session.execute(query)
         rows = result.all()
 
-        if not rows:
-            return self._get_default_benchmarks(platform)
-
-        benchmarks = []
-        for row in rows:
-            avg = row.avg_score or 75.0
-            benchmarks.append(
-                {
-                    "platform": row.platform.title(),
-                    "p25": round(row.p25 or 62.5, 1),
-                    "p50": round(row.p50 or 74.8, 1),
-                    "p75": round(row.p75 or 86.2, 1),
-                    "tenantScore": round(avg, 1),
-                    "percentile": round((avg / 100) * 100, 1),
-                }
-            )
-
-        return benchmarks
-
-    def _get_default_benchmarks(self, platform: Optional[str] = None) -> list[dict[str, Any]]:
-        """Return default benchmarks."""
-        all_benchmarks = [
+        return [
             {
-                "platform": "Meta",
-                "p25": 62.5,
-                "p50": 74.8,
-                "p75": 86.2,
-                "tenantScore": 78.5,
-                "percentile": 58.3,
-            },
-            {
-                "platform": "LinkedIn",
-                "p25": 71.5,
-                "p50": 81.2,
-                "p75": 90.5,
-                "tenantScore": 84.8,
-                "percentile": 68.9,
-            },
+                "platform": row.platform.title(),
+                "p25": round(row.p25, 1) if row.p25 is not None else None,
+                "p50": round(row.p50, 1) if row.p50 is not None else None,
+                "p75": round(row.p75, 1) if row.p75 is not None else None,
+                "tenantScore": None,
+                "percentile": None,
+            }
+            for row in rows
         ]
-
-        if platform:
-            return [b for b in all_benchmarks if b["platform"].lower() == platform.lower()]
-        return all_benchmarks
 
     async def get_portfolio(
         self,
-        target_date: Optional[date] = None,
+        target_date: date | None = None,
     ) -> dict[str, Any]:
-        """Get portfolio-wide EMQ overview."""
+        """
+        Get the portfolio-wide EMQ overview.
 
+        Args:
+            target_date: Day to measure (defaults to today).
+
+        Returns:
+            Dict with the measured tenant counts by band and average score.
+            ``atRiskBudget`` is None and ``topIssues`` is empty: there is no
+            per-driver storage to rank issues from, and the previous code
+            assigned five fixed issue names a share of the tenant count (50%,
+            30%, 25%, 20%, 15%) and sized the budget as
+            ``(directional + unsafe * 2) * 50000``. With no rows at all the
+            counts are zero rather than the 156 tenants and $2,450,000 the
+            removed fallback published.
+        """
         if target_date is None:
             target_date = datetime.now(UTC).date()
 
-        # Count tenants by band
+        reliable_edge = float(settings.emq_confidence_reliable_threshold)
+        directional_edge = float(settings.emq_confidence_directional_threshold)
+
         query = select(
             func.count(func.distinct(FactSignalHealthDaily.tenant_id)).label("total"),
             func.count(func.distinct(FactSignalHealthDaily.tenant_id))
-            .filter(FactSignalHealthDaily.emq_score >= 80)
+            .filter(FactSignalHealthDaily.emq_score >= reliable_edge)
             .label("reliable"),
             func.count(func.distinct(FactSignalHealthDaily.tenant_id))
             .filter(
-                and_(FactSignalHealthDaily.emq_score >= 60, FactSignalHealthDaily.emq_score < 80)
+                and_(
+                    FactSignalHealthDaily.emq_score >= directional_edge,
+                    FactSignalHealthDaily.emq_score < reliable_edge,
+                )
             )
             .label("directional"),
             func.count(func.distinct(FactSignalHealthDaily.tenant_id))
-            .filter(FactSignalHealthDaily.emq_score < 60)
+            .filter(FactSignalHealthDaily.emq_score < directional_edge)
             .label("unsafe"),
             func.avg(FactSignalHealthDaily.emq_score).label("avg_score"),
         ).where(
@@ -778,21 +781,14 @@ class EmqAdminService:
         result = await self.session.execute(query)
         row = result.one_or_none()
 
-        if not row or row.total == 0:
-            return self._get_default_portfolio()
-
-        # Get top issues (drivers with low scores)
-        # This would require more detailed driver-level storage
-        top_issues = [
-            {"driver": "iOS Signal Loss", "affectedTenants": int(row.total * 0.5)},
-            {"driver": "Consent Mode v2 Migration", "affectedTenants": int(row.total * 0.3)},
-            {"driver": "CAPI Implementation", "affectedTenants": int(row.total * 0.25)},
-            {"driver": "Conversion Latency", "affectedTenants": int(row.total * 0.2)},
-            {"driver": "Event Deduplication", "affectedTenants": int(row.total * 0.15)},
-        ]
-
-        # Estimate budget at risk (would come from actual budget data)
-        at_risk_budget = (row.directional + row.unsafe * 2) * 50000  # Rough estimate
+        if row is None or not row.total:
+            return {
+                "totalTenants": 0,
+                "byBand": {"reliable": 0, "directional": 0, "unsafe": 0},
+                "atRiskBudget": None,
+                "avgScore": None,
+                "topIssues": [],
+            }
 
         return {
             "totalTenants": row.total,
@@ -801,27 +797,7 @@ class EmqAdminService:
                 "directional": row.directional or 0,
                 "unsafe": row.unsafe or 0,
             },
-            "atRiskBudget": at_risk_budget,
-            "avgScore": round(row.avg_score or 75.0, 1),
-            "topIssues": top_issues,
-        }
-
-    def _get_default_portfolio(self) -> dict[str, Any]:
-        """Return default portfolio data."""
-        return {
-            "totalTenants": 156,
-            "byBand": {
-                "reliable": 89,
-                "directional": 52,
-                "unsafe": 15,
-            },
-            "atRiskBudget": 2450000.00,
-            "avgScore": 76.8,
-            "topIssues": [
-                {"driver": "iOS Signal Loss", "affectedTenants": 78},
-                {"driver": "Consent Mode v2 Migration", "affectedTenants": 45},
-                {"driver": "CAPI Implementation", "affectedTenants": 38},
-                {"driver": "Conversion Latency", "affectedTenants": 29},
-                {"driver": "Event Deduplication", "affectedTenants": 21},
-            ],
+            "atRiskBudget": None,
+            "avgScore": round(row.avg_score, 1) if row.avg_score is not None else None,
+            "topIssues": [],
         }

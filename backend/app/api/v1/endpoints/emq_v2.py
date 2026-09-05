@@ -93,8 +93,8 @@ async def get_emq_score(
     Get current EMQ score for a tenant.
 
     Returns:
-    - score: Overall EMQ score (0-100)
-    - previousScore: Previous period score for comparison
+    - score: Overall EMQ score (0-100), or null when not measured
+    - previousScore: Previous period score for comparison, or null
     - confidenceBand: Data quality band (reliable/directional/unsafe)
     - drivers: Individual EMQ driver components
     - lastUpdated: Timestamp of last score calculation
@@ -117,9 +117,12 @@ async def get_emq_score(
         for d in data["drivers"]
     ]
 
+    # `previousScore` used to fall back to `score - 2.0`, which drew a gentle
+    # "-2 points from yesterday" delta on a comparison that had never been
+    # measured - and did it for every tenant whose history started today.
     response_data = EmqScoreResponse(
         score=data["score"],
-        previousScore=data["previousScore"] or data["score"] - 2.0,
+        previousScore=data["previousScore"],
         confidenceBand=data["confidenceBand"],
         drivers=drivers,
         lastUpdated=data["lastUpdated"],
@@ -188,12 +191,20 @@ async def get_playbook(
     service = EmqService(db)
     emq_data = await service.get_emq_score(tenant_id)
 
+    # Every item below is advice *derived from a measurement*. With nothing
+    # measured there is nothing to derive, and the honest answer is an empty
+    # playbook rather than the generic list the unmeasured defaults produced:
+    # each `.get("value", 100)` read as "this driver is perfect", while the
+    # score itself defaulted to 75 and so always tripped the `< 95` item.
+    if emq_data["score"] is None:
+        return APIResponse(success=True, data=[])
+
     # Generate playbook based on driver scores
     playbook_items = []
     drivers = {d["name"]: d for d in emq_data["drivers"]}
 
     # Check Event Match Rate
-    if drivers.get("Event Match Rate", {}).get("value", 100) < 85:
+    if drivers.get("Event Match Quality", {}).get("value", 100) < 85:
         playbook_items.append(
             PlaybookItemResponse(
                 id=str(uuid.uuid4()),
@@ -225,7 +236,7 @@ async def get_playbook(
         )
 
     # Check Pixel Coverage
-    if drivers.get("Pixel Coverage", {}).get("value", 100) < 90:
+    if drivers.get("Delivery", {}).get("value", 100) < 90:
         playbook_items.append(
             PlaybookItemResponse(
                 id=str(uuid.uuid4()),
@@ -242,7 +253,7 @@ async def get_playbook(
         )
 
     # Check Conversion Latency
-    if drivers.get("Conversion Latency", {}).get("value", 100) < 70:
+    if drivers.get("Freshness", {}).get("value", 100) < 70:
         playbook_items.append(
             PlaybookItemResponse(
                 id=str(uuid.uuid4()),
@@ -449,7 +460,11 @@ async def get_autopilot_state(
     - normal: Full automation allowed (EMQ >= 80)
     - limited: Conservative automation (EMQ 60-79)
     - cuts_only: Only budget cuts allowed (EMQ 40-59)
-    - frozen: No automation allowed (EMQ < 40)
+    - frozen: No automation allowed (EMQ < 40), and also when no signal
+      health has been measured at all - the trust gate fails closed on an
+      unscorable tenant, so this must not report anything more permissive.
+
+    `budgetAtRisk` is null: fact_actions_queue carries no budget column.
     """
     validate_tenant_access(request, tenant_id)
 

@@ -7,7 +7,8 @@ import { cn } from '@/lib/utils';
 import { ArrowTrendingDownIcon, ArrowTrendingUpIcon } from '@heroicons/react/24/outline';
 
 interface VolatilityBadgeProps {
-  svi: number; // Signal Volatility Index 0-100
+  /** Signal Volatility Index 0-100; null when no history was measured. */
+  svi: number | null;
   threshold?: number; // Above this = unstable
   showValue?: boolean;
   size?: 'sm' | 'md' | 'lg';
@@ -33,6 +34,20 @@ export function VolatilityBadge({
   size = 'md',
   className,
 }: VolatilityBadgeProps) {
+  if (svi === null) {
+    return (
+      <span
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-full font-medium bg-surface-tertiary text-text-muted',
+          sizeClasses[size],
+          className
+        )}
+      >
+        Volatility not measured
+      </span>
+    );
+  }
+
   const isUnstable = svi >= threshold;
   const isCritical = svi >= threshold * 2;
 
