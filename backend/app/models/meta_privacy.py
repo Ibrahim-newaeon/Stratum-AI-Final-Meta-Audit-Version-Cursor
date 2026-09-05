@@ -77,7 +77,9 @@ class MetaDataDeletionRequest(Base):
     #: How many platform connections this request severed. Operator counter,
     #: and the one thing the public status page consults - a request that
     #: matched nothing must not be described as having erased something.
-    connections_cleared = Column(Integer, nullable=False, default=0)
+    connections_cleared = Column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     #: Failure cause for operators. Never contains a token or the app secret.
     last_error = Column(Text, nullable=True)

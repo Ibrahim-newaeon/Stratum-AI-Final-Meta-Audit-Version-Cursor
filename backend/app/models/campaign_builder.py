@@ -100,7 +100,7 @@ class TenantPlatformConnection(Base):
     # ONLY thing Meta sends in its Deauthorize and Data Deletion callbacks, so
     # without it those callbacks cannot tell which connection to sever. Indexed
     # but not unique: one Meta user may connect several tenants.
-    platform_user_id = Column(String(64), nullable=True, index=True)
+    platform_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     # Timestamps
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

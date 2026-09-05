@@ -173,6 +173,18 @@ from app.models.crm import (
     WritebackStatus,
 )
 
+# Embeddable widget models
+from app.models.embed_widgets import (
+    BrandingLevel,
+    EmbedDomainWhitelist,
+    EmbedToken,
+    EmbedWidget,
+    EmbedWidgetView,
+    TokenStatus,
+    WidgetSize,
+    WidgetType,
+)
+
 # Measurement & Verification models (GA4 read-only baseline + GTM tag deployment)
 from app.models.measurement import (
     FactGA4Daily,
@@ -468,4 +480,13 @@ __all__ = [
     "OfflineConversion",
     "OfflineConversionBatch",
     "ReallocationStatus",
+    # Embeddable widget models
+    "BrandingLevel",
+    "EmbedDomainWhitelist",
+    "EmbedToken",
+    "EmbedWidget",
+    "EmbedWidgetView",
+    "TokenStatus",
+    "WidgetSize",
+    "WidgetType",
 ]

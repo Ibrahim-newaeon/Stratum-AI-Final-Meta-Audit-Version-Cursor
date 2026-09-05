@@ -27,10 +27,12 @@ INIT_PATH = MODELS_DIR / "__init__.py"
 # Registering either today raises InvalidRequestError, because both redeclare a
 # table another module already owns (for example `competitor_benchmarks`).
 # Untangling those duplicates is its own change.
-KNOWN_UNREGISTERED: dict[str, str] = {
-    "audit_services": "redeclares competitor_benchmarks, which base_models already owns",
-    "embed_widgets": "not yet reconciled with the embed widget endpoints",
-}
+# Both former entries are gone: audit_services no longer redeclares
+# competitor_benchmarks (its model was renamed to IndustryBenchmark on
+# industry_benchmarks) and both modules are now registered with migrations
+# creating their tables. Empty is the goal state - add an entry only with a
+# reason, and delete it the moment the module is wired up.
+KNOWN_UNREGISTERED: dict[str, str] = {}
 
 
 def _declared_tables(path: pathlib.Path) -> set[str]:
