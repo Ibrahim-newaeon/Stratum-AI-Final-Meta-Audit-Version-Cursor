@@ -20,7 +20,7 @@ CRITICAL (manual action required).
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Optional, Sequence
 
@@ -33,23 +33,70 @@ logger = get_logger(__name__)
 __all__ = ["SignalHealthCalculator", "SignalHealthConfig", "SignalHealthResult"]
 
 
+def _setting(name: str, fallback: float) -> float:
+    """
+    Read one numeric setting, falling back when the key is not configured.
+
+    Used as a ``default_factory`` rather than a plain default so the value is
+    read when a config object is *constructed*, not when this module is first
+    imported. A bare ``float(getattr(settings, ...))`` default is evaluated once
+    at class-definition time, which freezes the weights for the life of the
+    process: the trust gate would then keep scoring with import-time weights
+    while :mod:`app.services.signal_health` scored with the current ones, and
+    the composite would mean two different things at the two ends of the engine.
+
+    Args:
+        name: Settings attribute to read.
+        fallback: Value to use when the setting is not defined.
+
+    Returns:
+        The configured value as a float.
+    """
+    return float(getattr(settings, name, fallback))
+
+
 @dataclass
 class SignalHealthConfig:
-    """Configurable thresholds and weights for signal health scoring."""
+    """
+    Configurable thresholds and weights for signal health scoring.
+
+    Every field is read from ``Settings`` at construction time (see
+    :func:`_setting`), so a deployment that tunes a weight or a threshold gets
+    the same number everywhere the composite is computed.
+    """
 
     # Status thresholds (sourced from app settings when defined there)
-    healthy_threshold: float = float(getattr(settings, "signal_health_healthy_threshold", 70.0))
-    degraded_threshold: float = float(getattr(settings, "signal_health_degraded_threshold", 40.0))
+    healthy_threshold: float = field(
+        default_factory=lambda: _setting("signal_health_healthy_threshold", 70.0)
+    )
+    degraded_threshold: float = field(
+        default_factory=lambda: _setting("signal_health_degraded_threshold", 40.0)
+    )
 
-    # Component weights (must sum to 1.0)
-    emq_weight: float = 0.40
-    freshness_weight: float = 0.25
-    variance_weight: float = 0.20
-    anomaly_weight: float = 0.15
+    # Component weights (must sum to 1.0). Sourced from settings so the
+    # composite means the same thing wherever it is computed: this calculator,
+    # the trust gate scoring fact_signal_health_daily rows, and
+    # app.services.signal_health computing the score the rollup writes.
+    emq_weight: float = field(
+        default_factory=lambda: _setting("signal_health_emq_weight", 0.40)
+    )
+    freshness_weight: float = field(
+        default_factory=lambda: _setting("signal_health_freshness_weight", 0.25)
+    )
+    variance_weight: float = field(
+        default_factory=lambda: _setting("signal_health_variance_weight", 0.20)
+    )
+    anomaly_weight: float = field(
+        default_factory=lambda: _setting("signal_health_anomaly_weight", 0.15)
+    )
 
     # Freshness scoring: full score under fresh_minutes, zero past stale_minutes
-    fresh_minutes: float = float(getattr(settings, "signal_health_fresh_minutes", 60.0))
-    stale_minutes: float = float(getattr(settings, "signal_health_stale_minutes", 24 * 60.0))
+    fresh_minutes: float = field(
+        default_factory=lambda: _setting("signal_health_fresh_minutes", 60.0)
+    )
+    stale_minutes: float = field(
+        default_factory=lambda: _setting("signal_health_stale_minutes", 24 * 60.0)
+    )
 
 
 class SignalHealthResult(SignalHealth):

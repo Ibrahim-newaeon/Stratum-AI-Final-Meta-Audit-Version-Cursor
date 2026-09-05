@@ -70,6 +70,63 @@
       "90d": "Last 90 Days"
     }
   },
+  "signalHealth": {
+    "title": "Signal Health",
+    "overallScore": "Overall Score",
+    "emqScore": "EMQ Score",
+    "dataFreshness": "Data Freshness",
+    "apiHealth": "API Health",
+    "autopilot": "Autopilot",
+    "online": "Online",
+    "offline": "Offline",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "issues": "Issues",
+    "moreIssues": "+{{count}} more issues",
+    "noData": "No signal health data available",
+    "status": {
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "critical": "Critical",
+      "insufficientData": "Not enough data yet"
+    },
+    "insufficient": {
+      "badge": "Not enough data",
+      "headline": "Not enough data to score signal health yet",
+      "body": "Stratum only shows a score it can stand behind. Nothing here is estimated.",
+      "missingTitle": "What's missing",
+      "gate": "Autopilot stays held until signal health can be measured."
+    },
+    "gate": {
+      "title": "Trust Gate",
+      "signalScore": "Signal Score",
+      "pass": "PASS",
+      "hold": "HOLD",
+      "block": "BLOCK",
+      "unknown": "NO DATA",
+      "passDescription": "Autopilot Enabled",
+      "holdDescription": "Alert Mode",
+      "blockDescription": "Manual Required",
+      "unknownDescription": "Not Enough Data",
+      "passDetail": "Signal health is strong. Automations will execute automatically.",
+      "holdDetail": "Signal health is degraded. Automation on hold, alerts only.",
+      "blockDetail": "Signal health is critical. All automations blocked, manual action required.",
+      "unknownDetail": "Signal health cannot be measured yet, so nothing runs automatically.",
+      "autoExecute": "Auto-Execute",
+      "alertOnly": "Alert Only",
+      "manualOnly": "Manual Only",
+      "waitingForData": "Waiting For Data",
+      "notMeasured": "Not measured"
+    },
+    "justNow": "Just now",
+    "missing": {
+      "no_delivery_events": "No conversion events have reached this channel yet.",
+      "too_few_delivery_events": "Too few conversion events so far to judge delivery quality.",
+      "no_campaign_sync": "No campaign has completed a Meta insights sync yet.",
+      "no_platform_connection": "Meta is not connected yet.",
+      "no_meta_channels": "No Meta channels are configured yet."
+    }
+  },
   "simulator": {
     "title": "What-If Simulator",
     "description": "Predict the impact of budget changes",

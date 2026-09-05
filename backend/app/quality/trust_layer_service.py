@@ -321,18 +321,37 @@ class SignalHealthService:
         return banners
 
     def _empty_response(self, target_date: date) -> dict[str, Any]:
-        """Return empty response when no data."""
+        """
+        Return the response for a date with no signal health rows.
+
+        ``automation_blocked`` is True here, matching the trust gate, which
+        fails closed on a missing snapshot. It used to be False - "no data" was
+        reported to the UI as "automation is not blocked" while every
+        automation attempt for the same tenant was in fact being BLOCKed. The
+        rollup now deliberately writes no row for a tenant it cannot
+        substantiate, so this path is the common one for a new tenant and the
+        inversion would be what most tenants saw.
+
+        Args:
+            target_date: The date that had no rows.
+
+        Returns:
+            The empty signal health payload.
+        """
         return {
             "date": target_date.isoformat(),
             "status": "no_data",
-            "automation_blocked": False,
+            "automation_blocked": True,
             "cards": [],
             "platform_rows": [],
             "banners": [
                 {
-                    "type": "info",
-                    "title": "No Data Available",
-                    "message": "Signal health data is not yet available for this date.",
+                    "type": "warning",
+                    "title": "Signal Health Not Measured Yet",
+                    "message": (
+                        "Signal health could not be measured for this date, so "
+                        "the trust gate holds every automated action."
+                    ),
                     "actions": ["Wait for data sync", "Check platform connections"],
                 }
             ],

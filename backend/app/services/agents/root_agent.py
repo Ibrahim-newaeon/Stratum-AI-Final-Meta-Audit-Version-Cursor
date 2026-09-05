@@ -302,14 +302,33 @@ class RootAgent:
         )
 
     def _handle_thresholds(self, context: ConversationContext, text: str) -> AgentResponse:
+        """
+        Capture the tenant's preferred trust threshold for the summary.
+
+        This agent has no database access - it returns a
+        ``complete_onboarding`` action for the client to act on - so the number
+        collected here is *not* applied to ``TenantOnboarding``; the onboarding
+        form's trust gate step is what persists it, and the trust engine reads
+        it from there. The reply used to say "Trust threshold set to 90%",
+        which was never true and became actively misleading once the stored
+        thresholds started governing the gate.
+
+        Args:
+            context: The conversation state being advanced.
+            text: The user's reply.
+
+        Returns:
+            The agent's next response.
+        """
         digits = "".join(c for c in text if c.isdigit())
         if digits and "adjust" not in text.lower():
             context.onboarding_data.trust_threshold = max(40, min(int(digits), 100))
         context.state = ConversationState.CREATING_AUTOMATION
         return _response_for(
             context,
-            f"Trust threshold set to {context.onboarding_data.trust_threshold}%. "
-            "Want to create your first automation rule now?",
+            f"Noted - {context.onboarding_data.trust_threshold}% goes in your "
+            "onboarding summary, and the trust gate step is where it takes "
+            "effect. Want to create your first automation rule now?",
         )
 
     def _handle_automation(self, context: ConversationContext, text: str) -> AgentResponse:

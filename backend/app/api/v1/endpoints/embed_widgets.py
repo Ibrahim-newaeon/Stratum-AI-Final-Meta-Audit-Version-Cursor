@@ -17,6 +17,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -454,22 +455,123 @@ async def get_widget_data(
     )
 
 
+def _signal_health_widget_data(widget: EmbedWidget, db: Session) -> dict:
+    """
+    Build the public signal health widget payload from the trust engine.
+
+    These widgets are served to the tenant's own website under a token, so
+    whatever they say is published. They used to publish a hardcoded
+    ``overall_score: 87`` with ``status: "healthy"`` and a ``last_updated``
+    stamped with the current time, which made an invented number look like a
+    live measurement on a customer-facing page.
+
+    The payload now comes from :func:`check_signal_health_sync` - the same
+    evaluation the trust gate itself performs over the newest persisted
+    ``fact_signal_health_daily`` snapshot - so the embedded widget cannot claim
+    a health the gate does not agree with. A tenant with no snapshot gets an
+    explicit insufficient-data payload with a null score and a null
+    ``last_updated``, never a number.
+
+    Args:
+        widget: The widget being served, which carries the tenant.
+        db: Synchronous database session.
+
+    Returns:
+        The widget data payload.
+    """
+    from app.services.signal_health.model import SignalHealthThresholds
+    from app.services.signal_health.scoring import status_for_score
+    from app.tasks.apply_actions_queue import check_signal_health_sync
+
+    gate = check_signal_health_sync(db, widget.tenant_id)
+    platforms = {
+        channel: detail.get("score") for channel, detail in gate.channels.items()
+    }
+    return {
+        "overall_score": round(gate.score) if gate.score is not None else None,
+        "status": status_for_score(
+            gate.score,
+            gate.thresholds or SignalHealthThresholds.from_settings(),
+        ),
+        "insufficient_data": gate.score is None,
+        "reason": gate.reason,
+        "platforms": platforms,
+        # The date of the snapshot this reflects - not "now". Stamping the
+        # current time on an absent measurement is what made the old payload
+        # read as live.
+        "last_updated": gate.health_date.isoformat() if gate.health_date else None,
+    }
+
+
+def _trust_gate_widget_data(widget: EmbedWidget, db: Session) -> dict:
+    """
+    Build the public trust gate widget payload from the gate's own decision.
+
+    Previously a hardcoded ``{"status": "pass", "signal_health": 87,
+    "pending_actions": 3}`` - a passing trust gate published on the tenant's
+    website for a tenant whose automations the real gate was blocking.
+
+    Args:
+        widget: The widget being served, which carries the tenant.
+        db: Synchronous database session.
+
+    Returns:
+        The widget data payload.
+    """
+    from app.autopilot.service import ActionStatus
+    from app.models.trust_layer import FactActionsQueue
+    from app.tasks.apply_actions_queue import check_signal_health_sync
+
+    gate = check_signal_health_sync(db, widget.tenant_id)
+    # Actions genuinely waiting on a human or on the gate: queued and approved
+    # but not yet applied. Previously the literal 3.
+    pending_actions = (
+        db.execute(
+            select(func.count(FactActionsQueue.id)).where(
+                FactActionsQueue.tenant_id == widget.tenant_id,
+                FactActionsQueue.status.in_(
+                    [ActionStatus.QUEUED.value, ActionStatus.APPROVED.value]
+                ),
+            )
+        ).scalar()
+        or 0
+    )
+    return {
+        "status": gate.decision.value,
+        "signal_health": round(gate.score) if gate.score is not None else None,
+        "insufficient_data": gate.score is None,
+        "reason": gate.reason,
+        "automation_mode": gate.enforcement_mode,
+        "pending_actions": int(pending_actions),
+        "last_updated": gate.health_date.isoformat() if gate.health_date else None,
+    }
+
+
 def _get_widget_data(widget: EmbedWidget, db: Session) -> dict:
     """
-    Fetch actual widget data based on widget type.
+    Fetch widget data based on widget type.
 
-    In production, this would query real data from the database.
+    The signal health and trust gate widgets read the trust engine. **The
+    remaining widget types below still return demonstration data**; they are
+    outside the signal health work and are called out here rather than left
+    behind a vague "in production this would" comment.
+
+    Args:
+        widget: The widget being served.
+        db: Synchronous database session.
+
+    Returns:
+        The widget data payload.
     """
-    # Mock data for demonstration
     widget_type = widget.widget_type
 
     if widget_type == WidgetType.SIGNAL_HEALTH.value:
-        return {
-            "overall_score": 87,
-            "status": "healthy",
-            "platforms": {"meta": 92},
-            "last_updated": datetime.now(UTC).isoformat(),
-        }
+        return _signal_health_widget_data(widget, db)
+
+    if widget_type == WidgetType.TRUST_GATE_STATUS.value:
+        return _trust_gate_widget_data(widget, db)
+
+    # ---- demonstration data below; not measured ----
 
     elif widget_type == WidgetType.ROAS_DISPLAY.value:
         return {
@@ -477,15 +579,6 @@ def _get_widget_data(widget: EmbedWidget, db: Session) -> dict:
             "trend": "up",
             "trend_percentage": 12.5,
             "period": "Last 7 days",
-            "last_updated": datetime.now(UTC).isoformat(),
-        }
-
-    elif widget_type == WidgetType.TRUST_GATE_STATUS.value:
-        return {
-            "status": "pass",
-            "signal_health": 87,
-            "automation_mode": "normal",
-            "pending_actions": 3,
             "last_updated": datetime.now(UTC).isoformat(),
         }
 

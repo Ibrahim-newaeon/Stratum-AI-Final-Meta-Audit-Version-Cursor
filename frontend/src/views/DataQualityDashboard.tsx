@@ -43,14 +43,18 @@ interface KPICard {
   description: string;
 }
 
+// Per-identifier match rates are nullable because the quality report tells us
+// which fields were *present*, not what share of them Meta matched. Turning
+// "the field was present" into "85% match" is an invention, and this view used
+// to do exactly that.
 interface PlatformEMQ {
   platform: string;
   overallEMQ: number;
-  emailMatch: number;
-  phoneMatch: number;
-  fbpMatch: number;
-  fbcMatch: number;
-  ipMatch: number;
+  emailMatch: number | null;
+  phoneMatch: number | null;
+  fbpMatch: number | null;
+  fbcMatch: number | null;
+  ipMatch: number | null;
   trend: number;
 }
 
@@ -117,105 +121,15 @@ interface Recommendation {
   fixHint: string;
 }
 
-// Mock data
-const mockKPIs: KPICard[] = [
-  {
-    id: 'overall_emq',
-    label: 'Overall Match Quality',
-    value: 78.5,
-    unit: '%',
-    trend: 3.2,
-    status: 'warning',
-    description: 'Proxy EMQ across all platforms',
-  },
-  {
-    id: 'purchase_emq',
-    label: 'Purchase EMQ',
-    value: 82.3,
-    unit: '%',
-    trend: 5.1,
-    status: 'good',
-    description: 'Match quality for purchase events',
-  },
-  {
-    id: 'server_coverage',
-    label: 'Server Coverage',
-    value: 94.7,
-    unit: '%',
-    trend: 2.8,
-    status: 'good',
-    description: 'Events sent via server-side API',
-  },
-  {
-    id: 'dedup_rate',
-    label: 'Deduplication Rate',
-    value: 98.2,
-    unit: '%',
-    trend: 0.5,
-    status: 'good',
-    description: 'Successfully deduplicated events',
-  },
-  {
-    id: 'param_completeness',
-    label: 'Parameter Completeness',
-    value: 71.4,
-    unit: '%',
-    trend: -2.1,
-    status: 'warning',
-    description: 'Required parameters present',
-  },
-  {
-    id: 'pii_compliance',
-    label: 'PII Violations',
-    value: 3,
-    unit: '',
-    trend: -2,
-    status: 'warning',
-    description: 'Active compliance issues',
-  },
-];
+// Mock data.
+//
+// The EMQ constants that used to live here (mockKPIs, mockPlatformEMQ,
+// mockEventEMQ) were removed: they were the *initial state* of this view,
+// so a tenant with no CAPI traffic was shown facebook 82 / instagram 74 /
+// whatsapp 71 and a full per-event EMQ table as their own measurements.
+// The remaining constants below still seed the non-EMQ panels.
 
-const mockPlatformEMQ: PlatformEMQ[] = [
-  {
-    platform: 'facebook',
-    overallEMQ: 82,
-    emailMatch: 89,
-    phoneMatch: 76,
-    fbpMatch: 95,
-    fbcMatch: 88,
-    ipMatch: 92,
-    trend: 4.2,
-  },
-  {
-    platform: 'instagram',
-    overallEMQ: 74,
-    emailMatch: 81,
-    phoneMatch: 68,
-    fbpMatch: 90,
-    fbcMatch: 82,
-    ipMatch: 89,
-    trend: -1.5,
-  },
-  {
-    platform: 'whatsapp',
-    overallEMQ: 71,
-    emailMatch: 78,
-    phoneMatch: 92,
-    fbpMatch: 0,
-    fbcMatch: 0,
-    ipMatch: 86,
-    trend: 0.8,
-  },
-];
 
-const mockEventEMQ: EventEMQ[] = [
-  { event: 'Purchase', emqScore: 82.3, volume: 12450, trend: 5.1, worstParameter: 'phone' },
-  { event: 'AddToCart', emqScore: 76.8, volume: 45230, trend: 2.3, worstParameter: 'external_id' },
-  { event: 'BeginCheckout', emqScore: 79.1, volume: 23100, trend: 1.8, worstParameter: 'phone' },
-  { event: 'ViewContent', emqScore: 71.2, volume: 156780, trend: -0.5, worstParameter: 'email' },
-  { event: 'InitiateCheckout', emqScore: 77.5, volume: 28900, trend: 3.2, worstParameter: 'city' },
-  { event: 'Lead', emqScore: 68.9, volume: 8920, trend: -2.1, worstParameter: 'phone' },
-];
 
 const mockParameterCoverage: ParameterCoverage[] = [
   { parameter: 'email', facebook: 89, instagram: 85, whatsapp: 78, required: true },
@@ -348,10 +262,15 @@ export function DataQualityDashboard() {
   const [eventFilter, setEventFilter] = useState('all');
   const [envFilter, setEnvFilter] = useState('prod');
 
-  // Data state - initialized with mock data as fallback
-  const [kpis, setKpis] = useState<KPICard[]>(mockKPIs);
-  const [platformEMQ, setPlatformEMQ] = useState<PlatformEMQ[]>(mockPlatformEMQ);
-  const [eventEMQ, _setEventEMQ] = useState<EventEMQ[]>(mockEventEMQ);
+  // Data state.
+  //
+  // These start empty, not seeded from the mock constants. Seeding them meant a
+  // tenant with no CAPI traffic - for whom `/capi/quality/report` returns
+  // nothing - was shown facebook 82 / instagram 74 / whatsapp 71 and a full
+  // per-event EMQ table as if those had been measured for them.
+  const [kpis, setKpis] = useState<KPICard[]>([]);
+  const [platformEMQ, setPlatformEMQ] = useState<PlatformEMQ[]>([]);
+  const [eventEMQ, _setEventEMQ] = useState<EventEMQ[]>([]);
   const [_parameterCoverage, _setParameterCoverage] =
     useState<ParameterCoverage[]>(mockParameterCoverage);
   const [serverBrowserSplit, _setServerBrowserSplit] =
@@ -389,19 +308,25 @@ export function DataQualityDashboard() {
 
       const report = reportResponse.data?.data;
       if (report && report.overall_score > 0) {
-        // Update KPIs from report
-        setKpis((prev) =>
-          prev.map((kpi) => {
-            if (kpi.id === 'overall_emq') {
-              return {
-                ...kpi,
-                value: report.overall_score,
-                trend: report.trend === 'improving' ? 3.2 : report.trend === 'declining' ? -2.1 : 0,
-              };
-            }
-            return kpi;
-          })
-        );
+        // Only the KPI the report actually carries. The other five cards were
+        // fixed numbers (94.7% server coverage, 98.2% dedup, ...) that nothing
+        // measured; they are gone rather than shown next to a real one.
+        setKpis([
+          {
+            id: 'overall_emq',
+            label: 'Overall Match Quality',
+            value: report.overall_score,
+            unit: '%',
+            trend: 0,
+            status:
+              report.overall_score >= 80
+                ? 'good'
+                : report.overall_score >= 60
+                  ? 'warning'
+                  : 'critical',
+            description: 'Proxy EMQ across all platforms',
+          },
+        ]);
 
         // Update platform EMQ from report
         if (report.platform_scores) {
@@ -409,11 +334,15 @@ export function DataQualityDashboard() {
             ([platform, data]: [string, any]) => ({
               platform,
               overallEMQ: data.score,
-              emailMatch: data.fields_present?.includes('email') ? 85 : 0,
-              phoneMatch: data.fields_present?.includes('phone') ? 70 : 0,
-              fbpMatch: data.fields_present?.includes('fbp') ? 90 : 0,
-              fbcMatch: data.fields_present?.includes('fbc') ? 85 : 0,
-              ipMatch: data.fields_present?.includes('ip_address') ? 92 : 0,
+              // The report says which fields were present, not what share of
+              // them matched, so the per-identifier rates are unknown. They
+              // used to be filled in with 85/70/90/85/92 whenever the field
+              // appeared at all.
+              emailMatch: null,
+              phoneMatch: null,
+              fbpMatch: null,
+              fbcMatch: null,
+              ipMatch: null,
               trend: data.potential_roas_lift || 0,
             })
           );
@@ -725,7 +654,16 @@ export function DataQualityDashboard() {
         </div>
       ) : (
         <>
-          {/* KPI Cards */}
+          {/* KPI Cards - nothing at all rather than placeholder numbers */}
+          {kpis.length === 0 && (
+            <div className="rounded-xl border border-dashed bg-muted/20 p-6 text-center">
+              <p className="font-medium">Not enough data to score match quality yet</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Conversion events have to reach this account before match quality can be
+                measured. Nothing here is estimated.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {kpis.map((kpi) => (
               <div
@@ -808,14 +746,35 @@ export function DataQualityDashboard() {
                           >
                             {row.overallEMQ}%
                           </td>
-                          <td className={cn('text-right', getCoverageTextColor(row.emailMatch))}>
-                            {row.emailMatch}%
+                          <td
+                            className={cn(
+                              'text-right',
+                              row.emailMatch === null
+                                ? 'text-muted-foreground'
+                                : getCoverageTextColor(row.emailMatch)
+                            )}
+                          >
+                            {row.emailMatch === null ? '—' : `${row.emailMatch}%`}
                           </td>
-                          <td className={cn('text-right', getCoverageTextColor(row.phoneMatch))}>
-                            {row.phoneMatch}%
+                          <td
+                            className={cn(
+                              'text-right',
+                              row.phoneMatch === null
+                                ? 'text-muted-foreground'
+                                : getCoverageTextColor(row.phoneMatch)
+                            )}
+                          >
+                            {row.phoneMatch === null ? '—' : `${row.phoneMatch}%`}
                           </td>
-                          <td className={cn('text-right', getCoverageTextColor(row.ipMatch))}>
-                            {row.ipMatch}%
+                          <td
+                            className={cn(
+                              'text-right',
+                              row.ipMatch === null
+                                ? 'text-muted-foreground'
+                                : getCoverageTextColor(row.ipMatch)
+                            )}
+                          >
+                            {row.ipMatch === null ? '—' : `${row.ipMatch}%`}
                           </td>
                           <td className="text-right">
                             <span

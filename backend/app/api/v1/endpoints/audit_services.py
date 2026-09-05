@@ -54,7 +54,8 @@ from app.services.conversion_latency_service import ConversionLatencyTracker
 from app.services.creative_performance_service import CreativePerformanceService
 
 # Import services
-from app.services.emq_measurement_service import RealEMQService as EMQMeasurementService
+from app.services.emq_measurement_service import get_emq_history as read_emq_history
+from app.services.emq_measurement_service import measure_emq as measure_tenant_emq
 from app.services.offline_conversion_service import OfflineConversionService
 from app.tenancy.deps import get_current_user, get_db, get_tenant_id
 
@@ -277,15 +278,29 @@ class EMQMeasurementRequest(BaseModel):
 
 
 class EMQMeasurementResponse(BaseModel):
+    """
+    Measured EMQ for one tenant and channel.
+
+    ``insufficient_data`` is a real answer: the tenant has not delivered enough
+    events for a score to mean anything, every number is null and
+    ``missing_inputs`` says what was missing. The former ``parameter_quality``
+    and ``event_coverage`` fields are gone - they were ``score * 1.05`` and a
+    delivery rate relabelled, neither of which was ever measured.
+    """
+
     success: bool
     platform: str
     pixel_id: str
-    overall_score: Optional[float] = None
-    parameter_quality: Optional[float] = None
-    event_coverage: Optional[float] = None
-    match_rate: Optional[float] = None
-    recommendations: Optional[list[str]] = None
-    error: Optional[str] = None
+    insufficient_data: bool = False
+    overall_score: float | None = None
+    delivery_success_rate_pct: float | None = None
+    identifier_coverage_pct: float | None = None
+    events_measured: int = 0
+    window_start: str | None = None
+    window_end: str | None = None
+    recommendations: list[str] | None = None
+    missing_inputs: list[str] | None = None
+    error: str | None = None
 
 
 # Offline Conversion Schemas
@@ -480,25 +495,29 @@ async def measure_emq(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Measure Event Match Quality for a pixel/dataset.
+    Measure Event Match Quality for a pixel/dataset from delivered events.
+
+    Reads this tenant's own ``capi_delivery_logs`` rows. When there are too few
+    of them the response says ``insufficient_data`` and carries no score.
     """
     try:
-        service = EMQMeasurementService()
-        result = service.measure_emq(
-            platform=request.platform,
-            pixel_id=request.pixel_id,
-            tenant_id=str(tenant_id),
+        result = await measure_tenant_emq(
+            db=db, tenant_id=tenant_id, platform=request.platform
         )
 
         return EMQMeasurementResponse(
             success=True,
             platform=request.platform,
             pixel_id=request.pixel_id,
+            insufficient_data=result.insufficient_data,
             overall_score=result.overall_score,
-            parameter_quality=result.parameter_quality,
-            event_coverage=result.event_coverage,
-            match_rate=result.match_rate,
+            delivery_success_rate_pct=result.delivery_success_rate_pct,
+            identifier_coverage_pct=result.identifier_coverage_pct,
+            events_measured=result.events_measured,
+            window_start=result.window_start,
+            window_end=result.window_end,
             recommendations=result.recommendations,
+            missing_inputs=result.missing_inputs,
         )
     except Exception as e:
         logger.error(f"EMQ measurement failed: {e}")
@@ -520,17 +539,18 @@ async def get_emq_history(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get historical EMQ measurements.
+    Get this tenant's measured EMQ history.
+
+    One entry per day on which the tenant actually delivered events; days with
+    no traffic are omitted rather than filled in. This endpoint previously
+    returned ``round(85 + (hash(f"{tenant_id}{i}") % 15), 1)`` and friends -
+    string-hash noise presented as measurement history.
     """
-    service = EMQMeasurementService()
-    history = service.get_history(
-        platform=platform,
-        pixel_id=pixel_id,
-        tenant_id=str(tenant_id),
-        days=days,
+    history = await read_emq_history(
+        db=db, tenant_id=tenant_id, platform=platform, days=days
     )
 
-    return {"data": history}
+    return {"data": history, "pixel_id": pixel_id}
 
 
 # =============================================================================
@@ -1424,11 +1444,10 @@ async def audit_services_health():
     services_status = {}
 
     # Check each service
-    try:
-        EMQMeasurementService()
-        services_status["emq"] = "healthy"
-    except Exception:
-        services_status["emq"] = "unhealthy"
+    # EMQ is a set of tenant-scoped functions over capi_delivery_logs, not a
+    # stateful service object, so "healthy" here just means it is importable
+    # and callable. (Not an assert: -O would strip it.)
+    services_status["emq"] = "healthy" if callable(measure_tenant_emq) else "unhealthy"
 
     try:
         OfflineConversionService()
