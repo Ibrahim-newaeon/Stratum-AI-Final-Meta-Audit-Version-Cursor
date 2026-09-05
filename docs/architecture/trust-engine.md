@@ -32,6 +32,12 @@ tenant is shown is the band it is enforced against. A pair that is missing, out 
 inverted (`degraded > healthy`) is ignored in favour of the configured defaults. Before this the two
 columns had no reader at all: onboarding collected a number and every code path graded at 70/40.
 
+Both onboarding front doors write those columns through
+`app/services/tenant/onboarding.py`: the wizard's trust gate step
+(`POST /onboarding/steps`) and the conversational agent, whose completing turn calls
+`persist_chat_onboarding`. The chat asks only for the autopilot edge, so it keeps the stored alert
+edge at or below it rather than leaving an inverted pair that would be discarded for the defaults.
+
 ## Signal health components
 
 Signal health is a weighted composite (0-100) computed per tenant and Meta channel
@@ -318,6 +324,262 @@ actor in the audit log so it is explainable and reversible. Held and blocked act
 with the same `to_audit_dict()` payload as executed ones - decision, reason, per-channel scores and
 components, the thresholds they were compared against, and the enforcement mode - and are broadcast
 to the tenant as an action status update so a hold is a visible alert rather than a silent no-op.
+
+## What happens after the gate passes: the Meta write path
+
+A PASS is permission to *attempt* an action, not the action itself. Between the gate and a live ad
+account sits `app/services/meta/action_executor.py`, driven by `MetaExecutor` in
+`app/tasks/apply_actions_queue.py` and talking to Meta only through `app/services/meta/write_client.py`
+— the one module in the codebase that issues anything other than a `GET`.
+
+**This path replaced a simulator.** The previous `MetaExecutor.execute_action` never contacted Meta: it
+logged a line, returned a hardcoded `before_value = {"status": "ACTIVE", "daily_budget": 10000}`,
+derived an `after_value` arithmetically from that invention and reported
+`{"success": True, "platform_response": {"request_id": "meta_123"}}`. Those numbers were written into
+`fact_actions_queue.before_value` / `after_value` and into the audit log, so the trail said a budget had
+moved from $100 to $80 on accounts nobody had read. Everything below exists so that the recorded values
+are measurements.
+
+### Order of operations
+
+Each step can only refuse; none can soften an earlier decision.
+
+| # | Step | On failure |
+|---|------|-----------|
+| 1 | `autopilot_execution_enabled` is true | Refused, before a token is even decrypted |
+| 2 | A row left in `applying` by an earlier attempt is reconciled, not re-decided | See "Idempotency" below |
+| 3 | The trust gate permits execution (re-checked here, not trusted from the caller) | Refused |
+| 4 | Idempotency: the queue row is `approved` and not already `applied` | `already_applied`, no request |
+| 5 | The tenant's enforcement mode permits it | Refused |
+| 6 | The entity is **read** from Meta - this is `before_value` - and its own `account_id` must name an enabled ad account of this tenant | Refused; an unreadable entity, or one in an account Stratum does not know, is never acted on |
+| 7 | Every guard rail passes, evaluated against the state just read | Refused with the rail named |
+| 8 | Dry run stops here, having run every check | `dry_run`; the row keeps its status |
+| 9 | The **pre-write claim** is committed, then the write | See "Ambiguity" below |
+| 10 | The entity is **read again** and compared against the intent | Marked `failed`, with both values recorded |
+
+Step 6 exists because the credential is resolved per *connection*: the ad account on it is only the
+tenant's oldest enabled one, since nothing identifies the right account until the entity has been read.
+For a tenant with several accounts — an agency, a multi-market advertiser — that provisional pick would
+otherwise decide the currency for an entity in a different account, and with it a 100x conversion factor
+and the scale of the floor and ceiling. The entity's own `account_id` overrides it before any money is
+converted, and an account this tenant has no enabled record for is a refusal rather than a fallback.
+
+Enforcement modes are the existing `TenantEnforcementSettings.default_mode`, not a second policy system:
+
+| Mode | Behaviour |
+|------|-----------|
+| `advisory` | Proceeds |
+| `soft_block` | Requires a live `PendingConfirmationToken` for this tenant, action type and entity. The token is **validated** at step 5 and **spent** at step 9, immediately before the write: a confirmation authorises a change, so an action a guard rail then refuses must not burn it. It is deleted and flushed at once — the session runs with `autoflush=False`, so an unflushed delete stays visible to the next query in the same transaction and two rows could spend one confirmation. |
+| `hard_block` | Refused - the mode means "prevent the action at the API" |
+
+### Guard rails
+
+All limits come from `Settings`; none is a literal at a call site. A violated rail is a **refusal with a
+recorded reason, never a clamp-and-proceed** — quietly applying a smaller change than the one that was
+approved is still applying something nobody approved. Every rail evaluated, its inputs and its verdict
+go into the audit record, including the ones that passed.
+
+| Guard rail | Setting | Default | What it measures |
+|------------|---------|---------|------------------|
+| Action-type allowlist | `autopilot_executable_action_types` | `budget_decrease,pause_adset,bid_decrease` | Only these types may ever execute automatically |
+| Per-tenant daily action cap | `autopilot_max_executed_actions_per_tenant_per_day` | 10 | Rows the tenant has `applied` **since midnight UTC**, counted by `applied_at` |
+| Single-action change | `autopilot_max_budget_change_pct` | 20% | Change against the value **live on Meta right now** |
+| Cumulative daily change | `autopilot_max_cumulative_budget_change_pct` | 50% | Change against the value the entity **started the day on**, read from the `before_value` of the earliest action applied to it since midnight UTC |
+| Currency has configured limits | `autopilot_daily_budget_limits_by_currency` | *(empty)* | An offset-1 currency must have an explicit floor/ceiling pair before any budget action runs |
+| Daily budget floor | `autopilot_min_daily_budget_major` (or the per-currency override) | 5 | Absolute amount in the account's major currency unit |
+| Daily budget ceiling | `autopilot_max_daily_budget_major` (or the per-currency override) | 1000 | Absolute amount in the account's major currency unit |
+
+The allowlist default is `app.autopilot.service.SAFE_ACTIONS` **minus `pause_creative`**.
+`budget_increase`, `pause_campaign` and every `enable_*` are absent because raising spend or restarting
+delivery is not something automation should do unsupervised. `pause_creative` is withheld for a
+different reason: its target node is an assumption. The executor maps `entity_type` `"creative"` to the
+Meta **ad** — an AdCreative has no status of its own — but the only in-repo producer
+(`app/analytics/logic/recommend.py`, from fatigue detection) emits `fact_creative.creative_id`, which is
+nowhere established to be an ad id. If it is an AdCreative id the read fails closed with Graph `#100`
+and nothing is written, but a money-affecting action whose node identity rests on a comment does not
+belong in a default allowlist. It stays a safe action for the approval workflow; only auto-execution is
+opt-in, until the producer is shown to emit an ad id.
+
+**Both day-scoped rails count by `applied_at`, not by `fact_actions_queue.date`.** That column is
+stamped once when the row is queued and never updated, and the batch task selects every approved row
+with no date filter, so approve-today/apply-tomorrow and a backlog drained after midnight are both
+ordinary. Keyed on `date` the cap would simply stop counting for those rows — a tenant's whole backlog
+would execute while the counter read zero — and the cumulative rail would find no history, fall back to
+the value live now, and collapse into the single-action rail. The cumulative rail exists precisely
+because the single-action rail alone permits ten "within 20%" steps that together triple a morning
+budget.
+
+**The rails also have to see this run's own writes.** The session runs with `autoflush=False` and both
+rails answer from a `SELECT`, so the batch task commits each action's outcome before starting the next
+one. Without that, every action in a run reads the same pre-batch state: two hundred rows sail past a
+cap of ten, each recording `daily_action_cap passed` on the way through.
+
+**The absolute floor and ceiling are scale-sensitive, so they are per currency.** One pair of numbers
+compared against an amount in the account's major unit only travels between currencies of similar
+magnitude. Meta's offset table names the ones that break the assumption: an offset of 1 (JPY, KRW, VND,
+IDR, CLP, COP, CRC, HUF, ISK, PYG, TWD) means the currency has no minor unit, so an ordinary daily
+budget is a five-figure number of major units. Against the shipped ceiling of 1000 every action on such
+an account would be refused and the floor of 5 would never bind. Rather than let one scalar be quietly
+wrong for a whole class of accounts — or have an operator raise the global ceiling for a yen tenant and
+raise it for every dollar tenant on the deployment at the same time — a budget action on an offset-1
+account is **refused** until `AUTOPILOT_DAILY_BUDGET_LIMITS_BY_CURRENCY` carries a
+`CURRENCY:floor:ceiling` entry for it. The refusal names the setting.
+
+Three further structural refusals protect budgets specifically:
+
+- **An ad set inside an Advantage campaign budget (CBO) campaign is refused.** The campaign holds the
+  budget, so the ad set has none of its own to change; Meta answers `error_subcode 1885621`,
+  "You can only set an ad set budget or a campaign budget".
+- **A campaign that carries no budget of its own is refused.** Its budgets live on its ad sets, and
+  setting a campaign `daily_budget` would switch it into CBO and override every ad set at once — far
+  more than the approved action asked for.
+- **Lifetime budgets are refused.** The floor and ceiling are daily amounts; comparing a lifetime
+  budget against a daily floor compares two different kinds of number.
+
+### Money: Meta's units are not this schema's units
+
+Meta's `daily_budget`, `lifetime_budget` and `bid_amount` are integers in the ad account's **API
+units**. Meta's own wording: *"The bid amount's unit is cents for currencies like USD, EUR, and the
+basic unit for currencies like JPY, KRW."* This repository's `*_cents` columns are a different
+convention — hundredths of the **major** unit for every currency, because every reader divides by 100
+with no currency awareness (see CLAUDE.md). For a zero-decimal currency the two differ by 100x:
+`daily_budget_cents = 100000` means ¥1000.00, which Meta wants as `1000`, not `100000`.
+
+The conversion happens in exactly one place, `meta_currency_offset` / `major_to_meta_minor` in
+`write_client.py`, and it uses **Meta's** published offset table rather than ISO 4217, because the two
+disagree in both directions:
+
+- HUF, IDR, TWD, COP and CRC are two-decimal in ISO 4217 but **offset 1** at Meta — the ISO table would
+  send a number 100x too large.
+- BHD, JOD, KWD, OMR and TND are three-decimal in ISO 4217 but **offset 100** at Meta ("No currencies
+  have an offset of 1000") — the ISO table would send one 10x too large.
+
+A currency whose offset is not in that table is **refused**, not assumed to be 100. The ad account
+currency is read from Meta at execution time and cross-checked against `tenant_ad_account.currency`; a
+disagreement is an unresolved ambiguity about a monetary unit, so it too is a refusal.
+
+For the same reason a budget action must specify its change unambiguously: `percentage`,
+`amount_major`, or `amount` **together with** `amount_unit`. A bare `amount` is refused — that key
+means major units to `validate_action_caps` (which formats it with a `$`) and minor units to the
+simulator that was removed, a 100x difference.
+
+### Idempotency: three mechanisms, because no one of them covers the window
+
+- **The queue row's status.** Only `approved` executes; a row already `applied` returns without
+  touching Meta. Durable, and the primary defence against a re-delivered Celery message — but only once
+  it has been committed, which is what the claim below is for. The batch query also takes
+  `FOR UPDATE SKIP LOCKED`, so a redelivered task or a user-triggered `apply_single_action` cannot read
+  the same row as `approved` alongside a run already working on it.
+- **The pre-write claim.** Immediately before the request leaves, the row is moved to a new `applying`
+  status and the **resolved absolute target** is written to it and committed. The transition is a
+  conditional `UPDATE ... WHERE status = 'approved'` that must affect exactly one row — the lock above
+  is not sufficient on its own, because committing after each action releases it, so a second run
+  started mid-batch can legitimately hold the remaining rows. Losing the claim is a refusal, and no
+  request is issued. This is also what makes a
+  *relative* change safe. "Cut the budget 20%" resolves against whatever is live, so a second attempt
+  after a crash resolves against the already-reduced value and the two compound — 50000 → 40000 →
+  32000, both recorded as verified successes. Comparing the entity against a freshly derived intent can
+  never notice, because the intent came from the entity. A row found in `applying` is reconciled
+  against the recorded target and **the write is never repeated**: the target being present means it
+  landed, and the target being absent is `unknown` for an operator, because "not there" cannot
+  distinguish "never left" from "landed and somebody changed it back". The batch query does not select
+  `applying` rows at all, so a stranded one is never re-fired automatically; `apply_single_action`
+  admits one so an operator can reconcile it, skipping the gate and the caps, since reconciling reads
+  and does not act.
+- **The observed current state.** If the entity already carries the intent before any write, none is
+  issued. This covers somebody else having got there first — a human pausing the same ad set a minute
+  earlier — and is recorded as applied with `before == after` and `idempotent_no_op` set, so the trail
+  says "already in the intended state" rather than claiming a change was made. On its own it is
+  sufficient only for status actions, whose target is absolute.
+
+A dry run is evaluated **before** the observed-state check, so an entity that already matches still
+reports `dry_run`. Marking the row applied would stamp `applied_at` and consume the tenant's daily cap
+from a mode whose entire promise is that it only reports.
+
+### Ambiguity is reconciled, never retried
+
+A write whose outcome cannot be established from the response may or may not have been applied.
+`MetaWriteAmbiguousError` is deliberately **not** a `MetaAPIError`, so no handler that retries "Meta
+errors" can catch it, and `update_entity` raises it for all three indeterminate answers:
+
+- a timeout or connection reset — the request left this process and no response arrived;
+- a **5xx Meta did not itself mark permanent** — a gateway or backend failure can happen either side of
+  the mutation. Recording `failed` with no after-value would put "the pause did not happen" in the
+  audit trail while the ad set may in fact be paused;
+- a **2xx with a body this client cannot parse** — Meta accepted the request and then said something
+  unreadable.
+
+A 4xx, a throttle, a token rejection and anything carrying `is_transient: false` are excluded: each is
+Meta stating it did not apply the change.
+
+The executor re-reads the entity exactly once: matching the intent means the write landed and the
+action is applied; not matching means the outcome is `unknown` and an operator decides. The write is
+never repeated, and the row is left `failed` rather than `approved` so the next queue run cannot pick
+it up. Reads carry no side effect, so a transport failure or an unparseable body on a *read* stays an
+ordinary error.
+
+Meta's error codes are mapped to distinct types so the caller knows what it is holding: `MetaTokenError`
+(190/102 — disconnect, do not retry), `MetaRateLimitError` (4/17/32/613/80000-80014 or HTTP 429 — back
+off using `estimated_time_to_regain_access`, which Meta reports in minutes), and
+`MetaWriteValidationError` for anything Meta flags `is_transient: false` or that carries a permanently
+invalid code or subcode (100 invalid parameter, 200 permission, 1487901 daily budget below the account
+minimum, 1885621 ad set vs campaign budget). A validation error is recorded as failed, not retried.
+
+### Reversibility
+
+`revert_meta_action` is the one-click override the product promises. It derives the fields to restore by
+diffing the recorded before- and after-values, writes the before-value back through the same client,
+verifies it by re-reading, and records its own `action_reverted` audit entry.
+
+It **refuses when the entity no longer matches the recorded after-value.** Somebody — a human in Ads
+Manager, another tool, Meta itself — has changed it since, so the recorded before-value is no longer
+"what it was before us" and writing it would silently discard their change. The revert reports the drift
+with the field and both values, and leaves the entity alone.
+
+A revert deliberately does not consult the trust gate or the budget guard rails: undoing an automated
+change must stay available exactly when signal health has degraded, and restoring a previous value
+cannot breach a limit that previous value already satisfied. It does honour the master switch and
+dry-run, which govern whether this deployment may talk to Meta at all.
+
+### Off by default, and how to turn it on
+
+Merging this cannot start spending money. Three independent things must all be true:
+
+1. **Meta App Review for `ads_management`.** `ads_read` cannot write. Until the app holds
+   `ads_management` and the tenant has reconnected so the stored token carries the scope, every write
+   fails with a permission error (code 200), which is recorded as a non-retryable failure. Nothing else
+   in this document can be exercised against a real account before that.
+2. **`AUTOPILOT_EXECUTION_ENABLED=true`** (default `false`) — then
+   **`AUTOPILOT_EXECUTION_DRY_RUN=false`** (default `true`). With dry-run on, every gate, enforcement
+   and guard-rail check runs and the intended change is recorded, but no write endpoint is called.
+   Run a full day in dry-run and read the recorded intents before turning it off.
+3. **The Celery task must be scheduled.** `tasks.apply_actions_queue` has no beat entry and
+   `app.tasks.apply_actions_queue` is not in `celery_app.include`, so no worker registers it. That is
+   still true after this change and is asserted by a test.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `autopilot_execution_enabled` | `false` | Master switch for Meta writes |
+| `autopilot_execution_dry_run` | `true` | Run every check, call no write endpoint |
+| `meta_write_request_timeout_seconds` | 30 | Per-request timeout for Meta reads and writes |
+| `autopilot_max_budget_change_pct` | 20 | Largest change one action may make |
+| `autopilot_max_cumulative_budget_change_pct` | 50 | Largest change per entity per UTC day |
+| `autopilot_min_daily_budget_major` | 5 | Default daily budget floor, account major currency unit |
+| `autopilot_max_daily_budget_major` | 1000 | Default daily budget ceiling, account major currency unit |
+| `autopilot_daily_budget_limits_by_currency` | *(empty)* | `CURRENCY:floor:ceiling` overrides; **required** for an offset-1 currency |
+| `autopilot_max_executed_actions_per_tenant_per_day` | 10 | Per-tenant daily execution cap |
+| `autopilot_executable_action_types` | `budget_decrease,pause_adset,bid_decrease` | Allowlist of auto-executable action types |
+
+An operator running an offset-1 ad account (JPY, KRW, VND, …) has a fourth thing to do before any
+budget action can execute: set that currency's floor and ceiling in
+`AUTOPILOT_DAILY_BUDGET_LIMITS_BY_CURRENCY`. Until then budget actions on that account are refused with
+a reason naming the setting; status actions are unaffected.
+
+Only `ACTIVE` and `PAUSED` can ever be written. Meta also accepts `DELETED` and `ARCHIVED` on update;
+both are destructive and are unreachable from autopilot. The writable-field allowlist is enforced
+locally before any request, per entity type: campaign (`status`, `daily_budget`, `lifetime_budget`),
+ad set (those plus `bid_amount`), ad (`status` only — an ad has no budget, and Meta refuses
+`bid_amount` on one: "We no longer allow setting the bid_amount value on an ad").
 
 ### The rules engine is gated too
 

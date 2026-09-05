@@ -1,7 +1,7 @@
 """Provider-specific connection metadata for CRM connections.
 
-Revision ID: 0004_crm_provider_metadata
-Revises: 0003_meta_privacy_callbacks
+Revision ID: 0005_crm_provider_metadata
+Revises: 0004_capi_delivery_tables
 Create Date: 2026-09-05
 
 Two CRM clients cannot address a tenant's account without a per-connection
@@ -35,8 +35,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "0004_crm_provider_metadata"
-down_revision = "0003_meta_privacy_callbacks"
+revision = "0005_crm_provider_metadata"
+down_revision = "0004_capi_delivery_tables"
 branch_labels = None
 depends_on = None
 

@@ -20,10 +20,22 @@ from app.models.trust_layer import FactActionsQueue
 
 
 class ActionStatus(str, Enum):
-    """Action lifecycle statuses."""
+    """
+    Action lifecycle statuses.
+
+    ``APPLYING`` is the durable pre-write claim the Meta executor commits
+    immediately before it calls a write endpoint, carrying the resolved
+    absolute target value it is about to set. It exists because a relative
+    change ("cut the budget 20%") cannot be made idempotent by observation
+    alone: recomputing the delta against whatever is live now compounds it. A
+    row found in this state is reconciled by re-reading the entity and
+    comparing it against the recorded target - never by deriving a fresh
+    change - so a crash between the write and its commit cannot spend twice.
+    """
 
     QUEUED = "queued"
     APPROVED = "approved"
+    APPLYING = "applying"
     APPLIED = "applied"
     FAILED = "failed"
     DISMISSED = "dismissed"

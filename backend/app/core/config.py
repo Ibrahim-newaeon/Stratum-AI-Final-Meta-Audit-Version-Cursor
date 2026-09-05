@@ -395,6 +395,170 @@ class Settings(BaseSettings):
         ]
 
     # -------------------------------------------------------------------------
+    # Autopilot execution (Meta Marketing API WRITES) - OFF BY DEFAULT
+    # -------------------------------------------------------------------------
+    # These knobs govern the only code path that can change a live ad account:
+    # app/services/meta/write_client.py, driven by
+    # app/services/meta/action_executor.py. They are money, so every one of
+    # them is conservative by default and every call site reads them from here
+    # rather than carrying a literal.
+    #
+    # Turning execution on takes TWO deliberate steps - see
+    # docs/architecture/trust-engine.md:
+    #   1. AUTOPILOT_EXECUTION_ENABLED=true   (master switch, default false)
+    #   2. AUTOPILOT_EXECUTION_DRY_RUN=false  (default true: every check runs,
+    #                                          nothing is written)
+    # Merging this feature therefore cannot start spending money on its own,
+    # and neither can flipping a single flag by mistake.
+    autopilot_execution_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for Meta autopilot writes. False means no request "
+            "that could change an ad account is ever issued."
+        ),
+    )
+    autopilot_execution_dry_run: bool = Field(
+        default=True,
+        description=(
+            "Run every gate, enforcement and guard-rail check and report the "
+            "intended change without calling any Meta write endpoint."
+        ),
+    )
+    meta_write_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Per-request timeout for Meta Marketing API reads and writes",
+    )
+
+    # Guard rails, all enforced BEFORE the write. A violated guard rail is a
+    # refusal with a recorded reason - never a clamp-and-proceed, because
+    # silently applying a smaller change than the one that was approved is
+    # still applying something nobody approved.
+    autopilot_max_budget_change_pct: float = Field(
+        default=20.0,
+        gt=0.0,
+        le=100.0,
+        description=(
+            "Largest percentage change a single action may make to a budget, "
+            "measured against the budget currently live on Meta"
+        ),
+    )
+    autopilot_max_cumulative_budget_change_pct: float = Field(
+        default=50.0,
+        gt=0.0,
+        description=(
+            "Largest cumulative percentage change autopilot may make to one "
+            "entity's budget in a UTC day, measured from the budget it started "
+            "the day on"
+        ),
+    )
+    # The absolute floor and ceiling below are ONE pair of numbers compared
+    # against an amount in the ad account's major unit, so they only mean the
+    # same thing across accounts whose currencies are of a similar magnitude.
+    # They are sized for the two-decimal currencies Meta gives an offset of
+    # 100 (USD, EUR, GBP, ...). For a currency Meta gives an offset of 1 -
+    # JPY, KRW, VND, IDR, CLP, COP, CRC, HUF, ISK, PYG, TWD - a perfectly
+    # ordinary daily budget is a five-figure number of major units, so these
+    # defaults are meaningless there: the ceiling would refuse every action
+    # and the floor would never bind. Rather than let one scalar be silently
+    # wrong for those accounts, the executor REFUSES a budget action in any
+    # such currency until an explicit per-currency pair is configured below.
+    autopilot_min_daily_budget_major: float = Field(
+        default=5.0,
+        ge=0.0,
+        description=(
+            "Default absolute floor for a daily budget, in the ad account's "
+            "major currency unit. A change that would land below it is "
+            "refused. Sized for offset-100 currencies; offset-1 currencies "
+            "must use autopilot_daily_budget_limits_by_currency."
+        ),
+    )
+    autopilot_max_daily_budget_major: float = Field(
+        default=1000.0,
+        gt=0.0,
+        description=(
+            "Default absolute ceiling for a daily budget, in the ad account's "
+            "major currency unit. A change that would land above it is "
+            "refused. Sized for offset-100 currencies; offset-1 currencies "
+            "must use autopilot_daily_budget_limits_by_currency."
+        ),
+    )
+    autopilot_daily_budget_limits_by_currency: str = Field(
+        default="",
+        description=(
+            "Per-currency overrides for the daily budget floor and ceiling, "
+            "as comma-separated CURRENCY:floor:ceiling triples in that "
+            "currency's major unit, e.g. 'JPY:750:150000,KRW:7000:1500000'. "
+            "Required before autopilot may change a budget on an account "
+            "whose currency has a Meta offset of 1; optional for every other."
+        ),
+    )
+
+    @property
+    def autopilot_daily_budget_limits_map(self) -> dict[str, tuple[float, float]]:
+        """
+        The configured per-currency budget limits, keyed by currency code.
+
+        Returns:
+            Currency code -> ``(floor, ceiling)`` in that currency's major
+            unit. Malformed entries, a non-positive ceiling and a floor above
+            its ceiling are dropped rather than half-applied: a limit nobody
+            can read is not a limit, and the executor refuses when a currency
+            that needs one has none.
+        """
+        limits: dict[str, tuple[float, float]] = {}
+        for entry in self.autopilot_daily_budget_limits_by_currency.split(","):
+            parts = [part.strip() for part in entry.split(":")]
+            if len(parts) != 3 or not parts[0]:
+                continue
+            try:
+                floor, ceiling = float(parts[1]), float(parts[2])
+            except ValueError:
+                continue
+            if floor < 0 or ceiling <= 0 or floor > ceiling:
+                continue
+            limits[parts[0].upper()] = (floor, ceiling)
+        return limits
+    autopilot_max_executed_actions_per_tenant_per_day: int = Field(
+        default=10,
+        ge=0,
+        description=(
+            "How many actions autopilot may execute for one tenant in a UTC "
+            "day. Zero means none."
+        ),
+    )
+    # Starts from app.autopilot.service.SAFE_ACTIONS: the reversible, spend-
+    # reducing actions. budget_increase, pause_campaign and every enable_* are
+    # deliberately absent - raising spend or re-enabling delivery is not
+    # something automation should do unsupervised by default.
+    #
+    # SAFE_ACTIONS minus pause_creative. That action's target node is not
+    # established: the executor maps entity_type "creative" to the Meta **ad**
+    # (an AdCreative carries no status of its own), but the only in-repo
+    # producer - app/analytics/logic/recommend.py, via fatigue detection -
+    # emits fact_creative.creative_id, which is nowhere shown to be an ad id.
+    # If it is an AdCreative id the read fails closed with Graph #100 and
+    # nothing is written, but a money-affecting action whose node identity
+    # rests on an assumption does not belong in a default allowlist. Re-add it
+    # once the producer is shown to emit an ad id.
+    autopilot_executable_action_types: str = Field(
+        default="budget_decrease,pause_adset,bid_decrease",
+        description=(
+            "Comma-separated allowlist of action types that may ever execute "
+            "automatically against Meta. Anything absent is refused."
+        ),
+    )
+
+    @property
+    def autopilot_executable_action_types_set(self) -> frozenset[str]:
+        """The configured auto-executable action types, as a set."""
+        return frozenset(
+            action_type.strip()
+            for action_type in self.autopilot_executable_action_types.split(",")
+            if action_type.strip()
+        )
+
+    # -------------------------------------------------------------------------
     # Measurement & Verification (GA4 read-only + GTM tag deployment)
     # -------------------------------------------------------------------------
     # GA4 and GTM are measurement-only integrations (never ad channels).

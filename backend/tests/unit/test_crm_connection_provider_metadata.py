@@ -295,7 +295,7 @@ def test_every_revision_id_fits_the_alembic_version_column():
 
 
 def test_the_provider_metadata_revision_is_chained_to_a_single_head():
-    """One linear history: 0004 follows 0003 and nothing follows 0004."""
+    """One linear history, with this revision as the only head."""
     down_revisions = set()
     revisions = set()
     for path in sorted(MIGRATIONS.glob("*.py")):
@@ -305,6 +305,5 @@ def test_the_provider_metadata_revision_is_chained_to_a_single_head():
             elif line.startswith("down_revision = ") and "None" not in line:
                 down_revisions.add(line.split("=", 1)[1].strip().strip('"'))
 
-    assert "0004_crm_provider_metadata" in revisions
-    assert "0003_meta_privacy_callbacks" in down_revisions
-    assert revisions - down_revisions == {"0004_crm_provider_metadata"}
+    assert "0005_crm_provider_metadata" in revisions
+    assert revisions - down_revisions == {"0005_crm_provider_metadata"}

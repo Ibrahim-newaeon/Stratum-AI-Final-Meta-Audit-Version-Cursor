@@ -85,6 +85,16 @@ from app.models.campaign_builder import (
     TenantPlatformConnection,
 )
 
+# CAPI delivery telemetry. Registered here so Alembic sees the metadata:
+# these tables were declared but never imported, so the baseline's create_all
+# never built them and every reader of capi_delivery_logs failed at runtime.
+from app.models.capi_delivery import (
+    CAPIDeadLetterEntry,
+    CAPIDeliveryDailyStats,
+    CAPIDeliveryLog,
+    CAPIEventDedupeRecord,
+)
+
 # CDP (Customer Data Platform) models
 from app.models.cdp import (
     CDPConsent,
@@ -402,4 +412,9 @@ __all__ = [
     "CMSPost",
     "CMSPage",
     "CMSContactSubmission",
+    # CAPI delivery telemetry
+    "CAPIDeliveryLog",
+    "CAPIDeadLetterEntry",
+    "CAPIEventDedupeRecord",
+    "CAPIDeliveryDailyStats",
 ]
