@@ -303,15 +303,17 @@ class RootAgent:
 
     def _handle_thresholds(self, context: ConversationContext, text: str) -> AgentResponse:
         """
-        Capture the tenant's preferred trust threshold for the summary.
+        Capture the tenant's preferred trust threshold.
 
-        This agent has no database access - it returns a
-        ``complete_onboarding`` action for the client to act on - so the number
-        collected here is *not* applied to ``TenantOnboarding``; the onboarding
-        form's trust gate step is what persists it, and the trust engine reads
-        it from there. The reply used to say "Trust threshold set to 90%",
-        which was never true and became actively misleading once the stored
-        thresholds started governing the gate.
+        This agent still has no database access - it collects the number onto
+        the conversation context and finishes with a ``complete_onboarding``
+        action. What changed is that completing the conversation now writes it
+        through: ``app.services.tenant.onboarding.persist_chat_onboarding``
+        lands it on ``TenantOnboarding.trust_threshold_autopilot``, the same
+        column the wizard's trust gate step writes and the one
+        ``thresholds_for_tenant`` reads back for the dashboard, the daily
+        rollup and the trust gate. The reply may therefore promise the number
+        will be applied, which it could not before.
 
         Args:
             context: The conversation state being advanced.
@@ -326,9 +328,9 @@ class RootAgent:
         context.state = ConversationState.CREATING_AUTOMATION
         return _response_for(
             context,
-            f"Noted - {context.onboarding_data.trust_threshold}% goes in your "
-            "onboarding summary, and the trust gate step is where it takes "
-            "effect. Want to create your first automation rule now?",
+            f"Trust threshold set to {context.onboarding_data.trust_threshold}% - "
+            "autopilot will execute only at or above that signal health once you "
+            "launch. Want to create your first automation rule now?",
         )
 
     def _handle_automation(self, context: ConversationContext, text: str) -> AgentResponse:

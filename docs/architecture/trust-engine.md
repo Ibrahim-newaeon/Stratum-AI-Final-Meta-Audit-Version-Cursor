@@ -32,6 +32,12 @@ tenant is shown is the band it is enforced against. A pair that is missing, out 
 inverted (`degraded > healthy`) is ignored in favour of the configured defaults. Before this the two
 columns had no reader at all: onboarding collected a number and every code path graded at 70/40.
 
+Both onboarding front doors write those columns through
+`app/services/tenant/onboarding.py`: the wizard's trust gate step
+(`POST /onboarding/steps`) and the conversational agent, whose completing turn calls
+`persist_chat_onboarding`. The chat asks only for the autopilot edge, so it keeps the stored alert
+edge at or below it rather than leaving an inverted pair that would be discarded for the defaults.
+
 ## Signal health components
 
 Signal health is a weighted composite (0-100) computed per tenant and Meta channel

@@ -13,7 +13,6 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
@@ -21,6 +20,7 @@ from app.base_models import User
 from app.core.logging import get_logger
 from app.db.session import get_async_session
 from app.models.onboarding import OnboardingStatus, OnboardingStep, TenantOnboarding
+from app.services.tenant.onboarding import get_or_create_onboarding
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -55,26 +55,6 @@ class OnboardingStepUpdate(BaseModel):
 # =============================================================================
 
 
-async def _get_or_create_onboarding(
-    db: AsyncSession, tenant_id: int
-) -> TenantOnboarding:
-    """Fetch (or lazily create) the tenant's onboarding record."""
-    result = await db.execute(
-        select(TenantOnboarding).where(TenantOnboarding.tenant_id == tenant_id)
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        record = TenantOnboarding(
-            tenant_id=tenant_id,
-            status=OnboardingStatus.NOT_STARTED.value,
-            current_step=OnboardingStep.BUSINESS_PROFILE.value,
-            completed_steps=[],
-        )
-        db.add(record)
-        await db.flush()
-    return record
-
-
 def _progress(record: TenantOnboarding) -> int:
     """Compute progress percent from completed steps."""
     completed = len(record.completed_steps or [])
@@ -102,7 +82,7 @@ async def get_onboarding_status(
     current_user: User = Depends(get_current_user),
 ) -> OnboardingStatusResponse:
     """Get onboarding status for the current tenant."""
-    record = await _get_or_create_onboarding(db, current_user.tenant_id)
+    record = await get_or_create_onboarding(db, current_user.tenant_id)
     await db.commit()
     return _to_response(record)
 
@@ -118,7 +98,7 @@ async def check_onboarding(
     Returns the APIResponse envelope with ``required`` (True while the wizard
     is neither completed nor skipped) and the current step.
     """
-    record = await _get_or_create_onboarding(db, current_user.tenant_id)
+    record = await get_or_create_onboarding(db, current_user.tenant_id)
     await db.commit()
     finished = {OnboardingStatus.COMPLETED.value, OnboardingStatus.SKIPPED.value}
     return {
@@ -139,7 +119,7 @@ async def complete_onboarding_step(
     current_user: User = Depends(get_current_user),
 ) -> OnboardingStatusResponse:
     """Mark a wizard step as completed and store its collected data."""
-    record = await _get_or_create_onboarding(db, current_user.tenant_id)
+    record = await get_or_create_onboarding(db, current_user.tenant_id)
 
     completed = list(record.completed_steps or [])
     if payload.step.value not in completed:
@@ -179,7 +159,7 @@ async def complete_onboarding(
     current_user: User = Depends(get_current_user),
 ) -> OnboardingStatusResponse:
     """Mark onboarding as fully completed."""
-    record = await _get_or_create_onboarding(db, current_user.tenant_id)
+    record = await get_or_create_onboarding(db, current_user.tenant_id)
     record.status = OnboardingStatus.COMPLETED.value
     if hasattr(record, "completed_at"):
         record.completed_at = datetime.now(UTC)
@@ -195,7 +175,7 @@ async def skip_onboarding(
     current_user: User = Depends(get_current_user),
 ) -> OnboardingStatusResponse:
     """Skip the onboarding wizard."""
-    record = await _get_or_create_onboarding(db, current_user.tenant_id)
+    record = await get_or_create_onboarding(db, current_user.tenant_id)
     if record.status == OnboardingStatus.COMPLETED.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

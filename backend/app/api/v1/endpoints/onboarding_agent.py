@@ -9,25 +9,30 @@ using the RootAgent and GreetingTool.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from redis import asyncio as aioredis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import CurrentUserDep, OptionalUserDep
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.db.session import get_async_session
 from app.services.agents import (
     ConversationContext,
     ConversationState,
     UserContext,
     root_agent,
 )
+from app.services.tenant.onboarding import persist_chat_onboarding
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/onboarding-agent", tags=["onboarding-agent"])
+
+SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 # =============================================================================
@@ -211,6 +216,7 @@ async def start_conversation(
 @router.post("/message", response_model=SendMessageResponse)
 async def send_message(
     request: SendMessageRequest,
+    db: SessionDep,
     current_user: OptionalUserDep = None,
 ):
     """
@@ -218,6 +224,11 @@ async def send_message(
 
     The agent processes the message and returns a response
     based on the current conversation state.
+
+    The agent itself has no database access, so the turn that completes the
+    conversation persists what it collected: the trust threshold answered here
+    has to reach ``TenantOnboarding`` or the tenant is graded at the
+    deployment default no matter what they asked for.
     """
     redis = await get_redis_client()
 
@@ -236,6 +247,21 @@ async def send_message(
             message=request.message,
             context=context,
         )
+
+        # Land the collected settings before the session records completion,
+        # so a write failure leaves the conversation replayable rather than
+        # finished-but-unsaved.
+        if response.action_type == "complete_onboarding":
+            if current_user is not None:
+                await persist_chat_onboarding(
+                    db, current_user.tenant_id, context.onboarding_data
+                )
+                await db.commit()
+            else:
+                logger.warning(
+                    "onboarding_conversation_completed_without_tenant",
+                    session_id=request.session_id,
+                )
 
         # Save updated session
         await save_session(request.session_id, context, redis)
@@ -313,12 +339,16 @@ async def get_conversation_status(
 async def complete_onboarding(
     session_id: str,
     current_user: CurrentUserDep,
+    db: SessionDep,
 ):
     """
     Complete the onboarding conversation and save data to database.
 
     This endpoint is called when the user completes the conversational
-    onboarding to persist the collected data.
+    onboarding to persist the collected data. ``POST /message`` already
+    persists on the completing turn; writing the same values again here is
+    idempotent, and keeps this endpoint usable by a client that drives the
+    conversation without an authenticated session until the end.
     """
     redis = await get_redis_client()
 
@@ -337,8 +367,10 @@ async def complete_onboarding(
                 detail="Onboarding not yet completed",
             )
 
-        # TODO: Persist onboarding data to database
-        # This would integrate with the existing TenantOnboarding model
+        await persist_chat_onboarding(
+            db, current_user.tenant_id, context.onboarding_data
+        )
+        await db.commit()
 
         # Delete session after completion
         await delete_session(session_id, redis)
