@@ -27,13 +27,33 @@ from app.services.email_service import get_email_service
 INVITE_TOKEN_PREFIX = "user_invite:"
 INVITE_TOKEN_EXPIRY = 7 * 24 * 3600  # 7 days
 
+# Roles a tenant admin may grant through these endpoints. UserRole.SUPERADMIN is
+# excluded on purpose - it is the cross-tenant platform role, so granting it from
+# a tenant-scoped request would be privilege escalation. An unrecognised role is
+# rejected rather than silently defaulted: quietly downgrading a requested role
+# hides the mistake, and quietly upgrading one is a security hole.
+ASSIGNABLE_ROLES: dict[str, UserRole] = {
+    "admin": UserRole.ADMIN,
+    "manager": UserRole.MANAGER,
+    "analyst": UserRole.ANALYST,
+    "viewer": UserRole.VIEWER,
+}
+INVALID_ROLE_DETAIL = (
+    f"Invalid role. Must be one of: {', '.join(sorted(ASSIGNABLE_ROLES))}"
+)
+
 
 class InviteUserRequest(BaseModel):
     """Request schema for inviting a new user."""
 
     email: EmailStr
     full_name: Optional[str] = None
-    role: str = Field(default="user", description="User role: admin, manager, user")
+    # Defaults to the least-privileged role: an invite that omits `role` should
+    # not hand out more access than the inviter asked for. "user" was the old
+    # default and is not a real UserRole member.
+    role: str = Field(
+        default="viewer", description="User role: admin, manager, analyst, viewer"
+    )
 
 
 class UpdateUserRequest(BaseModel):
@@ -255,13 +275,14 @@ async def invite_user(
         if inviter and inviter.full_name:
             inviter_name = decrypt_pii(inviter.full_name)
 
-    # Map role string to enum
-    role_map = {
-        "admin": UserRole.ADMIN,
-        "manager": UserRole.MANAGER,
-        "user": UserRole.USER,
-    }
-    user_role = role_map.get(invite_data.role.lower(), UserRole.USER)
+    # Map role string to enum. SUPERADMIN is deliberately absent: it is a
+    # platform role, and a tenant admin must never be able to grant it.
+    user_role = ASSIGNABLE_ROLES.get(invite_data.role.lower())
+    if user_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=INVALID_ROLE_DETAIL,
+        )
 
     # Create user with temporary password (will need to set password on first login)
     temp_password = secrets.token_urlsafe(16)
@@ -388,12 +409,13 @@ async def update_user(
         user.full_name = encrypt_pii(update_data.full_name) if update_data.full_name else None
 
     if update_data.role is not None and not user.is_protected:
-        role_map = {
-            "admin": UserRole.ADMIN,
-            "manager": UserRole.MANAGER,
-            "user": UserRole.USER,
-        }
-        user.role = role_map.get(update_data.role.lower(), user.role)
+        new_role = ASSIGNABLE_ROLES.get(update_data.role.lower())
+        if new_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=INVALID_ROLE_DETAIL,
+            )
+        user.role = new_role
 
     if update_data.is_active is not None and not user.is_protected:
         user.is_active = update_data.is_active
