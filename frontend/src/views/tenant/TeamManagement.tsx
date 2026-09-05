@@ -95,6 +95,7 @@ export default function TeamManagement() {
       // The API creates the account and emails the invite link. It issues the
       // temporary credential itself - the client never mints one.
       await inviteUserMutation.mutateAsync({
+        tenant_id: tenantIdNum,
         email: newUser.email,
         full_name: newUser.name || newUser.email.split('@')[0],
         role: newUser.role,
@@ -119,7 +120,7 @@ export default function TeamManagement() {
     try {
       await updateUserMutation.mutateAsync({
         id: userId,
-        data: { role: newRole },
+        data: { tenant_id: tenantIdNum, role: newRole },
       });
       toast({
         title: 'Success',
@@ -141,7 +142,7 @@ export default function TeamManagement() {
     }
 
     try {
-      await deleteUserMutation.mutateAsync(userId);
+      await deleteUserMutation.mutateAsync({ id: userId, tenantId: tenantIdNum });
       toast({
         title: 'Success',
         description: 'Team member removed successfully',
@@ -217,9 +218,8 @@ export default function TeamManagement() {
 
       {!canManageMembers && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-muted-foreground">
-          You are viewing another tenant&apos;s team. Member changes are not
-          available here: the user endpoints act on your own tenant, so an edit
-          made from this page would change the wrong one.
+          You can view this team but not change it. Member changes need admin of
+          this tenant, or the platform role.
         </div>
       )}
 

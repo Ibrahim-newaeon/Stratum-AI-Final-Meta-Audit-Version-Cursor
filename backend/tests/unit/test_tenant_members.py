@@ -40,14 +40,11 @@ def test_the_endpoint_returns_the_members_of_the_tenant_in_the_path():
     assert "User.tenant_id == tenant_id" in source
     assert '"users":' in source
 
-    # The caller's own tenant is read for exactly one purpose - answering
-    # whether the write endpoints would land on this tenant - and never to
-    # choose which members are listed. Pinned because using it for the listing
-    # is the original defect.
-    caller_reads = source.count("request.state")
-    assert caller_reads == 1, caller_reads
-    assert "caller_tenant_id == tenant_id" in source
+    # The caller's own identity is read only to answer whether they may change
+    # this tenant's members, never to choose which members are listed. Using it
+    # for the listing is the original defect.
     assert "User.tenant_id == caller_tenant_id" not in source
+    assert "can_manage_members" in source
 
 
 def test_the_members_are_serialised_and_decrypted_like_the_other_listing():
@@ -105,24 +102,21 @@ def test_the_seat_counts_are_derived_from_the_rows_that_were_returned():
     assert '"slots_available": tenant.max_users - len(users)' in source
 
 
-def test_the_user_endpoints_still_scope_writes_to_the_callers_own_tenant():
+def test_the_user_endpoints_authorise_the_tenant_they_are_aimed_at():
     """
-    The write endpoints take no target tenant, which is why the screen hides
-    its controls when the two differ.
+    The write endpoints now take a target tenant, and authorise it.
 
-    ``invite_user``, ``update_user`` and ``delete_user`` all resolve the tenant
-    from ``request.state``. That is safe, but it means they cannot be aimed at
-    the tenant in a URL - so a platform-role user "editing tenant 2's team"
-    would have changed tenant 1's. If this ever gains a target-tenant argument,
-    the guard in TeamManagement.tsx should be revisited rather than left as a
-    permanent restriction.
+    They used to resolve the tenant from ``request.state`` and accept no
+    argument, which is why this screen could only ever be read-only for anybody
+    but the tenant's own admin. They now defer to ``resolve_target_tenant``,
+    which honours another tenant only for the cross-tenant platform role - so
+    what replaced the restriction is a check, not the absence of one.
     """
     for name in ("invite_user", "update_user", "delete_user"):
         source = inspect.getsource(getattr(users_module, name))
-        assert 'getattr(request.state, "tenant_id", None)' in source, name
-        # None of them accept a tenant to act on.
-        signature = inspect.signature(getattr(users_module, name))
-        assert "tenant_id" not in signature.parameters, name
+        assert "resolve_target_tenant(" in source, name
+        # The old ad-hoc role gate is gone rather than left beside it.
+        assert 'role not in ["admin", "superadmin"]' not in source, name
 
 
 def test_the_response_says_whether_writes_would_land_on_this_tenant():
@@ -137,4 +131,11 @@ def test_the_response_says_whether_writes_would_land_on_this_tenant():
     """
     source = inspect.getsource(tenants_module.get_tenant_users)
 
-    assert '"can_manage_members": caller_tenant_id == tenant_id' in source
+    assert '"can_manage_members": can_manage_members' in source
+    # The same predicate the write endpoints enforce: the platform role
+    # anywhere, an ADMIN on its own tenant, nobody else. A flag looser than the
+    # endpoints offers controls that 403; tighter hides ones that would work.
+    assert "UserRole.SUPERADMIN.value" in source
+    assert (
+        "caller_role == UserRole.ADMIN.value and caller_tenant_id == tenant_id" in source
+    )

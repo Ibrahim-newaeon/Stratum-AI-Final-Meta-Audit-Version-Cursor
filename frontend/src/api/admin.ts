@@ -102,12 +102,20 @@ export interface InviteUserRequest {
   email: string;
   full_name?: string;
   role: AssignableUserRole;
+  /**
+   * Tenant to invite into. Omitted, or the caller's own, behaves as before;
+   * naming another is honoured only for the cross-tenant platform role, and is
+   * refused rather than quietly redirected home.
+   */
+  tenant_id?: number;
 }
 
 export interface UpdateUserRequest {
   full_name?: string;
   role?: AssignableUserRole;
   is_active?: boolean;
+  /** See `InviteUserRequest.tenant_id` - same rule. */
+  tenant_id?: number;
 }
 
 // =============================================================================
@@ -135,9 +143,16 @@ export const adminApi = {
     return response.data.data;
   },
 
-  /** Soft-deletes the user; the API refuses self-deletion and protected accounts. */
-  deleteUser: async (id: number): Promise<void> => {
-    await apiClient.delete(`/users/${id}`);
+  /**
+   * Soft-deletes the user; the API refuses self-deletion and protected accounts.
+   *
+   * `tenantId` names the tenant to remove them from - see
+   * `InviteUserRequest.tenant_id` for who may name one other than their own.
+   */
+  deleteUser: async (id: number, tenantId?: number): Promise<void> => {
+    await apiClient.delete(`/users/${id}`, {
+      params: tenantId === undefined ? undefined : { tenant_id: tenantId },
+    });
   },
 
   // Tenant management - `/tenants`. A superadmin sees every tenant; every
@@ -207,7 +222,8 @@ export function useDeleteUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: adminApi.deleteUser,
+    mutationFn: ({ id, tenantId }: { id: number; tenantId?: number }) =>
+      adminApi.deleteUser(id, tenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
