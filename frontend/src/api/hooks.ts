@@ -35,6 +35,7 @@ export {
   useDeleteUser,
   useTenants,
   useTenant,
+  useTenantUsers,
 } from './admin';
 
 // Account manager portfolio hooks

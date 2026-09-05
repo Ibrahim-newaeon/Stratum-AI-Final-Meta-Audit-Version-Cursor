@@ -78,6 +78,7 @@ export {
   type UserRole,
   type AssignableUserRole,
   type Tenant,
+  type TenantUsers,
   type UserListParams,
   type TenantListParams,
   type InviteUserRequest,
@@ -89,6 +90,7 @@ export {
   useDeleteUser,
   useTenants,
   useTenant,
+  useTenantUsers,
 } from '../admin';
 export * from '../gdpr';
 export * from '../attribution';

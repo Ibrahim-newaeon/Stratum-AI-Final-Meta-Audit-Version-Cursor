@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useDeleteUser, useInviteUser, useUpdateUser, useUsers } from '@/api/admin';
+import { useDeleteUser, useInviteUser, useTenantUsers, useUpdateUser } from '@/api/admin';
 import type { AssignableUserRole, User } from '@/api/admin';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -37,12 +37,27 @@ export default function TeamManagement() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TeamTab>('members');
 
-  // The API derives the tenant from the authenticated request; the `tenantId`
-  // route param is for navigation only and is never sent as authorization.
-  const { data: usersData, isLoading, refetch } = useUsers();
+  const tenantIdNum = tenantId ? parseInt(tenantId, 10) : 0;
+
+  // Ask about the tenant this page is *for*. It used to call `GET /users`,
+  // which derives the tenant from the caller's token, so a platform-role user
+  // opening another tenant's team page was shown their own members under that
+  // tenant's name. `GET /tenants/{id}/users` is authorised by
+  // `require_tenant_access` - own tenant for any member, any tenant for the
+  // platform role - so the page and its URL now agree.
+  const { data: tenantUsers, isLoading, refetch } = useTenantUsers(tenantIdNum);
   const inviteUserMutation = useInviteUser();
   const updateUserMutation = useUpdateUser();
   const deleteUserMutation = useDeleteUser();
+
+  // The write endpoints (`POST /users/invite`, `PATCH|DELETE /users/{id}`) act
+  // on the caller's own tenant and take no target, so they cannot be aimed at
+  // the tenant in the URL. Rather than let a platform-role user "edit tenant
+  // 2's team" and silently change tenant 1's, the controls are hidden when the
+  // two differ. The server decides - it is an authorization question and it is
+  // the only side that knows both the caller's tenant and this page's - and the
+  // controls stay hidden until it has answered.
+  const canManageMembers = tenantUsers?.can_manage_members ?? false;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -58,7 +73,7 @@ export default function TeamManagement() {
     role: 'viewer',
   });
 
-  const users: User[] = usersData || [];
+  const users: User[] = tenantUsers?.users ?? [];
 
   const filteredUsers = users.filter(
     (user) =>
@@ -189,14 +204,24 @@ export default function TeamManagement() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowInviteModal(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-        >
-          <UserPlusIcon className="h-5 w-5" />
-          Invite Member
-        </button>
+        {canManageMembers && (
+          <button
+            onClick={() => setShowInviteModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            <UserPlusIcon className="h-5 w-5" />
+            Invite Member
+          </button>
+        )}
       </div>
+
+      {!canManageMembers && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-muted-foreground">
+          You are viewing another tenant&apos;s team. Member changes are not
+          available here: the user endpoints act on your own tenant, so an edit
+          made from this page would change the wrong one.
+        </div>
+      )}
 
       {/* Tab Switcher */}
       <div className="flex items-center gap-1 p-1 rounded-lg bg-white/5 border border-white/10 w-fit">
@@ -287,22 +312,37 @@ export default function TeamManagement() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <select
-                      value={user.role}
-                      onChange={(e) =>
-                        handleUpdateRole(user.id, e.target.value as AssignableUserRole)
-                      }
-                      className={cn(
-                        'px-3 py-1 rounded-full text-xs font-medium border-0 cursor-pointer',
-                        getRoleBadgeColor(user.role)
-                      )}
-                    >
-                      {ROLES.map((role) => (
-                        <option key={role.value} value={role.value}>
-                          {role.label}
-                        </option>
-                      ))}
-                    </select>
+                    {/* A role outside ROLES - superadmin, the cross-tenant
+                        platform role - has no option to select, so a <select>
+                        showed the first one and labelled a superadmin "Admin".
+                        The API refuses to grant or change it here anyway. */}
+                    {canManageMembers && ROLES.some((r) => r.value === user.role) ? (
+                      <select
+                        value={user.role}
+                        onChange={(e) =>
+                          handleUpdateRole(user.id, e.target.value as AssignableUserRole)
+                        }
+                        className={cn(
+                          'px-3 py-1 rounded-full text-xs font-medium border-0 cursor-pointer',
+                          getRoleBadgeColor(user.role)
+                        )}
+                      >
+                        {ROLES.map((role) => (
+                          <option key={role.value} value={role.value}>
+                            {role.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span
+                        className={cn(
+                          'px-3 py-1 rounded-full text-xs font-medium',
+                          getRoleBadgeColor(user.role)
+                        )}
+                      >
+                        {ROLES.find((r) => r.value === user.role)?.label ?? user.role}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
@@ -324,23 +364,31 @@ export default function TeamManagement() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => {
-                          setSelectedUser(user);
-                          setShowEditModal(true);
-                        }}
-                        className="p-2 rounded-lg hover:bg-accent transition-colors"
-                        title="Edit member"
-                      >
-                        <PencilIcon className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleRemoveUser(user.id, user.full_name || user.email)}
-                        className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 transition-colors"
-                        title="Remove member"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
+                      {canManageMembers ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setShowEditModal(true);
+                            }}
+                            className="p-2 rounded-lg hover:bg-accent transition-colors"
+                            title="Edit member"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleRemoveUser(user.id, user.full_name || user.email)
+                            }
+                            className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 transition-colors"
+                            title="Remove member"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">View only</span>
+                      )}
                     </div>
                   </td>
                 </tr>
