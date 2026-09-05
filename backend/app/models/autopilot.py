@@ -11,23 +11,17 @@ Models:
 """
 
 import enum
+import uuid
+from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Enum as SQLEnum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import Boolean, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import (Float, ForeignKey, Index, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin
 
@@ -78,8 +72,8 @@ class TenantEnforcementSettings(Base, TimestampMixin):
 
     __tablename__ = "tenant_enforcement_settings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -88,10 +82,10 @@ class TenantEnforcementSettings(Base, TimestampMixin):
     )
 
     # Kill switch
-    enforcement_enabled = Column(Boolean, nullable=False, default=True)
+    enforcement_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Default mode
-    default_mode = Column(
+    default_mode: Mapped[EnforcementMode] = mapped_column(
         SQLEnum(
             EnforcementMode,
             name="enforcement_mode",
@@ -103,17 +97,17 @@ class TenantEnforcementSettings(Base, TimestampMixin):
     )
 
     # Budget thresholds
-    max_daily_budget = Column(Float, nullable=True)
-    max_campaign_budget = Column(Float, nullable=True)
-    budget_increase_limit_pct = Column(Float, nullable=False, default=30.0)
+    max_daily_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_campaign_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    budget_increase_limit_pct: Mapped[float] = mapped_column(Float, nullable=False, default=30.0)
 
     # ROAS thresholds
-    min_roas_threshold = Column(Float, nullable=False, default=1.0)
-    roas_lookback_days = Column(Integer, nullable=False, default=7)
+    min_roas_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    roas_lookback_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
 
     # Frequency settings
-    max_budget_changes_per_day = Column(Integer, nullable=False, default=5)
-    min_hours_between_changes = Column(Integer, nullable=False, default=4)
+    max_budget_changes_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    min_hours_between_changes: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
 
     # Relationships
     tenant = relationship("Tenant", backref="enforcement_settings")
@@ -157,13 +151,13 @@ class TenantEnforcementRule(Base, TimestampMixin):
 
     __tablename__ = "tenant_enforcement_rules"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    settings_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    settings_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenant_enforcement_settings.id", ondelete="CASCADE"),
         nullable=False,
     )
-    tenant_id = Column(
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -171,8 +165,8 @@ class TenantEnforcementRule(Base, TimestampMixin):
     )
 
     # Rule configuration
-    rule_id = Column(String(100), nullable=False)
-    rule_type = Column(
+    rule_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    rule_type: Mapped[ViolationType] = mapped_column(
         SQLEnum(
             ViolationType,
             name="violation_type",
@@ -181,8 +175,8 @@ class TenantEnforcementRule(Base, TimestampMixin):
         ),
         nullable=False,
     )
-    threshold_value = Column(Float, nullable=False)
-    enforcement_mode = Column(
+    threshold_value: Mapped[float] = mapped_column(Float, nullable=False)
+    enforcement_mode: Mapped[EnforcementMode] = mapped_column(
         SQLEnum(
             EnforcementMode,
             name="enforcement_mode",
@@ -192,8 +186,8 @@ class TenantEnforcementRule(Base, TimestampMixin):
         nullable=False,
         default=EnforcementMode.ADVISORY,
     )
-    enabled = Column(Boolean, nullable=False, default=True)
-    description = Column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     settings = relationship("TenantEnforcementSettings", back_populates="rules")
@@ -233,8 +227,8 @@ class EnforcementAuditLog(Base):
 
     __tablename__ = "enforcement_audit_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -242,15 +236,15 @@ class EnforcementAuditLog(Base):
     )
 
     # Timestamp
-    timestamp = Column(DateTime(timezone=True), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Action context
-    action_type = Column(String(100), nullable=False)
-    entity_type = Column(String(50), nullable=False)
-    entity_id = Column(String(255), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Violation details
-    violation_type = Column(
+    violation_type: Mapped[ViolationType] = mapped_column(
         SQLEnum(
             ViolationType,
             name="violation_type",
@@ -261,7 +255,7 @@ class EnforcementAuditLog(Base):
     )
 
     # Intervention details
-    intervention_action = Column(
+    intervention_action: Mapped[InterventionAction] = mapped_column(
         SQLEnum(
             InterventionAction,
             name="intervention_action",
@@ -270,7 +264,7 @@ class EnforcementAuditLog(Base):
         ),
         nullable=False,
     )
-    enforcement_mode = Column(
+    enforcement_mode: Mapped[EnforcementMode] = mapped_column(
         SQLEnum(
             EnforcementMode,
             name="enforcement_mode",
@@ -281,9 +275,9 @@ class EnforcementAuditLog(Base):
     )
 
     # Additional context
-    details = Column(JSONB, nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    override_reason = Column(Text, nullable=True)
+    details: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_enforcement_audit_logs_timestamp", "timestamp"),
@@ -327,23 +321,23 @@ class PendingConfirmationToken(Base):
 
     __tablename__ = "pending_confirmation_tokens"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    token = Column(String(64), nullable=False, unique=True, index=True)
+    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
 
     # Context
-    action_type = Column(String(100), nullable=False)
-    entity_id = Column(String(255), nullable=False)
-    violations = Column(JSONB, nullable=False)
+    action_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    violations: Mapped[Any] = mapped_column(JSONB, nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # tenant_id and token are indexed at the column level (index=True)
     __table_args__ = (Index("ix_pending_confirmation_tokens_expires_at", "expires_at"),)

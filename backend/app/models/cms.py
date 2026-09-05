@@ -17,13 +17,15 @@ Managed by superadmins only.
 """
 
 import enum
+import uuid
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Table, Text
+from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Index, Integer,
+                        String, Table, Text)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin
 
@@ -133,20 +135,20 @@ class CMSCategory(Base, TimestampMixin):
 
     __tablename__ = "cms_categories"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Category identification
-    name = Column(String(100), nullable=False, unique=True)
-    slug = Column(String(100), nullable=False, unique=True)
-    description = Column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Display settings
-    color = Column(String(7), nullable=True)  # Hex color code
-    icon = Column(String(50), nullable=True)  # Icon name
-    display_order = Column(Integer, nullable=False, default=0)
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)  # Hex color code
+    icon: Mapped[str | None] = mapped_column(String(50), nullable=True)  # Icon name
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # State
-    is_active = Column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relationships
     posts = relationship("CMSPost", back_populates="category", lazy="dynamic")
@@ -173,18 +175,18 @@ class CMSTag(Base, TimestampMixin):
 
     __tablename__ = "cms_tags"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Tag identification
-    name = Column(String(50), nullable=False, unique=True)
-    slug = Column(String(50), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
     # Metadata
-    description = Column(Text, nullable=True)
-    color = Column(String(7), nullable=True)  # Hex color code
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)  # Hex color code
 
     # Usage tracking
-    usage_count = Column(Integer, nullable=False, default=0)
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Relationships
     posts = relationship(
@@ -216,30 +218,30 @@ class CMSAuthor(Base, TimestampMixin):
 
     __tablename__ = "cms_authors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Link to user (optional)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Author details
-    name = Column(String(255), nullable=False)
-    slug = Column(String(100), nullable=False, unique=True)
-    email = Column(String(255), nullable=True)
-    bio = Column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Profile
-    avatar_url = Column(String(500), nullable=True)
-    job_title = Column(String(100), nullable=True)
-    company = Column(String(100), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    job_title: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Social links
-    twitter_handle = Column(String(50), nullable=True)
-    linkedin_url = Column(String(255), nullable=True)
-    github_handle = Column(String(50), nullable=True)
-    website_url = Column(String(255), nullable=True)
+    twitter_handle: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    linkedin_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    github_handle: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    website_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # State
-    is_active = Column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relationships
     posts = relationship("CMSPost", back_populates="author", lazy="dynamic")
@@ -267,16 +269,16 @@ class CMSPost(Base, TimestampMixin):
 
     __tablename__ = "cms_posts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Foreign keys
-    category_id = Column(
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cms_categories.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    author_id = Column(
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cms_authors.id", ondelete="SET NULL"),
         nullable=True,
@@ -284,82 +286,82 @@ class CMSPost(Base, TimestampMixin):
     )
 
     # Content identification
-    title = Column(String(255), nullable=False)
-    slug = Column(String(255), nullable=False, unique=True)
-    excerpt = Column(Text, nullable=True)  # Short description
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)  # Short description
 
     # Content body
-    content = Column(Text, nullable=True)  # Rendered HTML
-    content_json = Column(JSONB, nullable=True)  # TipTap JSON format
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Rendered HTML
+    content_json: Mapped[Any] = mapped_column(JSONB, nullable=True)  # TipTap JSON format
 
     # Status and type
-    status = Column(String(20), nullable=False, default=CMSPostStatus.DRAFT.value)
-    content_type = Column(String(20), nullable=False, default=CMSContentType.BLOG_POST.value)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=CMSPostStatus.DRAFT.value)
+    content_type: Mapped[str] = mapped_column(String(20), nullable=False, default=CMSContentType.BLOG_POST.value)
 
     # Publishing
-    published_at = Column(DateTime(timezone=True), nullable=True)
-    scheduled_at = Column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # SEO fields
-    meta_title = Column(String(70), nullable=True)  # Search engines typically display < 60 chars
-    meta_description = Column(String(160), nullable=True)  # Search engines typically display < 155 chars
-    canonical_url = Column(String(500), nullable=True)
-    og_image_url = Column(String(500), nullable=True)  # Open Graph image
+    meta_title: Mapped[str | None] = mapped_column(String(70), nullable=True)  # Search engines typically display < 60 chars
+    meta_description: Mapped[str | None] = mapped_column(String(160), nullable=True)  # Search engines typically display < 155 chars
+    canonical_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    og_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Open Graph image
 
     # Featured image
-    featured_image_url = Column(String(500), nullable=True)
-    featured_image_alt = Column(String(255), nullable=True)
+    featured_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    featured_image_alt: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Reading metrics
-    reading_time_minutes = Column(Integer, nullable=True)
-    word_count = Column(Integer, nullable=True)
+    reading_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    word_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Engagement metrics
-    view_count = Column(Integer, nullable=False, default=0)
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Flags
-    is_featured = Column(Boolean, nullable=False, default=False)
-    allow_comments = Column(Boolean, nullable=False, default=True)
+    is_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    allow_comments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # ==========================================================================
     # 2026 Workflow Fields
     # ==========================================================================
 
     # Workflow tracking
-    submitted_at = Column(DateTime(timezone=True), nullable=True)
-    submitted_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Review tracking
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    reviewed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    review_notes = Column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Approval tracking
-    approved_at = Column(DateTime(timezone=True), nullable=True)
-    approved_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Rejection tracking
-    rejected_at = Column(DateTime(timezone=True), nullable=True)
-    rejected_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    rejection_reason = Column(Text, nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Versioning
-    version = Column(Integer, nullable=False, default=1)
-    current_version_id = Column(UUID(as_uuid=True), nullable=True)  # Points to latest version
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)  # Points to latest version
 
     # Assigned reviewer (for workflow)
-    assigned_reviewer_id = Column(
+    assigned_reviewer_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    review_due_date = Column(DateTime(timezone=True), nullable=True)
+    review_due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Lock for editing (prevent conflicts)
-    locked_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    locked_at = Column(DateTime(timezone=True), nullable=True)
+    locked_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     category = relationship("CMSCategory", back_populates="posts")
@@ -472,35 +474,35 @@ class CMSPage(Base, TimestampMixin):
 
     __tablename__ = "cms_pages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Page identification
-    title = Column(String(255), nullable=False)
-    slug = Column(String(255), nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
 
     # Content
-    content = Column(Text, nullable=True)  # Rendered HTML
-    content_json = Column(JSONB, nullable=True)  # TipTap JSON format
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Rendered HTML
+    content_json: Mapped[Any] = mapped_column(JSONB, nullable=True)  # TipTap JSON format
 
     # Status
-    status = Column(String(20), nullable=False, default=CMSPageStatus.DRAFT.value)
-    published_at = Column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=CMSPageStatus.DRAFT.value)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # SEO fields
-    meta_title = Column(String(70), nullable=True)
-    meta_description = Column(String(160), nullable=True)
+    meta_title: Mapped[str | None] = mapped_column(String(70), nullable=True)
+    meta_description: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     # Display settings
-    show_in_navigation = Column(Boolean, nullable=False, default=False)
-    navigation_label = Column(String(50), nullable=True)
-    navigation_order = Column(Integer, nullable=False, default=0)
+    show_in_navigation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    navigation_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    navigation_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Template selection
-    template = Column(String(50), nullable=False, default="default")
+    template: Mapped[str] = mapped_column(String(50), nullable=False, default="default")
 
     # Soft delete
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_cms_pages_slug", "slug"),
@@ -533,36 +535,36 @@ class CMSContactSubmission(Base, TimestampMixin):
 
     __tablename__ = "cms_contact_submissions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Contact details
-    name = Column(String(255), nullable=False)
-    email = Column(String(255), nullable=False)
-    company = Column(String(255), nullable=True)
-    phone = Column(String(50), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Message
-    subject = Column(String(255), nullable=True)
-    message = Column(Text, nullable=False)
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Context
-    source_page = Column(String(255), nullable=True)  # Which page the form was on
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(String(512), nullable=True)
+    source_page: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Which page the form was on
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Processing
-    is_read = Column(Boolean, nullable=False, default=False)
-    read_at = Column(DateTime(timezone=True), nullable=True)
-    read_by_user_id = Column(Integer, nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Response tracking
-    is_responded = Column(Boolean, nullable=False, default=False)
-    responded_at = Column(DateTime(timezone=True), nullable=True)
-    response_notes = Column(Text, nullable=True)
+    is_responded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Spam filtering
-    is_spam = Column(Boolean, nullable=False, default=False)
-    spam_score = Column(Integer, nullable=True)
+    is_spam: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    spam_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         Index("ix_cms_contacts_email", "email"),
@@ -590,10 +592,10 @@ class CMSPostVersion(Base, TimestampMixin):
 
     __tablename__ = "cms_post_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Link to parent post
-    post_id = Column(
+    post_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cms_posts.id", ondelete="CASCADE"),
         nullable=False,
@@ -601,32 +603,32 @@ class CMSPostVersion(Base, TimestampMixin):
     )
 
     # Version number (auto-incremented per post)
-    version = Column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Content snapshot
-    title = Column(String(255), nullable=False)
-    slug = Column(String(255), nullable=False)
-    excerpt = Column(Text, nullable=True)
-    content = Column(Text, nullable=True)
-    content_json = Column(JSONB, nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_json: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Metadata snapshot
-    meta_title = Column(String(70), nullable=True)
-    meta_description = Column(String(160), nullable=True)
-    featured_image_url = Column(String(500), nullable=True)
+    meta_title: Mapped[str | None] = mapped_column(String(70), nullable=True)
+    meta_description: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    featured_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Who created this version
-    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Change summary
-    change_summary = Column(String(500), nullable=True)  # Brief description of changes
-    change_type = Column(
+    change_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Brief description of changes
+    change_type: Mapped[str | None] = mapped_column(
         String(50), nullable=True
     )  # content_update, seo_update, media_update, etc.
 
     # Word/reading metrics at this version
-    word_count = Column(Integer, nullable=True)
-    reading_time_minutes = Column(Integer, nullable=True)
+    word_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reading_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     post = relationship("CMSPost", back_populates="versions")
@@ -656,10 +658,10 @@ class CMSWorkflowLog(Base, TimestampMixin):
 
     __tablename__ = "cms_workflow_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Link to post
-    post_id = Column(
+    post_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cms_posts.id", ondelete="CASCADE"),
         nullable=False,
@@ -667,28 +669,28 @@ class CMSWorkflowLog(Base, TimestampMixin):
     )
 
     # Action details
-    action = Column(String(50), nullable=False)  # CMSWorkflowAction value
+    action: Mapped[str] = mapped_column(String(50), nullable=False)  # CMSWorkflowAction value
 
     # Status transition
-    from_status = Column(String(20), nullable=True)  # Previous status
-    to_status = Column(String(20), nullable=True)  # New status
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # Previous status
+    to_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # New status
 
     # Actor
-    performed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    performed_by_role = Column(String(50), nullable=True)  # CMSRole value at time of action
+    performed_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    performed_by_role: Mapped[str | None] = mapped_column(String(50), nullable=True)  # CMSRole value at time of action
 
     # Context
-    comment = Column(Text, nullable=True)  # Review notes, rejection reason, etc.
-    extra_data = Column(
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # Review notes, rejection reason, etc.
+    extra_data: Mapped[Any] = mapped_column(
         JSONB, nullable=True
     )  # Additional structured data (renamed from metadata - reserved)
 
     # Version reference (which version was affected)
-    version_number = Column(Integer, nullable=True)
+    version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # IP and user agent for security audit
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(String(512), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Relationships
     post = relationship("CMSPost", back_populates="workflow_history")

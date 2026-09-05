@@ -15,26 +15,16 @@ All models are multi-tenant with tenant_id column.
 """
 
 import enum
+import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    Numeric,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import (BigInteger, Boolean, DateTime, ForeignKey, Index,
+                        Integer, Numeric, String, Text, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin
 
@@ -95,8 +85,8 @@ class CDPSource(Base, TimestampMixin):
 
     __tablename__ = "cdp_sources"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -104,17 +94,17 @@ class CDPSource(Base, TimestampMixin):
     )
 
     # Source identification
-    name = Column(String(255), nullable=False)
-    source_type = Column(String(50), nullable=False)  # Using string for flexibility
-    source_key = Column(String(64), nullable=False)  # API key for this source
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)  # Using string for flexibility
+    source_key: Mapped[str] = mapped_column(String(64), nullable=False)  # API key for this source
 
     # Configuration (JSON for flexibility)
-    config = Column(JSONB, nullable=False, default=dict)
-    is_active = Column(Boolean, nullable=False, default=True)
+    config: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Metrics
-    event_count = Column(BigInteger, nullable=False, default=0)
-    last_event_at = Column(DateTime(timezone=True), nullable=True)
+    event_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     events = relationship("CDPEvent", back_populates="source", lazy="dynamic")
@@ -142,8 +132,8 @@ class CDPProfile(Base, TimestampMixin):
 
     __tablename__ = "cdp_profiles"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -151,24 +141,24 @@ class CDPProfile(Base, TimestampMixin):
     )
 
     # External reference (client's customer ID)
-    external_id = Column(String(255), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Activity timestamps
-    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Flexible profile data
-    profile_data = Column(JSONB, nullable=False, default=dict)
-    computed_traits = Column(JSONB, nullable=False, default=dict)
+    profile_data: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
+    computed_traits: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Lifecycle
-    lifecycle_stage = Column(String(50), nullable=False, default=LifecycleStage.ANONYMOUS.value)
+    lifecycle_stage: Mapped[str] = mapped_column(String(50), nullable=False, default=LifecycleStage.ANONYMOUS.value)
 
     # Aggregated counters (denormalized for performance)
-    total_events = Column(Integer, nullable=False, default=0)
-    total_sessions = Column(Integer, nullable=False, default=0)
-    total_purchases = Column(Integer, nullable=False, default=0)
-    total_revenue = Column(Numeric(15, 2), nullable=False, default=Decimal("0"))
+    total_events: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_purchases: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_revenue: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0"))
 
     # Relationships
     identifiers = relationship(
@@ -225,14 +215,14 @@ class CDPProfileIdentifier(Base):
 
     __tablename__ = "cdp_profile_identifiers"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    profile_id = Column(
+    profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="CASCADE"),
         nullable=False,
@@ -240,19 +230,19 @@ class CDPProfileIdentifier(Base):
     )
 
     # Identifier details
-    identifier_type = Column(String(50), nullable=False)
-    identifier_value = Column(String(512), nullable=True)  # Original (can be redacted)
-    identifier_hash = Column(String(64), nullable=False)  # SHA256 hash
+    identifier_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    identifier_value: Mapped[str | None] = mapped_column(String(512), nullable=True)  # Original (can be redacted)
+    identifier_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA256 hash
 
     # Metadata
-    is_primary = Column(Boolean, nullable=False, default=False)
-    confidence_score = Column(Numeric(3, 2), nullable=False, default=Decimal("1.00"))
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    confidence_score: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False, default=Decimal("1.00"))
 
     # Verification & timestamps
-    verified_at = Column(DateTime(timezone=True), nullable=True)
-    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     profile = relationship("CDPProfile", back_populates="identifiers")
@@ -287,20 +277,20 @@ class CDPEvent(Base):
 
     __tablename__ = "cdp_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    profile_id = Column(
+    profile_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    source_id = Column(
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_sources.id", ondelete="SET NULL"),
         nullable=True,
@@ -308,27 +298,27 @@ class CDPEvent(Base):
     )
 
     # Event identification
-    event_name = Column(String(255), nullable=False)
-    event_time = Column(DateTime(timezone=True), nullable=False)
-    received_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    event_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Deduplication
-    idempotency_key = Column(String(128), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Event data
-    properties = Column(JSONB, nullable=False, default=dict)
-    context = Column(JSONB, nullable=False, default=dict)
-    identifiers = Column(JSONB, nullable=False, default=list)
+    properties: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
+    context: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
+    identifiers: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
 
     # Processing status
-    processed = Column(Boolean, nullable=False, default=False)
-    processing_errors = Column(JSONB, nullable=False, default=list)
+    processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    processing_errors: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
 
     # EMQ (Event Match Quality) - integration with Stratum signal health
-    emq_score = Column(Numeric(5, 2), nullable=True)
+    emq_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     # Timestamp (no updated_at - events are immutable)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     profile = relationship("CDPProfile", back_populates="events")
@@ -358,14 +348,14 @@ class CDPConsent(Base, TimestampMixin):
 
     __tablename__ = "cdp_consents"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    profile_id = Column(
+    profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="CASCADE"),
         nullable=False,
@@ -373,19 +363,19 @@ class CDPConsent(Base, TimestampMixin):
     )
 
     # Consent details
-    consent_type = Column(String(50), nullable=False)
-    granted = Column(Boolean, nullable=False)
-    granted_at = Column(DateTime(timezone=True), nullable=True)
-    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    consent_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    granted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Audit information
-    source = Column(String(100), nullable=True)
-    ip_address = Column(String(45), nullable=True)
-    user_agent = Column(String(512), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Compliance
-    consent_text = Column(Text, nullable=True)
-    consent_version = Column(String(50), nullable=True)
+    consent_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
     profile = relationship("CDPProfile", back_populates="consents")
@@ -449,8 +439,8 @@ class CDPWebhook(Base, TimestampMixin):
 
     __tablename__ = "cdp_webhooks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -458,23 +448,23 @@ class CDPWebhook(Base, TimestampMixin):
     )
 
     # Webhook configuration
-    name = Column(String(255), nullable=False)
-    url = Column(String(2048), nullable=False)
-    event_types = Column(JSONB, nullable=False, default=list)  # List of WebhookEventType values
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    event_types: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)  # List of WebhookEventType values
 
     # Authentication
-    secret_key = Column(String(64), nullable=True)  # For HMAC signature
+    secret_key: Mapped[str | None] = mapped_column(String(64), nullable=True)  # For HMAC signature
 
     # State
-    is_active = Column(Boolean, nullable=False, default=True)
-    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
-    last_success_at = Column(DateTime(timezone=True), nullable=True)
-    last_failure_at = Column(DateTime(timezone=True), nullable=True)
-    failure_count = Column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Retry configuration
-    max_retries = Column(Integer, nullable=False, default=3)
-    timeout_seconds = Column(Integer, nullable=False, default=30)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
 
     __table_args__ = (
         Index("ix_cdp_webhooks_tenant", "tenant_id"),
@@ -510,8 +500,8 @@ class CDPIdentityLink(Base):
 
     __tablename__ = "cdp_identity_links"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -519,7 +509,7 @@ class CDPIdentityLink(Base):
     )
 
     # Source identifier (the one we're linking FROM)
-    source_identifier_id = Column(
+    source_identifier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profile_identifiers.id", ondelete="CASCADE"),
         nullable=False,
@@ -527,7 +517,7 @@ class CDPIdentityLink(Base):
     )
 
     # Target identifier (the one we're linking TO)
-    target_identifier_id = Column(
+    target_identifier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profile_identifiers.id", ondelete="CASCADE"),
         nullable=False,
@@ -535,18 +525,18 @@ class CDPIdentityLink(Base):
     )
 
     # Link metadata
-    link_type = Column(String(50), nullable=False, default=IdentityLinkType.SAME_EVENT.value)
-    confidence_score = Column(Numeric(3, 2), nullable=False, default=Decimal("1.00"))
+    link_type: Mapped[str] = mapped_column(String(50), nullable=False, default=IdentityLinkType.SAME_EVENT.value)
+    confidence_score: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False, default=Decimal("1.00"))
 
     # Evidence for the link
-    evidence = Column(JSONB, nullable=False, default=dict)  # {event_id, session_id, etc.}
+    evidence: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)  # {event_id, session_id, etc.}
 
     # State
-    is_active = Column(Boolean, nullable=False, default=True)
-    verified_at = Column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     source_identifier = relationship(
@@ -588,8 +578,8 @@ class CDPProfileMerge(Base):
 
     __tablename__ = "cdp_profile_merges"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -597,7 +587,7 @@ class CDPProfileMerge(Base):
     )
 
     # The surviving profile (the one that remains after merge)
-    surviving_profile_id = Column(
+    surviving_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="SET NULL"),
         nullable=True,  # Nullable in case surviving profile is later deleted
@@ -605,32 +595,32 @@ class CDPProfileMerge(Base):
     )
 
     # The merged profile (the one that was absorbed)
-    merged_profile_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    merged_profile_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
     # Merge details
-    merge_reason = Column(String(50), nullable=False, default=MergeReason.IDENTITY_MATCH.value)
+    merge_reason: Mapped[str] = mapped_column(String(50), nullable=False, default=MergeReason.IDENTITY_MATCH.value)
 
     # Snapshot of merged profile before merge (for potential rollback)
-    merged_profile_snapshot = Column(JSONB, nullable=False, default=dict)
+    merged_profile_snapshot: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     # The identifier that triggered the merge
-    triggering_identifier_type = Column(String(50), nullable=True)
-    triggering_identifier_hash = Column(String(64), nullable=True)
+    triggering_identifier_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    triggering_identifier_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Statistics at merge time
-    merged_event_count = Column(Integer, nullable=False, default=0)
-    merged_identifier_count = Column(Integer, nullable=False, default=0)
+    merged_event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    merged_identifier_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Merge metadata
-    merged_by_user_id = Column(Integer, nullable=True)  # If manual merge
-    merge_metadata = Column(JSONB, nullable=False, default=dict)
+    merged_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # If manual merge
+    merge_metadata: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     # State
-    is_rolled_back = Column(Boolean, nullable=False, default=False)
-    rolled_back_at = Column(DateTime(timezone=True), nullable=True)
+    is_rolled_back: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     surviving_profile = relationship("CDPProfile", foreign_keys=[surviving_profile_id])
@@ -656,14 +646,14 @@ class CDPCanonicalIdentity(Base):
 
     __tablename__ = "cdp_canonical_identities"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    profile_id = Column(
+    profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="CASCADE"),
         nullable=False,
@@ -671,7 +661,7 @@ class CDPCanonicalIdentity(Base):
     )
 
     # The canonical (strongest) identifier for this profile
-    canonical_identifier_id = Column(
+    canonical_identifier_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profile_identifiers.id", ondelete="SET NULL"),
         nullable=True,
@@ -679,20 +669,20 @@ class CDPCanonicalIdentity(Base):
     )
 
     # Canonical identity details (denormalized for performance)
-    canonical_type = Column(String(50), nullable=True)  # email, phone, external_id
-    canonical_value_hash = Column(String(64), nullable=True)
+    canonical_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # email, phone, external_id
+    canonical_value_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Priority score (based on identifier type)
-    priority_score = Column(Integer, nullable=False, default=0)
+    priority_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Verification status
-    is_verified = Column(Boolean, nullable=False, default=False)
-    verified_at = Column(DateTime(timezone=True), nullable=True)
-    verification_method = Column(String(50), nullable=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verification_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     profile = relationship("CDPProfile", backref="canonical_identity")
@@ -765,8 +755,8 @@ class CDPSegment(Base, TimestampMixin):
 
     __tablename__ = "cdp_segments"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -774,33 +764,33 @@ class CDPSegment(Base, TimestampMixin):
     )
 
     # Segment identification
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    slug = Column(String(100), nullable=True)  # URL-friendly identifier
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slug: Mapped[str | None] = mapped_column(String(100), nullable=True)  # URL-friendly identifier
 
     # Segment configuration
-    segment_type = Column(String(50), nullable=False, default=SegmentType.DYNAMIC.value)
-    status = Column(String(50), nullable=False, default=SegmentStatus.DRAFT.value)
+    segment_type: Mapped[str] = mapped_column(String(50), nullable=False, default=SegmentType.DYNAMIC.value)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default=SegmentStatus.DRAFT.value)
 
     # Segment rules (JSON structure for flexible conditions)
     # Format: {"logic": "and|or", "conditions": [...], "groups": [...]}
-    rules = Column(JSONB, nullable=False, default=dict)
+    rules: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Computed metadata
-    profile_count = Column(Integer, nullable=False, default=0)
-    last_computed_at = Column(DateTime(timezone=True), nullable=True)
-    computation_duration_ms = Column(Integer, nullable=True)
+    profile_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    computation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Scheduling
-    auto_refresh = Column(Boolean, nullable=False, default=True)
-    refresh_interval_hours = Column(Integer, nullable=False, default=24)
-    next_refresh_at = Column(DateTime(timezone=True), nullable=True)
+    auto_refresh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    refresh_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    next_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Tags for organization
-    tags = Column(JSONB, nullable=False, default=list)
+    tags: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
 
     # Created by
-    created_by_user_id = Column(Integer, nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
     memberships = relationship(
@@ -831,20 +821,20 @@ class CDPSegmentMembership(Base):
 
     __tablename__ = "cdp_segment_memberships"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    segment_id = Column(
+    segment_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_segments.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    profile_id = Column(
+    profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="CASCADE"),
         nullable=False,
@@ -852,15 +842,15 @@ class CDPSegmentMembership(Base):
     )
 
     # Membership metadata
-    added_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    removed_at = Column(DateTime(timezone=True), nullable=True)  # For tracking history
-    is_active = Column(Boolean, nullable=False, default=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # For tracking history
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # For static segments, track who added the profile
-    added_by_user_id = Column(Integer, nullable=True)
+    added_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Match score for ranked segments (optional)
-    match_score = Column(Numeric(5, 2), nullable=True)
+    match_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     # Relationships
     segment = relationship("CDPSegment", back_populates="memberships")
@@ -914,8 +904,8 @@ class CDPComputedTrait(Base, TimestampMixin):
 
     __tablename__ = "cdp_computed_traits"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -923,26 +913,26 @@ class CDPComputedTrait(Base, TimestampMixin):
     )
 
     # Trait identification
-    name = Column(String(100), nullable=False)  # e.g., "total_purchases"
-    display_name = Column(String(255), nullable=False)  # e.g., "Total Purchases"
-    description = Column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g., "total_purchases"
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)  # e.g., "Total Purchases"
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Computation configuration
-    trait_type = Column(String(50), nullable=False, default=ComputedTraitType.COUNT.value)
+    trait_type: Mapped[str] = mapped_column(String(50), nullable=False, default=ComputedTraitType.COUNT.value)
 
     # Source configuration (what events/properties to compute from)
     # Format: {"event_name": "Purchase", "property": "total", "time_window_days": 365}
-    source_config = Column(JSONB, nullable=False, default=dict)
+    source_config: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Output configuration
-    output_type = Column(
+    output_type: Mapped[str] = mapped_column(
         String(50), nullable=False, default="number"
     )  # number, string, boolean, date
-    default_value = Column(String(255), nullable=True)  # Default if no data
+    default_value: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Default if no data
 
     # State
-    is_active = Column(Boolean, nullable=False, default=True)
-    last_computed_at = Column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_cdp_traits_tenant", "tenant_id"),
@@ -979,8 +969,8 @@ class CDPFunnel(Base, TimestampMixin):
 
     __tablename__ = "cdp_funnels"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
@@ -988,44 +978,44 @@ class CDPFunnel(Base, TimestampMixin):
     )
 
     # Funnel identification
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    slug = Column(String(100), nullable=True)  # URL-friendly identifier
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slug: Mapped[str | None] = mapped_column(String(100), nullable=True)  # URL-friendly identifier
 
     # Funnel configuration
-    status = Column(String(50), nullable=False, default=FunnelStatus.DRAFT.value)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default=FunnelStatus.DRAFT.value)
 
     # Funnel steps (ordered list of event conditions)
     # Format: [{"step_name": "View Product", "event_name": "ProductView", "conditions": [...]}, ...]
-    steps = Column(JSONB, nullable=False, default=list)
+    steps: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
 
     # Analysis configuration
-    conversion_window_days = Column(
+    conversion_window_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=30
     )  # Max days between first and last step
-    step_timeout_hours = Column(Integer, nullable=True)  # Max hours between steps (null = no limit)
+    step_timeout_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Max hours between steps (null = no limit)
 
     # Computed metrics (cached for performance)
-    total_entered = Column(Integer, nullable=False, default=0)  # Users who completed step 1
-    total_converted = Column(Integer, nullable=False, default=0)  # Users who completed all steps
-    overall_conversion_rate = Column(Numeric(5, 2), nullable=True)  # Percentage 0-100
+    total_entered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # Users who completed step 1
+    total_converted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # Users who completed all steps
+    overall_conversion_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)  # Percentage 0-100
 
     # Step-by-step conversion data (cached)
     # Format: [{"step": 1, "name": "...", "count": N, "conversion_rate": X, "drop_off_rate": Y}, ...]
-    step_metrics = Column(JSONB, nullable=False, default=list)
+    step_metrics: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
 
     # Timing
-    last_computed_at = Column(DateTime(timezone=True), nullable=True)
-    computation_duration_ms = Column(Integer, nullable=True)
+    last_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    computation_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Scheduling
-    auto_refresh = Column(Boolean, nullable=False, default=True)
-    refresh_interval_hours = Column(Integer, nullable=False, default=24)
-    next_refresh_at = Column(DateTime(timezone=True), nullable=True)
+    auto_refresh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    refresh_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    next_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Metadata
-    tags = Column(JSONB, nullable=False, default=list)
-    created_by_user_id = Column(Integer, nullable=True)
+    tags: Mapped[Any] = mapped_column(JSONB, nullable=False, default=list)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         Index("ix_cdp_funnels_tenant", "tenant_id"),
@@ -1046,20 +1036,20 @@ class CDPFunnelEntry(Base):
 
     __tablename__ = "cdp_funnel_entries"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    funnel_id = Column(
+    funnel_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_funnels.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    profile_id = Column(
+    profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("cdp_profiles.id", ondelete="CASCADE"),
         nullable=False,
@@ -1067,24 +1057,24 @@ class CDPFunnelEntry(Base):
     )
 
     # Entry status
-    entered_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    converted_at = Column(DateTime(timezone=True), nullable=True)  # When completed all steps
-    is_converted = Column(Boolean, nullable=False, default=False)
+    entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    converted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # When completed all steps
+    is_converted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Current progress
-    current_step = Column(Integer, nullable=False, default=1)  # 1-indexed
-    completed_steps = Column(Integer, nullable=False, default=1)
+    current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # 1-indexed
+    completed_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # Step completion timestamps
     # Format: {"1": "2024-01-01T...", "2": "2024-01-02T...", ...}
-    step_timestamps = Column(JSONB, nullable=False, default=dict)
+    step_timestamps: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Time analysis
-    total_duration_seconds = Column(Integer, nullable=True)  # Time from step 1 to final step
+    total_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Time from step 1 to final step
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     funnel = relationship("CDPFunnel", backref="entries")
