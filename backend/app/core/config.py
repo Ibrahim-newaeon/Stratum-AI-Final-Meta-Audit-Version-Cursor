@@ -181,6 +181,69 @@ class Settings(BaseSettings):
             "signal health row can be scored (below it the trust gate BLOCKs)"
         ),
     )
+    # -------------------------------------------------------------------------
+    # Signal health component weights
+    # -------------------------------------------------------------------------
+    # The single definition of the weights documented in
+    # docs/architecture/trust-engine.md. SignalHealthConfig reads them, the
+    # trust gate scores fact_signal_health_daily rows with them, and
+    # app.services.signal_health computes the score the rollup and the
+    # dashboard publish with them - so the composite cannot mean one thing at
+    # the point it is written and another at the point it is enforced.
+    # The names follow the fact table's columns: "variance" carries event loss
+    # (event_loss_pct) and "anomaly" carries API/connection reliability
+    # (api_error_rate).
+    signal_health_emq_weight: float = Field(
+        default=0.40, ge=0.0, le=1.0, description="Weight of the EMQ/delivery-quality component"
+    )
+    signal_health_freshness_weight: float = Field(
+        default=0.25, ge=0.0, le=1.0, description="Weight of the data freshness component"
+    )
+    signal_health_variance_weight: float = Field(
+        default=0.20, ge=0.0, le=1.0, description="Weight of the event-loss component"
+    )
+    signal_health_anomaly_weight: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Weight of the API/connection reliability component",
+    )
+    # How far back capi_delivery_logs is read for the delivery evidence when no
+    # explicit window is given (the daily rollup passes the rollup day instead).
+    signal_health_delivery_window_hours: int = Field(
+        default=24,
+        ge=1,
+        description="Default width of the CAPI delivery window read for signal health",
+    )
+    # A success rate over two deliveries is noise, not evidence: one failure
+    # would read as 50% loss. Below this many delivery attempts in the window
+    # the delivery components are reported as unavailable rather than scored.
+    signal_health_min_delivery_events: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "CAPI delivery attempts required in the window before the delivery "
+            "components can be scored (below it they count as missing inputs)"
+        ),
+    )
+    # capi_delivery_logs.user_data_hash is the only match-quality signal the
+    # delivery table genuinely carries: it is set when the caller sent hashed
+    # customer identifiers with the event. This is the share of the EMQ
+    # component driven by that coverage; the rest is the delivery success rate.
+    signal_health_identifier_coverage_weight: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Share of the EMQ component driven by hashed-identifier coverage",
+    )
+    # Points removed from the connection component per recorded error on
+    # TenantPlatformConnection. Five errors zero it out.
+    signal_health_connection_error_penalty: float = Field(
+        default=20.0,
+        ge=0.0,
+        le=100.0,
+        description="Points deducted from the connection component per recorded connection error",
+    )
     # Freshness of the signal health snapshot itself. The rollup writes rows
     # dated for the previous day (02:00 UTC), so yesterday's row is the newest
     # one that can exist and 1 is the smallest workable value.

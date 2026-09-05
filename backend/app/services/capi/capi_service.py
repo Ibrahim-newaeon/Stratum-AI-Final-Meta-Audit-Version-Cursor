@@ -57,8 +57,18 @@ class CAPIService:
         "whatsapp": WhatsAppCAPIConnector,
     }
 
-    def __init__(self):
-        """Initialize the CAPI service."""
+    def __init__(self, tenant_id: int | None = None):
+        """
+        Initialize the CAPI service.
+
+        Args:
+            tenant_id: Tenant whose events this service sends. Passed down to
+                every connector so delivery attempts can be persisted against
+                the right tenant - ``capi_delivery_logs`` is what signal health
+                reads, and an unattributed row is useless to it at best and a
+                cross-tenant read at worst.
+        """
+        self.tenant_id = tenant_id
         self.connectors: dict[str, BaseCAPIConnector] = {}
         self.hasher = PIIHasher()
         self.mapper = AIEventMapper()
@@ -90,7 +100,7 @@ class CAPIService:
         try:
             # Create connector instance
             connector_class = self.PLATFORM_CONNECTORS[platform]
-            connector = connector_class()
+            connector = connector_class(tenant_id=self.tenant_id)
 
             # Attempt connection
             result = await connector.connect(credentials)

@@ -24,7 +24,11 @@ from uuid import uuid4
 
 from sqlalchemy import and_, desc, func, select
 
-from app.db.session import async_session_factory
+# app.db.session exports the sessionmaker as AsyncSessionLocal. This module
+# imported a name that has never existed there, so importing it raised
+# ImportError - which is one of the reasons capi_delivery_logs had no
+# writer at all despite this being the code written to fill it.
+from app.db.session import AsyncSessionLocal as async_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +117,15 @@ class DeliveryLogger:
 
     Logs all delivery attempts to database for persistence,
     auditing, and analysis.
-    """
 
-    # In-memory buffer for batch inserts
-    _buffer: list[DeliveryLogEntry] = []
-    _buffer_max_size: int = 100
-    _last_flush: datetime = None
+    ``capi_delivery_logs`` is the only evidence signal health has for event
+    delivery, so buffered rows are not optional data - a row that never lands
+    reads as "no events were delivered" and pushes the tenant into
+    insufficient_data and a BLOCKed trust gate. The buffer therefore batches
+    *within* a send and is flushed at the end of it by
+    ``BaseCAPIConnector.send_events``, and again on application shutdown; it is
+    not a background write-behind cache.
+    """
 
     def __init__(self, buffer_size: int = 100):
         """
@@ -127,6 +134,11 @@ class DeliveryLogger:
         Args:
             buffer_size: Number of entries to buffer before flushing
         """
+        # Per-instance, not per-class. These were class attributes, so every
+        # DeliveryLogger shared one list and one flush clock - harmless for the
+        # module singleton, a silent cross-instance leak for anyone who
+        # constructed a second one.
+        self._buffer: list[DeliveryLogEntry] = []
         self._buffer_max_size = buffer_size
         self._last_flush = datetime.now(UTC)
 
@@ -211,8 +223,15 @@ class DeliveryLogger:
 
         return entry
 
-    async def flush(self):
-        """Flush buffered entries to database."""
+    async def flush(self) -> None:
+        """
+        Write every buffered entry to ``capi_delivery_logs``.
+
+        Called at the end of each send and on application shutdown, as well as
+        opportunistically from :meth:`log_delivery` once the buffer is full.
+        On failure the entries go back into the buffer so the next flush
+        retries them rather than dropping the evidence.
+        """
         if not self._buffer:
             return
 
