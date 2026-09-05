@@ -1,18 +1,34 @@
 # =============================================================================
-# Stratum AI - Meta Marketing API Services (read-only)
+# Stratum AI - Meta Marketing API Services
 # =============================================================================
 """
-Read-only Meta Marketing API integration.
+Meta Marketing API integration, split by direction so the read path cannot
+acquire a write by accident.
+
+**Read (``ads_read``)**
 
 - ``insights_client``: thin ``httpx.AsyncClient`` over
   ``GET /{version}/act_<id>/insights`` (Ads Insights API). GET only - this
-  package never creates, updates, pauses or otherwise mutates anything on
-  Meta. The permission it needs is ``ads_read``.
+  module never creates, updates, pauses or otherwise mutates anything.
 - ``insights_ingestion``: maps insight rows onto ``CampaignMetric`` and
   upserts them by ``(campaign_id, date)``.
 
-Autopilot *writes* are a separate, deliberately unwired path
-(``app/tasks/apply_actions_queue.py``); nothing here touches it.
+**Write (``ads_management``, off by default)**
+
+- ``write_client``: the only module that can change something on Meta. Reads
+  an entity's current state and applies narrowly allowlisted updates to a
+  campaign, ad set or ad. It is also the single documented place where an
+  amount in the account's major unit becomes Meta's API units - a conversion
+  that differs from this schema's ``*_cents`` convention by 100x for a
+  zero-decimal currency such as JPY.
+- ``action_executor``: drives ``fact_actions_queue`` rows through the trust
+  gate, the tenant enforcement mode and the guard rails, measures the before-
+  and after-values, and provides the one-click revert.
+
+Nothing on the write path runs unless ``autopilot_execution_enabled`` is true,
+and nothing is written unless ``autopilot_execution_dry_run`` is also false.
+The Celery task that would drive it remains unscheduled. See
+docs/architecture/trust-engine.md.
 """
 
 from app.services.meta.insights_client import (
@@ -44,27 +60,55 @@ from app.services.meta.insights_ingestion import (
     to_hundredths,
     upsert_campaign_metric,
 )
+from app.services.meta.write_client import (
+    META_CURRENCY_OFFSET,
+    META_ZERO_DECIMAL_CURRENCIES,
+    WRITABLE_FIELDS,
+    WRITABLE_STATUSES,
+    MetaEntityType,
+    MetaWriteAmbiguousError,
+    MetaWriteClient,
+    MetaWriteValidationError,
+    UnsupportedCurrencyError,
+    hundredths_to_meta_minor,
+    major_to_meta_minor,
+    meta_currency_offset,
+    meta_minor_to_major,
+)
 
 __all__ = [
     "GRAPH_API_BASE_URL",
     "INSIGHTS_FIELDS",
+    "META_CURRENCY_OFFSET",
+    "META_ZERO_DECIMAL_CURRENCIES",
     "RATE_LIMIT_ERROR_CODES",
     "TOKEN_ERROR_CODES",
     "VIDEO_VIEW_ACTION_TYPE",
+    "WRITABLE_FIELDS",
+    "WRITABLE_STATUSES",
     "ZERO_DECIMAL_CURRENCIES",
     "MetaAPIError",
     "MetaCredentials",
     "MetaCredentialsError",
+    "MetaEntityType",
     "MetaIngestionResult",
     "MetaInsightRow",
     "MetaInsightsClient",
     "MetaInsightsTruncatedError",
     "MetaRateLimitError",
     "MetaTokenError",
+    "MetaWriteAmbiguousError",
+    "MetaWriteClient",
+    "MetaWriteValidationError",
+    "UnsupportedCurrencyError",
     "fetch_campaign_insight_rows",
     "first_present_action_type",
     "graph_api_version",
+    "hundredths_to_meta_minor",
     "ingest_campaign_insights",
+    "major_to_meta_minor",
+    "meta_currency_offset",
+    "meta_minor_to_major",
     "metric_values_from_row",
     "resolve_meta_credentials",
     "sum_action_values",
