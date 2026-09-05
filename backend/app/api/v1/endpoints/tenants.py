@@ -14,6 +14,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.security import decrypt_pii
 from app.db.session import get_async_session
 from app.models import Tenant, User, UserRole
 from app.schemas import (
@@ -21,6 +22,7 @@ from app.schemas import (
     TenantCreate,
     TenantResponse,
     TenantUpdate,
+    UserResponse,
 )
 from app.services.account_portfolio import SPEND_WINDOW_DAYS, build_tenant_portfolio
 
@@ -689,7 +691,20 @@ async def get_tenant_users(
     db: AsyncSession = Depends(get_async_session),
 ):
     """
-    Get users count and list for a tenant.
+    Get the seat usage and the member list for a tenant.
+
+    The list is what this endpoint always documented and never returned, so the
+    team-management screen could not read a tenant's members from the tenant in
+    its own URL. It fell back to ``GET /users``, which derives the tenant from
+    the caller's token, and a platform-role caller opening another tenant's team
+    page was therefore shown *their own* members under that tenant's name.
+
+    Reading this is the same exposure as ``GET /users`` for a member of the
+    tenant, plus the platform role for any tenant - which is exactly what
+    ``require_tenant_access`` already enforced for the counts.
+
+    ``email`` and ``full_name`` are PII, encrypted at rest, and are decrypted
+    here exactly as ``GET /users`` decrypts them.
     """
     # Own tenant for any member, any tenant for the platform role.
     require_tenant_access(request, tenant_id)
@@ -706,21 +721,48 @@ async def get_tenant_users(
             detail="Tenant not found",
         )
 
-    # Get user count
-    count_result = await db.execute(
-        select(func.count(User.id)).where(
-            User.tenant_id == tenant_id, User.is_deleted == False
-        )
+    users_result = await db.execute(
+        select(User)
+        .where(User.tenant_id == tenant_id, User.is_deleted == False)
+        .order_by(User.created_at)
     )
-    user_count = count_result.scalar()
+    users = list(users_result.scalars().all())
+
+    # Whether the member-management endpoints would actually act on *this*
+    # tenant. `POST /users/invite` and `PATCH|DELETE /users/{id}` resolve their
+    # tenant from the caller's token and take no target, so for any tenant but
+    # the caller's own they would change the wrong one. Answered here rather
+    # than compared in the browser: it is an authorization question, the server
+    # is the only place that knows both halves, and a client that guessed wrong
+    # would offer controls that quietly edit somebody else.
+    caller_tenant_id = getattr(request.state, "tenant_id", None)
 
     return APIResponse(
         success=True,
         data={
             "tenant_id": tenant_id,
-            "user_count": user_count,
+            "can_manage_members": caller_tenant_id == tenant_id,
+            "user_count": len(users),
             "max_users": tenant.max_users,
-            "slots_available": tenant.max_users - user_count,
+            "slots_available": tenant.max_users - len(users),
+            "users": [
+                UserResponse(
+                    id=u.id,
+                    tenant_id=u.tenant_id,
+                    email=decrypt_pii(u.email),
+                    full_name=decrypt_pii(u.full_name) if u.full_name else None,
+                    role=u.role,
+                    locale=u.locale,
+                    timezone=u.timezone,
+                    is_active=u.is_active,
+                    is_verified=u.is_verified,
+                    last_login_at=u.last_login_at,
+                    avatar_url=u.avatar_url,
+                    created_at=u.created_at,
+                    updated_at=u.updated_at,
+                )
+                for u in users
+            ],
         },
     )
 

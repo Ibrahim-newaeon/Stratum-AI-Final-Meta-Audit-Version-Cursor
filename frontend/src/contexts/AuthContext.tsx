@@ -104,6 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: userData.data.full_name || userData.data.email,
           role: userData.data.role || 'user',
           permissions: ['all'],
+          // `/auth/me` returns this and the field has always been declared, but
+          // nothing populated it - so every consumer read `undefined` and any
+          // "is this my own tenant?" check silently answered no.
+          tenant_id: userData.data.tenant_id ?? null,
         };
         setUser(userInfo);
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(userInfo));

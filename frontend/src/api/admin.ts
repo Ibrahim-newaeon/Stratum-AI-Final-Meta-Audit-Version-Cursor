@@ -71,6 +71,22 @@ export interface Tenant {
   updated_at: string;
 }
 
+/** Seat usage plus the member list, from `GET /tenants/{id}/users`. */
+export interface TenantUsers {
+  tenant_id: number;
+  /**
+   * Whether the member-management endpoints would act on *this* tenant. They
+   * resolve their tenant from the caller's token and take no target, so for any
+   * tenant but the caller's own they would change the wrong one. The server
+   * answers it because only the server knows both halves.
+   */
+  can_manage_members: boolean;
+  user_count: number;
+  max_users: number;
+  slots_available: number;
+  users: User[];
+}
+
 export interface UserListParams {
   skip?: number;
   limit?: number;
@@ -135,6 +151,19 @@ export const adminApi = {
     const response = await apiClient.get<ApiResponse<Tenant>>(`/tenants/${id}`);
     return response.data.data;
   },
+
+  /**
+   * Members of a named tenant, with its seat usage.
+   *
+   * Distinct from `listUsers`, which derives the tenant from the caller's
+   * token: a screen that shows a tenant taken from its URL has to ask about
+   * that tenant, or a platform-role caller is shown their own members under
+   * somebody else's name.
+   */
+  getTenantUsers: async (id: number): Promise<TenantUsers> => {
+    const response = await apiClient.get<ApiResponse<TenantUsers>>(`/tenants/${id}/users`);
+    return response.data.data;
+  },
 };
 
 // =============================================================================
@@ -156,6 +185,7 @@ export function useInviteUser() {
     mutationFn: adminApi.inviteUser,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
   });
 }
@@ -168,6 +198,7 @@ export function useUpdateUser() {
       adminApi.updateUser(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
   });
 }
@@ -179,6 +210,7 @@ export function useDeleteUser() {
     mutationFn: adminApi.deleteUser,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
   });
 }
@@ -188,6 +220,15 @@ export function useTenants(params: TenantListParams = {}) {
     queryKey: ['tenants', params],
     queryFn: () => adminApi.listTenants(params),
     staleTime: 30 * 1000,
+  });
+}
+
+/** Members and seat usage for one named tenant. */
+export function useTenantUsers(tenantId: number) {
+  return useQuery({
+    queryKey: ['tenants', tenantId, 'users'],
+    queryFn: () => adminApi.getTenantUsers(tenantId),
+    enabled: !!tenantId,
   });
 }
 

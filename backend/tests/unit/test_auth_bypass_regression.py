@@ -607,7 +607,14 @@ class FakeSession:
                 rows = [row for row in rows if row.id == wanted]
             return FakeResult(rows)
 
-        # count(User.id) for the tenant users endpoint
+        if entity is not None and entity.__name__ == "User":
+            # GET /tenants/{id}/users selects the member rows themselves now,
+            # not just a count. This fixture seeds tenants only, so the tenant
+            # has no members - which is what the endpoint reports. Returning
+            # the old FakeResult([0]) here handed the endpoint a list holding
+            # the integer 0 and turned these authorization assertions into 500s.
+            return FakeResult([])
+
         return FakeResult([0])
 
     async def commit(self) -> None:
