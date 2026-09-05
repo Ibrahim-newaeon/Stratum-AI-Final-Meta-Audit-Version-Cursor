@@ -39,8 +39,18 @@ KNOWN_UNREGISTERED: dict[str, str] = {}
 
 
 def _declared_tables(path: pathlib.Path) -> set[str]:
-    """Return every ``__tablename__`` string literal assigned in one module."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    """Return every ``__tablename__`` string literal assigned in one module.
+
+    A file the running interpreter cannot parse contributes nothing: it could
+    not be imported either, so it defines no table here. CI runs Python 3.11
+    while the runtime image is 3.12, and at least one module uses f-string
+    nesting that only parses on 3.12, so this must not explode on the older
+    interpreter.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return set()
     return {
         node.value.value
         for node in ast.walk(tree)
