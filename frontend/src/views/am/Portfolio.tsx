@@ -69,22 +69,16 @@ export default function Portfolio() {
 
   const { data: tenantsData } = useTenants();
 
-  // Sample portfolio data
-  // Access data from paginated response
-  const tenantsList = Array.isArray(tenantsData)
-    ? tenantsData
-    : (tenantsData as { data?: unknown[] } | undefined)?.data || [];
   // Real tenant identity from the API; every metric is "not measured".
   //
   // There is no batched per-tenant signal health endpoint yet, and inventing
   // the numbers - which is what this did - is worse than admitting the gap:
   // the view sorts, filters and raises "priority alerts" on these fields.
-  const tenants: TenantPortfolioItem[] = (
-    tenantsList as { id: string; name: string; industry?: string }[]
-  ).map((t) => ({
-    id: t.id,
+  // `industry` is the same case: the tenant record does not carry one.
+  const tenants: TenantPortfolioItem[] = (tenantsData ?? []).map((t) => ({
+    id: String(t.id),
     name: t.name,
-    industry: t.industry || 'Unknown',
+    industry: 'Unknown',
     emqScore: null,
     emqStatus: 'no_data' as EmqStatus,
     emqTrend: null,
