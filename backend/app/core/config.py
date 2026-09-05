@@ -631,21 +631,41 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # HubSpot CRM Configuration
     # -------------------------------------------------------------------------
-    hubspot_client_id: Optional[str] = Field(
+    hubspot_client_id: str | None = Field(
         default=None, description="HubSpot OAuth App Client ID"
     )
-    hubspot_client_secret: Optional[str] = Field(
+    hubspot_client_secret: str | None = Field(
         default=None, description="HubSpot OAuth App Client Secret"
     )
-    hubspot_api_key: Optional[str] = Field(
+    hubspot_api_key: str | None = Field(
         default=None, description="HubSpot API Key (legacy, prefer OAuth)"
+    )
+
+    # -------------------------------------------------------------------------
+    # Salesforce CRM Configuration
+    # -------------------------------------------------------------------------
+    salesforce_client_id: str | None = Field(
+        default=None, description="Salesforce Connected App Consumer Key"
+    )
+    salesforce_client_secret: str | None = Field(
+        default=None, description="Salesforce Connected App Consumer Secret"
+    )
+
+    # -------------------------------------------------------------------------
+    # Pipedrive CRM Configuration
+    # -------------------------------------------------------------------------
+    pipedrive_client_id: str | None = Field(
+        default=None, description="Pipedrive OAuth App Client ID"
+    )
+    pipedrive_client_secret: str | None = Field(
+        default=None, description="Pipedrive OAuth App Client Secret"
     )
 
     # -------------------------------------------------------------------------
     # Zoho CRM Configuration
     # -------------------------------------------------------------------------
-    zoho_client_id: Optional[str] = Field(default=None, description="Zoho OAuth App Client ID")
-    zoho_client_secret: Optional[str] = Field(
+    zoho_client_id: str | None = Field(default=None, description="Zoho OAuth App Client ID")
+    zoho_client_secret: str | None = Field(
         default=None, description="Zoho OAuth App Client Secret"
     )
     zoho_region: str = Field(

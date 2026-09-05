@@ -1,215 +1,161 @@
 /**
- * Stratum AI - Admin API
+ * Stratum AI - User & Tenant Administration API
  *
- * User and tenant management endpoints (Super Admin)
+ * Thin client over the routes that actually serve these resources:
+ *   * `/users`   - user management within a tenant
+ *   * `/tenants` - tenant listing
+ *
+ * There is no `/admin` router in the API. This module previously called
+ * `/admin/users*` and `/admin/tenants*`, which 404 on every request, so the
+ * hooks resolved to permanently empty data instead of failing loudly.
+ *
+ * Anything the API cannot serve through a real route is deliberately absent
+ * rather than stubbed. There is no `GET /users/{id}`, no password-reset route,
+ * and no tenant suspend/reactivate route anywhere in the backend - the tenant
+ * table has no suspension state at all - so there are no hooks for them.
+ *
+ * Tenant scope is derived by the API from the authenticated request. No call
+ * here passes a tenant id as authorization.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, ApiResponse, PaginatedResponse } from './client';
+import { apiClient, ApiResponse } from './client';
 
+// =============================================================================
 // Types
-export type UserRole = 'superadmin' | 'admin' | 'user' | 'viewer';
-export type TenantStatus = 'active' | 'suspended' | 'trial' | 'churned';
-export type PlanTier = 'starter' | 'pro' | 'enterprise';
+// =============================================================================
 
+/**
+ * Roles as defined by the API's `UserRole` enum. `superadmin` is a platform
+ * role: it is reported by the API but is never assignable through the
+ * tenant-scoped user management routes below.
+ */
+export type UserRole = 'superadmin' | 'admin' | 'manager' | 'analyst' | 'viewer';
+
+/** The subset of roles a tenant admin may grant. */
+export type AssignableUserRole = Exclude<UserRole, 'superadmin'>;
+
+/**
+ * Mirrors the API's `UserResponse`. The API client applies no case conversion,
+ * so these are the wire field names.
+ */
 export interface User {
   id: number;
+  tenant_id: number;
   email: string;
-  name: string;
+  full_name: string | null;
   role: UserRole;
-  tenantId: number | null;
-  isActive: boolean;
-  isVerified: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  locale: string;
+  timezone: string;
+  is_active: boolean;
+  is_verified: boolean;
+  last_login_at: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
+/** Mirrors the API's `TenantResponse`. */
 export interface Tenant {
   id: number;
   name: string;
+  slug: string;
   domain: string | null;
-  status: TenantStatus;
-  plan: PlanTier;
+  plan: string;
+  plan_expires_at: string | null;
+  max_users: number;
+  max_campaigns: number;
   settings: Record<string, unknown>;
-  userCount: number;
-  monthlySpend: number;
-  createdAt: string;
-  updatedAt: string;
-  /** Paddle customer id (ctm_...) once the tenant has a billing account. */
-  paddle_customer_id?: string | null;
-  /** Paddle subscription id (sub_...) of the current subscription. */
-  paddle_subscription_id?: string | null;
-  /** Paddle subscription status: active|trialing|past_due|paused|canceled. */
-  subscription_status?: string | null;
-  /** End of the current Paddle billing period (ISO-8601). */
-  current_period_end?: string | null;
+  feature_flags: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface TenantWithMetrics extends Tenant {
-  emqScore: number | null;
-  budgetAtRisk: number;
-  activeIncidents: number;
-  lastActivityAt: string | null;
-}
-
-export interface UserFilters {
-  role?: UserRole;
-  tenantId?: number;
-  isActive?: boolean;
-  search?: string;
+export interface UserListParams {
   skip?: number;
   limit?: number;
 }
 
-export interface TenantFilters {
-  status?: TenantStatus;
-  plan?: PlanTier;
-  search?: string;
+export interface TenantListParams {
   skip?: number;
   limit?: number;
+  search?: string;
 }
 
-export interface CreateUserRequest {
+export interface InviteUserRequest {
   email: string;
-  name: string;
-  password: string;
-  role: UserRole;
-  tenantId?: number;
+  full_name?: string;
+  role: AssignableUserRole;
 }
 
 export interface UpdateUserRequest {
-  name?: string;
-  role?: UserRole;
-  tenantId?: number;
-  isActive?: boolean;
+  full_name?: string;
+  role?: AssignableUserRole;
+  is_active?: boolean;
 }
 
-export interface CreateTenantRequest {
-  name: string;
-  domain?: string;
-  plan: PlanTier;
-  settings?: Record<string, unknown>;
-}
-
-export interface UpdateTenantRequest {
-  name?: string;
-  domain?: string;
-  status?: TenantStatus;
-  plan?: PlanTier;
-  settings?: Record<string, unknown>;
-}
-
+// =============================================================================
 // API Functions
+// =============================================================================
+
 export const adminApi = {
-  // User Management
-  getUsers: async (filters: UserFilters = {}): Promise<PaginatedResponse<User>> => {
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<User>>>('/admin/users', {
-      params: filters,
-    });
+  // User management - `/users`, scoped by the API to the caller's tenant.
+  listUsers: async (params: UserListParams = {}): Promise<User[]> => {
+    const response = await apiClient.get<ApiResponse<User[]>>('/users', { params });
     return response.data.data;
   },
 
-  getUser: async (id: number): Promise<User> => {
-    const response = await apiClient.get<ApiResponse<User>>(`/admin/users/${id}`);
-    return response.data.data;
-  },
-
-  createUser: async (data: CreateUserRequest): Promise<User> => {
-    const response = await apiClient.post<ApiResponse<User>>('/admin/users', data);
+  /**
+   * Invite a user. The API creates the account and emails an invite link; it
+   * never accepts a caller-supplied password.
+   */
+  inviteUser: async (data: InviteUserRequest): Promise<User> => {
+    const response = await apiClient.post<ApiResponse<User>>('/users/invite', data);
     return response.data.data;
   },
 
   updateUser: async (id: number, data: UpdateUserRequest): Promise<User> => {
-    const response = await apiClient.patch<ApiResponse<User>>(`/admin/users/${id}`, data);
+    const response = await apiClient.patch<ApiResponse<User>>(`/users/${id}`, data);
     return response.data.data;
   },
 
+  /** Soft-deletes the user; the API refuses self-deletion and protected accounts. */
   deleteUser: async (id: number): Promise<void> => {
-    await apiClient.delete(`/admin/users/${id}`);
+    await apiClient.delete(`/users/${id}`);
   },
 
-  resetUserPassword: async (id: number): Promise<{ temporaryPassword: string }> => {
-    const response = await apiClient.post<ApiResponse<{ temporaryPassword: string }>>(
-      `/admin/users/${id}/reset-password`
-    );
+  // Tenant management - `/tenants`. A superadmin sees every tenant; every
+  // tenant-scoped role sees only its own.
+  listTenants: async (params: TenantListParams = {}): Promise<Tenant[]> => {
+    const response = await apiClient.get<ApiResponse<Tenant[]>>('/tenants', { params });
     return response.data.data;
   },
 
-  // Tenant Management
-  getTenants: async (
-    filters: TenantFilters = {}
-  ): Promise<PaginatedResponse<TenantWithMetrics>> => {
-    const response = await apiClient.get<ApiResponse<PaginatedResponse<TenantWithMetrics>>>(
-      '/admin/tenants',
-      { params: filters }
-    );
-    return response.data.data;
-  },
-
-  getTenant: async (id: number): Promise<TenantWithMetrics> => {
-    const response = await apiClient.get<ApiResponse<TenantWithMetrics>>(`/admin/tenants/${id}`);
-    return response.data.data;
-  },
-
-  createTenant: async (data: CreateTenantRequest): Promise<Tenant> => {
-    const response = await apiClient.post<ApiResponse<Tenant>>('/admin/tenants', data);
-    return response.data.data;
-  },
-
-  updateTenant: async (id: number, data: UpdateTenantRequest): Promise<Tenant> => {
-    const response = await apiClient.patch<ApiResponse<Tenant>>(`/admin/tenants/${id}`, data);
-    return response.data.data;
-  },
-
-  deleteTenant: async (id: number): Promise<void> => {
-    await apiClient.delete(`/admin/tenants/${id}`);
-  },
-
-  suspendTenant: async (id: number, reason?: string): Promise<Tenant> => {
-    const response = await apiClient.post<ApiResponse<Tenant>>(`/admin/tenants/${id}/suspend`, {
-      reason,
-    });
-    return response.data.data;
-  },
-
-  reactivateTenant: async (id: number): Promise<Tenant> => {
-    const response = await apiClient.post<ApiResponse<Tenant>>(`/admin/tenants/${id}/reactivate`);
-    return response.data.data;
-  },
-
-  getTenantUsers: async (id: number): Promise<User[]> => {
-    const response = await apiClient.get<ApiResponse<User[]>>(`/admin/tenants/${id}/users`);
+  getTenant: async (id: number): Promise<Tenant> => {
+    const response = await apiClient.get<ApiResponse<Tenant>>(`/tenants/${id}`);
     return response.data.data;
   },
 };
 
+// =============================================================================
 // React Query Hooks
+// =============================================================================
 
-// User hooks
-export function useUsers(filters: UserFilters = {}) {
+export function useUsers(params: UserListParams = {}) {
   return useQuery({
-    queryKey: ['admin', 'users', filters],
-    queryFn: () => adminApi.getUsers(filters),
+    queryKey: ['users', params],
+    queryFn: () => adminApi.listUsers(params),
     staleTime: 30 * 1000,
   });
 }
 
-export function useUser(id: number) {
-  return useQuery({
-    queryKey: ['admin', 'users', id],
-    queryFn: () => adminApi.getUser(id),
-    enabled: !!id,
-  });
-}
-
-export function useCreateUser() {
+export function useInviteUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: adminApi.createUser,
+    mutationFn: adminApi.inviteUser,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 }
@@ -220,9 +166,8 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: UpdateUserRequest }) =>
       adminApi.updateUser(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users', variables.id] });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 }
@@ -233,98 +178,23 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: adminApi.deleteUser,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
     },
   });
 }
 
-export function useResetUserPassword() {
-  return useMutation({
-    mutationFn: adminApi.resetUserPassword,
-  });
-}
-
-// Tenant hooks
-export function useTenants(filters: TenantFilters = {}) {
+export function useTenants(params: TenantListParams = {}) {
   return useQuery({
-    queryKey: ['admin', 'tenants', filters],
-    queryFn: () => adminApi.getTenants(filters),
+    queryKey: ['tenants', params],
+    queryFn: () => adminApi.listTenants(params),
     staleTime: 30 * 1000,
   });
 }
 
 export function useTenant(id: number) {
   return useQuery({
-    queryKey: ['admin', 'tenants', id],
+    queryKey: ['tenants', id],
     queryFn: () => adminApi.getTenant(id),
-    enabled: !!id,
-  });
-}
-
-export function useCreateTenant() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: adminApi.createTenant,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-    },
-  });
-}
-
-export function useUpdateTenant() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateTenantRequest }) =>
-      adminApi.updateTenant(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id] });
-    },
-  });
-}
-
-export function useDeleteTenant() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: adminApi.deleteTenant,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-    },
-  });
-}
-
-export function useSuspendTenant() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
-      adminApi.suspendTenant(id, reason),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id] });
-    },
-  });
-}
-
-export function useReactivateTenant() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: adminApi.reactivateTenant,
-    onSuccess: (_, id) => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
-    },
-  });
-}
-
-export function useTenantUsers(id: number) {
-  return useQuery({
-    queryKey: ['admin', 'tenants', id, 'users'],
-    queryFn: () => adminApi.getTenantUsers(id),
     enabled: !!id,
   });
 }

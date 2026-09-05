@@ -38,7 +38,6 @@ import {
   useEmqIncidents,
   useEmqPlaybook,
   useEmqScore,
-  useSuspendTenant,
   useTenant,
   useUpdateAutopilotMode,
 } from '@/api/hooks';
@@ -178,7 +177,6 @@ export default function TenantProfile() {
 
   // Mutations
   const updateAutopilotModeMutation = useUpdateAutopilotMode(tid);
-  const suspendTenantMutation = useSuspendTenant();
 
   // Null means "not measured". A fallback score here would be graded by the
   // trust gate's own bands and rendered as this tenant's data quality.
@@ -189,11 +187,16 @@ export default function TenantProfile() {
 
   // Tenant identity and the fields the API actually carries. Anything absent
   // stays null and renders as a dash rather than a plausible placeholder.
+  //
+  // `TenantResponse` carries id, name, slug, domain, plan, plan_expires_at,
+  // max_users, max_campaigns, settings, feature_flags and timestamps - and
+  // nothing else. A subscription status, a monthly spend and an active-user
+  // count are not among them, so they stay null. `max_users` is a seat *limit*
+  // rather than a count of active users, so it is not substituted for one.
   const tenantName = tenantData?.name ?? null;
   const plan = tenantData?.plan ?? null;
-  const status = tenantData?.status ?? null;
-  const monthlySpend = tenantData?.monthlySpend ?? null;
-  const userCount = tenantData?.userCount ?? null;
+  const monthlySpend: number | null = null;
+  const userCount: number | null = null;
   const restrictions: string[] = [];
 
   // Close confirmation dialog
@@ -251,36 +254,6 @@ export default function TenantProfile() {
           toast({
             title: 'Error',
             description: error instanceof Error ? error.message : 'Failed to update autopilot mode',
-            variant: 'destructive',
-          });
-        }
-        closeConfirmDialog();
-      },
-    });
-  };
-
-  // Handle suspend tenant with confirmation
-  const handleSuspendTenant = () => {
-    setConfirmDialog({
-      isOpen: true,
-      title: 'Suspend Tenant?',
-      message: `Are you sure you want to suspend "${tenantName ?? `tenant ${tid}`}"? This will temporarily disable all access and automation for this tenant.`,
-      confirmLabel: 'Suspend Tenant',
-      confirmVariant: 'danger',
-      onConfirm: async () => {
-        try {
-          await suspendTenantMutation.mutateAsync({
-            id: tid,
-            reason: 'Admin manual suspension',
-          });
-          toast({
-            title: 'Tenant Suspended',
-            description: `${tenantName ?? `Tenant ${tid}`} has been suspended.`,
-          });
-        } catch (error) {
-          toast({
-            title: 'Error',
-            description: error instanceof Error ? error.message : 'Failed to suspend tenant',
             variant: 'destructive',
           });
         }
@@ -393,11 +366,6 @@ export default function TenantProfile() {
               {plan && (
                 <span className="px-2 py-1 rounded-full text-xs bg-stratum-500/10 text-stratum-400">
                   {plan}
-                </span>
-              )}
-              {status && (
-                <span className="px-2 py-1 rounded-full text-xs bg-success/10 text-success">
-                  {status}
                 </span>
               )}
             </div>
@@ -705,22 +673,29 @@ export default function TenantProfile() {
             )}
           </div>
 
-          {/* Danger Zone */}
+          {/* Danger Zone
+              Suspension is not implemented anywhere in the backend: there is no
+              suspend route and the tenant record carries no suspension state.
+              The button here posted to /admin/tenants/{id}/suspend, which 404s,
+              so an operator could believe they had cut off a tenant's access
+              and automation when nothing had happened. Shown as unavailable
+              until a real, enforced suspension exists. */}
           <div className="rounded-2xl bg-danger/5 border border-danger/20 p-6">
             <h3 className="font-medium text-danger mb-4">Danger Zone</h3>
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-white">Suspend Tenant</span>
                 <p className="text-sm text-text-muted">
-                  Temporarily disable all access and automation
+                  Not available yet - suspension is not implemented on the platform
                 </p>
               </div>
               <button
-                onClick={handleSuspendTenant}
-                disabled={suspendTenantMutation.isPending}
-                className="px-4 py-2 rounded-lg bg-danger/10 border border-danger/20 text-danger hover:bg-danger/20 transition-colors disabled:opacity-50"
+                type="button"
+                disabled
+                title="Tenant suspension is not implemented yet"
+                className="px-4 py-2 rounded-lg bg-danger/10 border border-danger/20 text-danger disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {suspendTenantMutation.isPending ? 'Suspending...' : 'Suspend'}
+                Suspend
               </button>
             </div>
           </div>
@@ -736,7 +711,7 @@ export default function TenantProfile() {
         confirmVariant={confirmDialog.confirmVariant}
         onConfirm={confirmDialog.onConfirm}
         onCancel={closeConfirmDialog}
-        isLoading={updateAutopilotModeMutation.isPending || suspendTenantMutation.isPending}
+        isLoading={updateAutopilotModeMutation.isPending}
       />
     </div>
   );

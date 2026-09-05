@@ -29,6 +29,7 @@ from app.models.crm import (
     Touchpoint,
 )
 from app.services.crm.hubspot_client import HubSpotClient
+from app.services.crm.identity_matching import calculate_attribution_confidence
 
 logger = get_logger(__name__)
 
@@ -342,7 +343,7 @@ class HubSpotWritebackService:
         # Build query for contacts to sync
         conditions = [
             CRMContact.tenant_id == self.tenant_id,
-            CRMContact.provider_contact_id.isnot(None),
+            CRMContact.crm_contact_id.isnot(None),
         ]
 
         if contact_id:
@@ -390,7 +391,7 @@ class HubSpotWritebackService:
 
                 updates.append(
                     {
-                        "id": contact.provider_contact_id,
+                        "id": contact.crm_contact_id,
                         "properties": properties,
                     }
                 )
@@ -410,9 +411,6 @@ class HubSpotWritebackService:
         synced = len(response.get("results", [])) if response else 0
         failed = len(response.get("errors", [])) if response else len(updates)
 
-        # Update local sync timestamps
-        for contact in contacts:
-            contact.last_synced_at = datetime.now(UTC)
         await self.db.commit()
 
         logger.info(
@@ -449,7 +447,7 @@ class HubSpotWritebackService:
         # Build query for deals to sync
         conditions = [
             CRMDeal.tenant_id == self.tenant_id,
-            CRMDeal.provider_deal_id.isnot(None),
+            CRMDeal.crm_deal_id.isnot(None),
         ]
 
         if deal_id:
@@ -498,7 +496,7 @@ class HubSpotWritebackService:
 
             updates.append(
                 {
-                    "id": deal.provider_deal_id,
+                    "id": deal.crm_deal_id,
                     "properties": properties,
                 }
             )
@@ -518,9 +516,6 @@ class HubSpotWritebackService:
         synced = len(response.get("results", [])) if response else 0
         failed = len(response.get("errors", [])) if response else len(updates)
 
-        # Update local sync timestamps
-        for deal in deals:
-            deal.last_synced_at = datetime.now(UTC)
         await self.db.commit()
 
         logger.info(
@@ -596,7 +591,7 @@ class HubSpotWritebackService:
         result = await self.db.execute(
             select(Touchpoint)
             .where(Touchpoint.contact_id == contact_id)
-            .order_by(Touchpoint.touchpoint_time)
+            .order_by(Touchpoint.event_ts)
         )
         touchpoints = result.scalars().all()
 
@@ -608,21 +603,21 @@ class HubSpotWritebackService:
         last_touch = touchpoints[-1]
 
         # Calculate total spend
-        total_spend = sum((tp.attributed_spend_cents or 0) / 100 for tp in touchpoints)
+        total_spend = sum((tp.cost_cents or 0) / 100 for tp in touchpoints)
 
         return {
-            "platform": last_touch.platform,
+            "platform": last_touch.source,
             "campaign_id": last_touch.campaign_id,
             "campaign_name": last_touch.campaign_name,
             "adset_id": last_touch.adset_id,
             "ad_id": last_touch.ad_id,
-            "first_touch_source": f"{first_touch.platform}:{first_touch.campaign_name}"
+            "first_touch_source": f"{first_touch.source}:{first_touch.campaign_name}"
             if first_touch.campaign_name
-            else first_touch.platform,
-            "last_touch_source": f"{last_touch.platform}:{last_touch.campaign_name}"
+            else first_touch.source,
+            "last_touch_source": f"{last_touch.source}:{last_touch.campaign_name}"
             if last_touch.campaign_name
-            else last_touch.platform,
-            "confidence": max((tp.match_confidence or 0) * 100 for tp in touchpoints),
+            else last_touch.source,
+            "confidence": round(calculate_attribution_confidence(touchpoints) * 100, 1),
             "total_spend": round(total_spend, 2) if total_spend > 0 else None,
             "touchpoints_count": len(touchpoints),
         }
@@ -638,16 +633,16 @@ class HubSpotWritebackService:
 
         # Get associated contact touchpoints
         touchpoints = []
-        if deal.primary_contact_id:
+        if deal.contact_id:
             tp_result = await self.db.execute(
                 select(Touchpoint)
-                .where(Touchpoint.contact_id == deal.primary_contact_id)
-                .order_by(Touchpoint.touchpoint_time)
+                .where(Touchpoint.contact_id == deal.contact_id)
+                .order_by(Touchpoint.event_ts)
             )
             touchpoints = tp_result.scalars().all()
 
         # Calculate metrics
-        total_spend = sum((tp.attributed_spend_cents or 0) / 100 for tp in touchpoints)
+        total_spend = sum((tp.cost_cents or 0) / 100 for tp in touchpoints)
 
         deal_amount = (deal.amount_cents or 0) / 100
 
@@ -660,7 +655,7 @@ class HubSpotWritebackService:
         net_profit = None
         cogs = None
 
-        if deal.amount_cents and deal.probability and deal.probability >= 0.5:
+        if deal.amount_cents and deal.is_won:
             # Estimate COGS at 70% for now (would come from profit service)
             cogs = deal_amount * 0.7
             gross_profit = deal_amount - cogs
@@ -669,15 +664,15 @@ class HubSpotWritebackService:
 
         # Days to close
         days_to_close = None
-        if touchpoints and deal.closed_at:
-            first_touch_date = touchpoints[0].touchpoint_time.date()
-            days_to_close = (deal.closed_at.date() - first_touch_date).days
+        if touchpoints and deal.close_date:
+            first_touch_date = touchpoints[0].event_ts.date()
+            days_to_close = (deal.close_date - first_touch_date).days
 
         # Get primary attribution (last touch by default)
         primary_tp = touchpoints[-1] if touchpoints else None
 
         return {
-            "platform": primary_tp.platform if primary_tp else None,
+            "platform": primary_tp.source if primary_tp else None,
             "campaign_id": primary_tp.campaign_id if primary_tp else None,
             "campaign_name": primary_tp.campaign_name if primary_tp else None,
             "attribution_model": deal.attribution_model.value

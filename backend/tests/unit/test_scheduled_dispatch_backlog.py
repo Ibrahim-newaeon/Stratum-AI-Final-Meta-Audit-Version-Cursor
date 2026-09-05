@@ -11,10 +11,10 @@ tenant's pending backlog stretches back to deployment: the first worker start
 would have sent every overdue WhatsApp message and published every overdue post
 in one burst.
 
-The WhatsApp task was worse than a one-off burst. It dispatches by
-tenant/template/number rather than by message id and never updated the row it
+The WhatsApp task was worse than a one-off burst. It never updated the row it
 read, so the same message was re-queued on *every* beat tick - an unbounded
-duplicate-send loop for as long as the worker ran.
+duplicate-send loop for as long as the worker ran. It now hands the send task a
+message id and takes the row out of the pending set in the same transaction.
 """
 
 import re
@@ -31,17 +31,18 @@ NOW = datetime.now(UTC)
 
 
 class FakeMessage:
-    """Minimal scheduled WhatsApp message."""
+    """Minimal scheduled WhatsApp message.
+
+    The dispatcher hands the send task this row's id and nothing else, so the
+    fake needs no template, contact or variables of its own.
+    """
 
     def __init__(self, scheduled_at):
+        self.id = 7
         self.tenant_id = 1
         self.scheduled_at = scheduled_at
         self.status = WhatsAppMessageStatus.PENDING
         self.sent_at = None
-        self.template = None
-        self.contact = None
-        self.variables = {}
-        self.media_url = None
 
 
 class _FakeScalars:

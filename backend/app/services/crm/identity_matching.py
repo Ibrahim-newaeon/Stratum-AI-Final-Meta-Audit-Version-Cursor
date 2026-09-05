@@ -13,6 +13,7 @@ Matching priority (best to worst accuracy):
 5. utm_campaign + timestamp - Fallback, least accurate
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -33,6 +34,39 @@ logger = get_logger(__name__)
 # Attribution lookback windows (days)
 DEFAULT_LOOKBACK_DAYS = 30
 MAX_LOOKBACK_DAYS = 90
+
+
+def calculate_attribution_confidence(touchpoints: Sequence[Touchpoint]) -> float:
+    """
+    Calculate attribution confidence score (0-1) for a set of touchpoints.
+
+    Factors:
+    - Number of touchpoints
+    - Match quality (click_id > identity hash > visitor id)
+
+    This is the single definition of attribution confidence: it backs both
+    ``CRMDeal.attribution_confidence`` and the confidence written back to the
+    CRM providers, so a touchpoint set scores the same wherever it is read.
+    """
+    if not touchpoints:
+        return 0.0
+
+    base_confidence = 0.5
+
+    # More touchpoints = higher confidence (up to +0.2)
+    touch_bonus = min(0.2, len(touchpoints) * 0.05)
+
+    # Match quality bonus (up to +0.3)
+    quality_bonus = 0.0
+    for tp in touchpoints:
+        if tp.fbclid or tp.click_id:
+            quality_bonus = max(quality_bonus, 0.3)  # Click ID = highest
+        elif tp.email_hash or tp.phone_hash:
+            quality_bonus = max(quality_bonus, 0.2)  # Identity hash = medium
+        elif tp.visitor_id or tp.ga_client_id:
+            quality_bonus = max(quality_bonus, 0.1)  # Visitor ID = low
+
+    return min(1.0, base_confidence + touch_bonus + quality_bonus)
 
 
 class IdentityMatcher:
@@ -387,33 +421,8 @@ class IdentityMatcher:
         touchpoints: list[Touchpoint],
         model: AttributionModel,
     ) -> float:
-        """
-        Calculate attribution confidence score (0-1).
-
-        Factors:
-        - Number of touchpoints
-        - Match quality (click_id > email > utm)
-        - Time between touches and conversion
-        """
-        if not touchpoints:
-            return 0.0
-
-        base_confidence = 0.5
-
-        # More touchpoints = higher confidence (up to +0.2)
-        touch_bonus = min(0.2, len(touchpoints) * 0.05)
-
-        # Match quality bonus (up to +0.3)
-        quality_bonus = 0.0
-        for tp in touchpoints:
-            if tp.fbclid or tp.click_id:
-                quality_bonus = max(quality_bonus, 0.3)  # Click ID = highest
-            elif tp.email_hash or tp.phone_hash:
-                quality_bonus = max(quality_bonus, 0.2)  # Identity hash = medium
-            elif tp.visitor_id or tp.ga_client_id:
-                quality_bonus = max(quality_bonus, 0.1)  # Visitor ID = low
-
-        return min(1.0, base_confidence + touch_bonus + quality_bonus)
+        """Calculate attribution confidence score (0-1)."""
+        return calculate_attribution_confidence(touchpoints)
 
     async def get_attribution_report(
         self,

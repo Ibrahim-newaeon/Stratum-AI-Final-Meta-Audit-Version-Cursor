@@ -27,22 +27,14 @@ export {
   useEmqPortfolio,
 } from './emqV2';
 
-// Admin hooks
+// User & tenant administration hooks (`/users`, `/tenants`)
 export {
   useUsers,
-  useUser,
-  useCreateUser,
+  useInviteUser,
   useUpdateUser,
   useDeleteUser,
-  useResetUserPassword,
   useTenants,
   useTenant,
-  useCreateTenant,
-  useUpdateTenant,
-  useDeleteTenant,
-  useSuspendTenant,
-  useReactivateTenant,
-  useTenantUsers,
 } from './admin';
 
 // Superadmin Analytics hooks
