@@ -31,6 +31,11 @@ from app.models.trust_layer import (
     FactSignalHealthDaily,
     SignalHealthStatus,
 )
+from app.services.meta.action_executor import (
+    ActionOutcome,
+    ExecutionStatus,
+    execute_meta_action,
+)
 from app.stratum.core.signal_health import SignalHealthConfig
 from app.stratum.core.trust_gate import GateDecision
 
@@ -52,18 +57,27 @@ class PlatformExecutor:
 
     async def execute_action(
         self,
-        action_type: str,
-        entity_type: str,
-        entity_id: str,
+        *,
+        db: AsyncSession,
+        action: FactActionsQueue,
         action_details: dict[str, Any],
-    ) -> dict[str, Any]:
+        gate: "SignalHealthGateResult",
+        dry_run: bool | None = None,
+        client_factory: Any = None,
+    ) -> ActionOutcome:
         """
-        Execute an action on the platform.
+        Execute an approved action on the platform.
 
-        This is an abstract method that must be overridden by subclasses.
+        Args:
+            db: Async database session.
+            action: The queued action row being executed.
+            action_details: Parsed ``action_json`` payload.
+            gate: The trust gate result that permitted the action.
+            dry_run: Force dry-run on or off (defaults to configuration).
+            client_factory: Injection point for tests.
 
         Returns:
-            Dict with keys: success, before_value, after_value, platform_response, error
+            The outcome, including the measured before/after values.
 
         Raises:
             NotImplementedError: This base class method must be overridden.
@@ -72,60 +86,126 @@ class PlatformExecutor:
 
 
 class MetaExecutor(PlatformExecutor):
-    """Executor for Meta (Facebook/Instagram) platform actions."""
+    """
+    Executor for Meta (Facebook/Instagram) platform actions.
+
+    Delegates to :func:`app.services.meta.action_executor.execute_meta_action`,
+    which reads the entity's real state from the Marketing API, enforces the
+    enforcement mode and the guard rails, applies the change and verifies it by
+    re-reading.
+
+    This replaced a simulator that never contacted Meta: it returned a
+    hardcoded ``before_value`` of ``{"status": "ACTIVE", "daily_budget":
+    10000}``, derived an ``after_value`` from that invention and reported
+    success, and those numbers were persisted to ``fact_actions_queue`` and the
+    audit log as though they had been measured.
+
+    Execution remains off unless ``autopilot_execution_enabled`` is true, and
+    writes nothing unless ``autopilot_execution_dry_run`` is also false.
+    """
 
     async def execute_action(
         self,
-        action_type: str,
-        entity_type: str,
-        entity_id: str,
+        *,
+        db: AsyncSession,
+        action: FactActionsQueue,
         action_details: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Execute action on Meta platform."""
-        # In production, this would use the Meta Marketing API
-        # For now, simulate successful execution
-
-        logger.info(f"[META] Executing {action_type} on {entity_type} {entity_id}")
-
-        # Simulate API call
-        before_value = {"status": "ACTIVE", "daily_budget": 10000}
-        after_value = before_value.copy()
-
-        if action_type == ActionType.BUDGET_INCREASE.value:
-            amount = action_details.get("amount", 0)
-            after_value["daily_budget"] = before_value["daily_budget"] + amount
-
-        elif action_type == ActionType.BUDGET_DECREASE.value:
-            amount = action_details.get("amount", 0)
-            after_value["daily_budget"] = max(0, before_value["daily_budget"] - amount)
-
-        elif action_type in [
-            ActionType.PAUSE_CAMPAIGN.value,
-            ActionType.PAUSE_ADSET.value,
-            ActionType.PAUSE_CREATIVE.value,
-        ]:
-            after_value["status"] = "PAUSED"
-
-        elif action_type in [
-            ActionType.ENABLE_CAMPAIGN.value,
-            ActionType.ENABLE_ADSET.value,
-            ActionType.ENABLE_CREATIVE.value,
-        ]:
-            after_value["status"] = "ACTIVE"
-
-        return {
-            "success": True,
-            "before_value": before_value,
-            "after_value": after_value,
-            "platform_response": {"request_id": "meta_123", "status": "success"},
-            "error": None,
-        }
+        gate: "SignalHealthGateResult",
+        dry_run: bool | None = None,
+        client_factory: Any = None,
+    ) -> ActionOutcome:
+        """Execute one approved action against the Meta Marketing API."""
+        return await execute_meta_action(
+            db=db,
+            action=action,
+            action_details=action_details,
+            gate=gate,
+            dry_run=dry_run,
+            client_factory=client_factory,
+        )
 
 
 # Platform executor registry
 PLATFORM_EXECUTORS = {
     "meta": MetaExecutor(),
 }
+
+
+# =============================================================================
+# Recording an outcome on the queue row
+# =============================================================================
+
+
+def record_outcome(
+    action: FactActionsQueue,
+    outcome: ActionOutcome,
+    user_id: int | None = None,
+) -> str:
+    """
+    Write an execution outcome onto the queue row and say which bucket it is.
+
+    The mapping from outcome to row status is a safety decision, not
+    bookkeeping:
+
+    * **applied / already_applied** -> ``applied``, with the *measured*
+      before- and after-values.
+    * **dry_run** and **refused** -> the row keeps the status it arrived with.
+      Neither wrote anything, and both can legitimately succeed on a later
+      pass once the operator turns dry-run off or the guard-rail condition
+      clears. The reason is recorded in ``error`` so the row explains itself;
+      the measured before-value is recorded too, because it is real data even
+      when nothing was written. "Keeps the status it arrived with" matters for
+      one case: a row already in ``applying`` stays there. That row's write may
+      have reached Meta, and demoting it to ``approved`` on a refusal - the
+      executor refuses to reconcile while execution is disabled - would hand
+      an unresolved in-flight change back to the next queue run.
+    * **failed** -> ``failed``.
+    * **unknown** -> ``failed``, deliberately. An ambiguous write must never
+      be retried, and leaving the row ``approved`` would hand it straight back
+      to the next queue run. The recorded error says the outcome is unknown
+      and needs manual reconciliation rather than pretending the change did
+      not happen.
+
+    Args:
+        action: The queue row to update.
+        outcome: The result of the execution attempt.
+        user_id: The user who triggered the execution, if any.
+
+    Returns:
+        A short bucket name for the task's counters.
+    """
+    if outcome.before_value is not None:
+        action.before_value = json.dumps(outcome.before_value)
+    if outcome.platform_response:
+        # Replaces any pre-write claim the executor committed on this row: the
+        # claim's job was to survive until the outcome was known, and it now
+        # is. A row that never reaches here keeps its claim, which is exactly
+        # what lets a later run reconcile it.
+        action.platform_response = json.dumps(outcome.platform_response, default=str)
+
+    if outcome.success:
+        action.status = ActionStatus.APPLIED.value
+        action.applied_at = datetime.now(UTC)
+        if user_id is not None:
+            action.applied_by_user_id = user_id
+        if outcome.after_value is not None:
+            action.after_value = json.dumps(outcome.after_value)
+        action.error = None
+        return "applied"
+
+    action.error = outcome.reason
+    if outcome.status is ExecutionStatus.FAILED:
+        action.status = ActionStatus.FAILED.value
+        return "failed"
+    if outcome.status is ExecutionStatus.UNKNOWN:
+        # Not a retry candidate. See the docstring.
+        action.status = ActionStatus.FAILED.value
+        if outcome.after_value is not None:
+            action.after_value = json.dumps(outcome.after_value)
+        return "unknown"
+    if outcome.status is ExecutionStatus.DRY_RUN:
+        return "dry_run"
+    return "refused"
 
 
 # =============================================================================
@@ -705,7 +785,11 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
             try:
                 logger.info(f"Starting action queue processing for tenant_id={tenant_id}")
 
-                # Build query for approved actions
+                # Build query for approved actions. Rows in `applying` are
+                # deliberately NOT selected: one of those carries a write that
+                # may already have reached Meta, and re-firing it is how a
+                # budget gets cut twice. They are reconciled by an operator or
+                # by an explicit single-action run.
                 query = select(FactActionsQueue).where(
                     FactActionsQueue.status == ActionStatus.APPROVED.value
                 )
@@ -713,8 +797,13 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
                 if tenant_id:
                     query = query.where(FactActionsQueue.tenant_id == tenant_id)
 
-                # Order by creation time
-                query = query.order_by(FactActionsQueue.created_at)
+                # Order by creation time, and claim the rows for this worker.
+                # Without the lock two concurrent runs - a redelivered task, or
+                # a user-triggered apply_single_action racing this one - both
+                # read the same row as `approved` and both write.
+                query = query.order_by(FactActionsQueue.created_at).with_for_update(
+                    skip_locked=True
+                )
 
                 result = await db.execute(query)
                 actions = result.scalars().all()
@@ -727,6 +816,10 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
                 failed = 0
                 held = 0
                 blocked = 0
+                # Per-outcome counters (applied / failed / unknown / refused /
+                # dry_run), reported so an operator running in dry-run can see
+                # what would have happened.
+                counters: dict[str, int] = {}
                 gate_cache: dict[int, SignalHealthGateResult] = {}
 
                 for action in actions:
@@ -785,56 +878,73 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
                             failed += 1
                             continue
 
-                        # Execute the action
-                        exec_result = await executor.execute_action(
-                            action_type=action.action_type,
-                            entity_type=action.entity_type,
-                            entity_id=action.entity_id,
+                        # Execute the action. Every outcome - including a
+                        # refusal and a dry run - carries the measured
+                        # before-value and the full reason, so the audit log
+                        # records what was true rather than what was assumed.
+                        outcome = await executor.execute_action(
+                            db=db,
+                            action=action,
                             action_details=action_details,
+                            gate=gate,
+                        )
+                        bucket = record_outcome(action, outcome)
+                        counters[bucket] = counters.get(bucket, 0) + 1
+
+                        await log_action_audit(
+                            db=db,
+                            action=action,
+                            outcome=outcome,
+                            gate=gate,
                         )
 
-                        if exec_result["success"]:
-                            action.status = ActionStatus.APPLIED.value
-                            action.applied_at = datetime.now(UTC)
-                            action.after_value = json.dumps(exec_result["after_value"])
-                            action.platform_response = json.dumps(exec_result["platform_response"])
+                        # Commit each outcome before the next action starts.
+                        # Two reasons, both about money. The per-tenant daily
+                        # cap and the cumulative-change rail count history out
+                        # of the database, and this session runs with
+                        # autoflush=False - so without this an in-memory
+                        # `applied` is invisible and every action in the run
+                        # sees the same pre-batch state, letting a run of 200
+                        # sail past a cap of 10 and letting successive 20%
+                        # cuts each measure against the value the last one set.
+                        # And a crash later in the loop must not roll back the
+                        # record of a write that has already reached Meta.
+                        await db.commit()
+
+                        if bucket == "applied":
                             processed += 1
-
-                            logger.info(f"Successfully applied action {action.id}")
-
-                            # Log to audit (in production, write to audit_log table)
-                            await log_action_audit(
-                                db=db,
-                                action=action,
-                                result=exec_result,
-                                gate=gate,
+                            logger.info(
+                                "Applied action %s: %s", action.id, outcome.reason
                             )
-
-                            # Publish WebSocket notification
                             await publish_action_status_update(
                                 tenant_id=action.tenant_id,
                                 action_id=str(action.id),
                                 status="applied",
-                                before_value=exec_result.get("before_value"),
-                                after_value=exec_result.get("after_value"),
+                                before_value=outcome.before_value,
+                                after_value=outcome.after_value,
                             )
-                        else:
-                            action.status = ActionStatus.FAILED.value
-                            action.error = exec_result.get("error", "Unknown error")
-                            action.platform_response = json.dumps(
-                                exec_result.get("platform_response")
-                            )
+                        elif bucket in ("failed", "unknown"):
                             failed += 1
-
                             logger.error(
-                                f"Failed to apply action {action.id}: {exec_result.get('error')}"
+                                "Action %s did not apply (%s): %s",
+                                action.id,
+                                bucket,
+                                outcome.reason,
                             )
-
-                            # Publish WebSocket notification for failure
                             await publish_action_status_update(
                                 tenant_id=action.tenant_id,
                                 action_id=str(action.id),
                                 status="failed",
+                            )
+                        else:
+                            # Refused or dry run: nothing was written and the
+                            # row stays approved, so it is not counted as a
+                            # failure.
+                            logger.info(
+                                "Action %s not executed (%s): %s",
+                                action.id,
+                                bucket,
+                                outcome.reason,
                             )
 
                     except Exception as e:
@@ -847,11 +957,13 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
 
                 logger.info(
                     "Action queue processing complete: %s applied, %s failed, "
-                    "%s held by the trust gate, %s blocked by the trust gate",
+                    "%s held by the trust gate, %s blocked by the trust gate, "
+                    "outcomes %s",
                     processed,
                     failed,
                     held,
                     blocked,
+                    counters,
                 )
 
                 return {
@@ -860,6 +972,9 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
                     "failed": failed,
                     "held": held,
                     "blocked": blocked,
+                    "outcomes": counters,
+                    "dry_run": settings.autopilot_execution_dry_run,
+                    "execution_enabled": settings.autopilot_execution_enabled,
                 }
 
             except Exception as e:
@@ -906,25 +1021,33 @@ async def log_gate_decision_audit(
 async def log_action_audit(
     db: AsyncSession,
     action: FactActionsQueue,
-    result: dict[str, Any],
+    outcome: ActionOutcome,
     gate: SignalHealthGateResult | None = None,
 ) -> None:
     """
-    Log action execution to audit trail.
+    Log an execution attempt to the audit trail.
+
+    Records every attempt, not only the successful ones: a refusal and a
+    dry run are automation decisions too, and the reason they did not act is
+    the part an operator needs. The before- and after-values here are the ones
+    the executor *measured* against Meta - the simulator this replaced logged
+    values it had invented.
 
     In production, this would write to a dedicated audit_log table.
 
     Args:
         db: Async database session
-        action: The action that was applied
-        result: The platform executor result (before/after values, response)
+        action: The action the attempt was made for
+        outcome: The executor's outcome, including the measured values, the
+            intended change, every guard rail evaluated and the reason
         gate: The trust gate result that permitted the execution, recorded so
             every executed automation carries the signal health it relied on
     """
     audit_entry = {
         "timestamp": datetime.now(UTC).isoformat(),
-        "event": "action_applied",
-        "executed": True,
+        "event": "action_execution_attempt",
+        "outcome_status": outcome.status.value,
+        "executed": outcome.wrote_to_meta,
         "trust_gate": gate.to_audit_dict() if gate else None,
         "tenant_id": action.tenant_id,
         "action_id": str(action.id),
@@ -933,11 +1056,9 @@ async def log_action_audit(
         "entity_id": action.entity_id,
         "entity_name": action.entity_name,
         "platform": action.platform,
-        "before_value": result.get("before_value"),
-        "after_value": result.get("after_value"),
         "approved_by": action.approved_by_user_id,
         "applied_at": action.applied_at.isoformat() if action.applied_at else None,
-        "platform_response": result.get("platform_response"),
+        "execution": outcome.to_audit_dict(),
     }
 
     logger.info(f"AUDIT: {json.dumps(audit_entry, default=str)}")
@@ -987,22 +1108,36 @@ def apply_single_action(self, action_id: str, user_id: Optional[int] = None):
                 uuid_id = UUID(action_id)
 
                 result = await db.execute(
-                    select(FactActionsQueue).where(FactActionsQueue.id == uuid_id)
+                    select(FactActionsQueue)
+                    .where(FactActionsQueue.id == uuid_id)
+                    .with_for_update()
                 )
                 action = result.scalar_one_or_none()
 
                 if not action:
                     return {"status": "error", "error": "Action not found"}
 
-                if action.status != ActionStatus.APPROVED.value:
+                # `applying` is admitted so an operator can reconcile a row an
+                # earlier attempt left mid-write: the executor answers that
+                # state by re-reading the entity and never by writing.
+                if action.status not in (
+                    ActionStatus.APPROVED.value,
+                    ActionStatus.APPLYING.value,
+                ):
                     return {
                         "status": "error",
                         "error": f"Action status is {action.status}, expected approved",
                     }
 
+                # Reconciling a mid-write row decides nothing and writes
+                # nothing; it only establishes what an earlier attempt did. The
+                # gate and the caps govern whether to act, so they are skipped
+                # for it - refusing here would strand the row in `applying`.
+                reconciling = action.status == ActionStatus.APPLYING.value
+
                 # Trust gate: fails closed, exactly as on the batch path.
                 gate = await check_signal_health(db, action.tenant_id)
-                if not gate.may_execute:
+                if not reconciling and not gate.may_execute:
                     logger.warning(
                         "Trust gate %s for action %s (tenant %s): %s",
                         gate.decision.value,
@@ -1024,7 +1159,11 @@ def apply_single_action(self, action_id: str, user_id: Optional[int] = None):
 
                 # Parse and validate
                 action_details = json.loads(action.action_json) if action.action_json else {}
-                is_valid, cap_error = validate_action_caps(action.action_type, action_details)
+                is_valid, cap_error = (
+                    (True, None)
+                    if reconciling
+                    else validate_action_caps(action.action_type, action_details)
+                )
 
                 if not is_valid:
                     action.status = ActionStatus.FAILED.value
@@ -1040,47 +1179,45 @@ def apply_single_action(self, action_id: str, user_id: Optional[int] = None):
                     await db.commit()
                     return {"status": "error", "error": action.error}
 
-                exec_result = await executor.execute_action(
-                    action_type=action.action_type,
-                    entity_type=action.entity_type,
-                    entity_id=action.entity_id,
+                outcome = await executor.execute_action(
+                    db=db,
+                    action=action,
                     action_details=action_details,
+                    gate=gate,
                 )
+                bucket = record_outcome(action, outcome, user_id=user_id)
+                await log_action_audit(db, action, outcome, gate=gate)
+                await db.commit()
 
-                if exec_result["success"]:
-                    action.status = ActionStatus.APPLIED.value
-                    action.applied_at = datetime.now(UTC)
-                    action.applied_by_user_id = user_id
-                    action.after_value = json.dumps(exec_result["after_value"])
-                    action.platform_response = json.dumps(exec_result["platform_response"])
-
-                    await log_action_audit(db, action, exec_result, gate=gate)
-                    await db.commit()
-
-                    # Publish WebSocket notification
+                if bucket == "applied":
                     await publish_action_status_update(
                         tenant_id=action.tenant_id,
                         action_id=action_id,
                         status="applied",
-                        before_value=exec_result.get("before_value"),
-                        after_value=exec_result.get("after_value"),
+                        before_value=outcome.before_value,
+                        after_value=outcome.after_value,
                     )
+                    return {
+                        "status": "success",
+                        "action_id": action_id,
+                        "outcome": outcome.to_audit_dict(),
+                    }
 
-                    return {"status": "success", "action_id": action_id}
-                else:
-                    action.status = ActionStatus.FAILED.value
-                    action.error = exec_result.get("error", "Unknown error")
-                    action.platform_response = json.dumps(exec_result.get("platform_response"))
-                    await db.commit()
-
-                    # Publish WebSocket notification for failure
+                if bucket in ("failed", "unknown"):
                     await publish_action_status_update(
                         tenant_id=action.tenant_id,
                         action_id=action_id,
                         status="failed",
                     )
 
-                    return {"status": "error", "error": action.error}
+                # Refused and dry-run outcomes wrote nothing and left the row
+                # approved; they are reported as errors to the caller so the
+                # UI can show the reason, not silently swallowed.
+                return {
+                    "status": "error",
+                    "error": outcome.reason,
+                    "outcome": outcome.to_audit_dict(),
+                }
 
             except Exception as e:
                 logger.error(f"Single action execution failed: {e!s}")
