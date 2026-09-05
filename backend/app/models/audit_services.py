@@ -8,7 +8,7 @@ Database models for audit-recommended services:
 - Model A/B Testing
 - Conversion Latency
 - Creative Performance
-- Competitor Benchmarks
+- Industry Benchmarks
 - Budget Reallocation
 - Audience Insights
 - LTV Predictions
@@ -470,7 +470,7 @@ class Creative(Base):
     thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Metadata
-    metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    creative_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -604,12 +604,17 @@ class CreativeFatigueAlert(Base):
 # =============================================================================
 
 
-class CompetitorBenchmark(Base):
+class IndustryBenchmark(Base):
     """
-    Stores competitor benchmark comparisons.
+    Stores tenant-vs-industry percentile benchmark comparisons.
+
+    Distinct from ``app.base_models.CompetitorBenchmark``, which tracks named
+    competitor domains for SEO. This model scores a tenant against industry
+    percentiles per platform and region, and owns the ``industry_benchmarks``
+    table; the ``competitor_benchmarks`` name belongs to the base model.
     """
 
-    __tablename__ = "competitor_benchmarks"
+    __tablename__ = "industry_benchmarks"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id: Mapped[int] = mapped_column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
