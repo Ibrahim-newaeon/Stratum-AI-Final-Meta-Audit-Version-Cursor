@@ -174,9 +174,9 @@ class SalesforceClient:
         connection = await self._get_connection()
         if use_instance_url:
             if not self._instance_url and connection:
-                # Instance URL stored in provider_account_id or raw_properties
-                raw_props = connection.raw_properties or {}
-                self._instance_url = raw_props.get("instance_url")
+                # Instance URL is stored on the connection at OAuth time
+                provider_meta = connection.provider_metadata or {}
+                self._instance_url = provider_meta.get("instance_url")
 
             if not self._instance_url:
                 logger.error("salesforce_no_instance_url", tenant_id=self.tenant_id)
@@ -331,7 +331,7 @@ class SalesforceClient:
         connection.scopes = token_data.get("scope", "")
         connection.status = CRMConnectionStatus.CONNECTED
         connection.status_message = None
-        connection.raw_properties = {
+        connection.provider_metadata = {
             "instance_url": instance_url,
             "user_id": user_info.get("user_id"),
             "username": user_info.get("preferred_username"),
@@ -393,9 +393,13 @@ class SalesforceClient:
 
         # Update instance URL if provided
         if "instance_url" in token_data:
-            raw_props = connection.raw_properties or {}
-            raw_props["instance_url"] = token_data["instance_url"]
-            connection.raw_properties = raw_props
+            # A new dict, not an in-place edit: provider_metadata is plain JSONB,
+            # so mutating the loaded value would not mark the row dirty and the
+            # refreshed instance URL would never reach the database.
+            connection.provider_metadata = {
+                **(connection.provider_metadata or {}),
+                "instance_url": token_data["instance_url"],
+            }
             self._instance_url = token_data["instance_url"]
 
         await self.db.commit()
@@ -452,7 +456,7 @@ class SalesforceClient:
             else None,
             "last_sync_status": connection.last_sync_status,
             "scopes": connection.scopes.split(" ") if connection.scopes else [],
-            "is_sandbox": (connection.raw_properties or {}).get("is_sandbox", False),
+            "is_sandbox": (connection.provider_metadata or {}).get("is_sandbox", False),
         }
 
     # =========================================================================
