@@ -8,12 +8,13 @@ Handles safe execution of budget changes, pauses, and other campaign modificatio
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from celery import shared_task
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
@@ -46,7 +47,10 @@ from app.services.signal_health.scoring import (
     COMPONENT_RELIABILITY,
     weighted_score,
 )
-from app.services.signal_health.service import thresholds_for_tenant
+from app.services.signal_health.service import (
+    thresholds_for_tenant,
+    thresholds_for_tenants,
+)
 from app.stratum.core.signal_health import SignalHealthConfig
 from app.stratum.core.trust_gate import GateDecision
 
@@ -675,6 +679,117 @@ async def check_signal_health(db: AsyncSession, tenant_id: int) -> SignalHealthG
         enforcement_mode=enforcement_mode,
         thresholds=thresholds,
     )
+
+
+async def check_signal_health_for_tenants(
+    db: AsyncSession,
+    tenant_ids: Sequence[int],
+    today: date | None = None,
+) -> dict[int, SignalHealthGateResult]:
+    """
+    Evaluate the trust gate for many tenants at once.
+
+    The batched counterpart of :func:`check_signal_health`. It loads the same
+    newest-snapshot rows, the same enforcement modes and the same per-tenant
+    thresholds, then calls the same pure :func:`evaluate_signal_health`, so the
+    decision a tenant sees in an account manager's portfolio is the decision
+    its own automation is subject to.
+
+    FAILS CLOSED for the same reasons and by the same route: a tenant with no
+    snapshot is simply absent from the row set and ``evaluate_signal_health``
+    is handed ``health_date=None``, which is a BLOCK.
+
+    Args:
+        db: Async database session
+        tenant_ids: Tenants to evaluate; the caller must already have
+            authorised every one of them
+        today: Optional clock override for the staleness rule, so a caller that
+            fixes its own clock grades snapshots against the same date it
+            measures over. Defaults to the current UTC date, which is what
+            :func:`check_signal_health` uses.
+
+    Returns:
+        ``{tenant_id: result}`` covering every requested tenant
+    """
+    if not tenant_ids:
+        return {}
+
+    unique_ids = list(dict.fromkeys(int(tenant_id) for tenant_id in tenant_ids))
+    today = today or datetime.now(UTC).date()
+
+    # Same rule as the single-tenant path: rows dated in the future are invalid
+    # rather than newest, so they can never hide the real current snapshot.
+    newest_result = await db.execute(
+        select(
+            FactSignalHealthDaily.tenant_id,
+            func.max(FactSignalHealthDaily.date).label("health_date"),
+        )
+        .where(
+            and_(
+                FactSignalHealthDaily.tenant_id.in_(unique_ids),
+                FactSignalHealthDaily.date <= today,
+            )
+        )
+        .group_by(FactSignalHealthDaily.tenant_id)
+    )
+    health_dates: dict[int, date] = {
+        int(row[0]): row[1] for row in newest_result.all() if row[1] is not None
+    }
+
+    # Only a snapshot inside the staleness window has its rows read; an older
+    # one is handled by evaluate_signal_health's staleness branch, which does
+    # not look at rows at all.
+    current = {
+        tenant_id: health_date
+        for tenant_id, health_date in health_dates.items()
+        if 0 <= (today - health_date).days <= settings.trust_gate_max_health_age_days
+    }
+    records: dict[int, list[FactSignalHealthDaily]] = {}
+    if current:
+        rows_result = await db.execute(
+            select(FactSignalHealthDaily).where(
+                or_(
+                    *[
+                        and_(
+                            FactSignalHealthDaily.tenant_id == tenant_id,
+                            FactSignalHealthDaily.date == health_date,
+                        )
+                        for tenant_id, health_date in current.items()
+                    ]
+                )
+            )
+        )
+        for record in rows_result.scalars().all():
+            records.setdefault(int(record.tenant_id), []).append(record)
+
+    modes_result = await db.execute(
+        select(TenantEnforcementSettings).where(
+            TenantEnforcementSettings.tenant_id.in_(unique_ids)
+        )
+    )
+    enforcement_modes: dict[int, str] = {}
+    for record in modes_result.scalars().all():
+        mode = record.default_mode
+        if mode is None:
+            continue
+        enforcement_modes[int(record.tenant_id)] = (
+            mode.value if isinstance(mode, EnforcementMode) else str(mode)
+        )
+
+    thresholds = await thresholds_for_tenants(db, unique_ids)
+
+    return {
+        tenant_id: evaluate_signal_health(
+            records=records.get(tenant_id, []),
+            health_date=health_dates.get(tenant_id),
+            today=today,
+            enforcement_mode=enforcement_modes.get(
+                tenant_id, EnforcementMode.ADVISORY.value
+            ),
+            thresholds=thresholds.get(tenant_id),
+        )
+        for tenant_id in unique_ids
+    }
 
 
 def check_signal_health_sync(db: SyncSession, tenant_id: int) -> SignalHealthGateResult:

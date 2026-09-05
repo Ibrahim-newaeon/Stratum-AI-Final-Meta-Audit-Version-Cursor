@@ -124,6 +124,30 @@ Each consumer honours that outcome rather than substituting a number:
   authenticated route, the account-manager portfolio, the data quality dashboard and the public
   embeddable widgets; none of them substitutes a number of its own.
 
+### Measuring a whole portfolio at once
+
+The account-manager portfolio (`GET /tenants/portfolio`) needs the same answer for every tenant it
+lists. Running the per-tenant path in a loop would be one query per tenant per channel, so
+`app/services/signal_health/service.py` also exposes a batched form:
+`measure_delivery_for_tenants`, `measure_freshness_for_tenants`, `measure_connection_for_tenants`
+and `thresholds_for_tenants`, composed by `compute_portfolio_signal_health`. Each reads the same
+table with the same predicates as its single-tenant counterpart, grouped by tenant instead of
+filtered to one, and hands its measurements to the same `_build_computation`.
+
+That is what makes the two views agree: a tenant that is `insufficient_data` on its own dashboard is
+`insufficient_data` in its account manager's list, with the same missing inputs and against the same
+per-tenant band edges. `tenant_id` stays in the WHERE clause - grouping alone is not isolation, and
+the caller passes only the tenants it has authorised. `check_signal_health_for_tenants` in
+`app/tasks/apply_actions_queue.py` is the same treatment for the gate: the same rows, the same
+enforcement modes, the same pure `evaluate_signal_health`, so a portfolio row shows the decision the
+tenant's automation is actually subject to.
+
+The portfolio's other columns are measured the same way, each from the table that owns it - spend
+and ROAS from `campaign_metrics`, open incidents from `pacing_alerts`, held budget from the
+campaigns named by queued `fact_actions_queue` rows, plan and renewal from the tenant's Paddle
+state - and a column with no source for a tenant stays null. See
+`app/services/account_portfolio.py`.
+
 ### Measured health and the gate's decision are two different answers
 
 `SignalHealthSummary` carries both, and they can legitimately disagree. `status` bands a **live**

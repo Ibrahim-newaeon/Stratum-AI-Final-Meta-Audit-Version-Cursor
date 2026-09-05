@@ -22,17 +22,29 @@ from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.core.tiers import TIER_PRICING, SubscriptionTier
+from app.core.tiers import TIER_PRICING
 from app.db.session import get_async_session
 from app.models import Campaign, Tenant, User, UserRole
 from app.schemas import APIResponse
+from app.services.tenant_revenue import (
+    BILLABLE_SUBSCRIPTION_STATUSES as _BILLABLE_SUBSCRIPTION_STATUSES,
+    plan_display_name,
+    plan_list_price,
+    tenant_mrr,
+    tenant_subscription_status,
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-# Paddle subscription statuses that generate recurring revenue. Trials, paused and
-# canceled subscriptions (and tenants with no Paddle subscription) contribute 0 MRR.
-BILLABLE_SUBSCRIPTION_STATUSES = frozenset({"active", "past_due"})
+# The plan/MRR rules live in app.services.tenant_revenue so the account-manager
+# portfolio reports the same numbers as these platform revenue views. Re-exported
+# under the module-private names this file has always used.
+BILLABLE_SUBSCRIPTION_STATUSES = _BILLABLE_SUBSCRIPTION_STATUSES
+_plan_display_name = plan_display_name
+_plan_list_price = plan_list_price
+_tenant_mrr = tenant_mrr
+_tenant_subscription_status = tenant_subscription_status
 
 
 # =============================================================================
@@ -155,53 +167,6 @@ class SuperadminSubscription(BaseModel):
 def _iso(value: Optional[datetime]) -> Optional[str]:
     """Serialize an optional datetime as an ISO-8601 string."""
     return value.isoformat() if value else None
-
-
-def _tenant_subscription_status(tenant: Tenant) -> str:
-    """Return the Paddle subscription status of a tenant for platform analytics.
-
-    Tenants without a Paddle subscription (``subscription_status`` is NULL) are treated as
-    ``active`` platform accounts so that free / admin-granted plans still count as live
-    tenants in the revenue and portfolio views.
-    """
-    return getattr(tenant, "subscription_status", None) or "active"
-
-
-def _plan_display_name(plan: Optional[str]) -> Optional[str]:
-    """Human readable plan name, taken from ``TIER_PRICING`` when the plan is a paid tier."""
-    if not plan:
-        return None
-    try:
-        return str(TIER_PRICING[SubscriptionTier(plan)]["name"])
-    except (ValueError, KeyError):
-        return plan.replace("_", " ").title()
-
-
-def _plan_list_price(plan: Optional[str]) -> float:
-    """Monthly list price of a plan from ``TIER_PRICING`` (0 for free / custom pricing)."""
-    if not plan:
-        return 0.0
-    try:
-        price = TIER_PRICING[SubscriptionTier(plan)]["price"]
-    except (ValueError, KeyError):
-        return 0.0
-    return float(price) if price else 0.0
-
-
-def _tenant_mrr(tenant: Tenant) -> float:
-    """Monthly recurring revenue attributed to a tenant.
-
-    Uses an explicit ``mrr_cents`` value when the tenant carries one; otherwise derives it
-    from the plan's list price while the Paddle subscription is billable (active or
-    past_due). Trials, paused / canceled subscriptions, tenants without a Paddle
-    subscription and custom-priced (enterprise) plans contribute 0.
-    """
-    mrr_cents = getattr(tenant, "mrr_cents", None)
-    if mrr_cents:
-        return mrr_cents / 100
-    if getattr(tenant, "subscription_status", None) not in BILLABLE_SUBSCRIPTION_STATUSES:
-        return 0.0
-    return _plan_list_price(tenant.plan)
 
 
 async def _table_columns(db: AsyncSession, table_name: str) -> set[str]:

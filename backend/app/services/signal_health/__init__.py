@@ -49,16 +49,21 @@ from app.services.signal_health.scoring import (
 )
 from app.services.signal_health.service import (
     META_CHANNELS,
+    compute_portfolio_signal_health,
     compute_signal_health,
     compute_tenant_signal_health,
     daily_delivery_history,
     day_window,
     default_window,
     measure_connection,
+    measure_connection_for_tenants,
     measure_delivery,
+    measure_delivery_for_tenants,
     measure_freshness,
+    measure_freshness_for_tenants,
     summarise_channels,
     thresholds_for_tenant,
+    thresholds_for_tenants,
 )
 
 __all__ = [
@@ -84,6 +89,7 @@ __all__ = [
     "SignalHealthThresholds",
     "SignalHealthWindow",
     "component_weights",
+    "compute_portfolio_signal_health",
     "compute_signal_health",
     "compute_tenant_signal_health",
     "connection_component_score",
@@ -93,10 +99,14 @@ __all__ = [
     "emq_component_score",
     "freshness_component_score",
     "measure_connection",
+    "measure_connection_for_tenants",
     "measure_delivery",
+    "measure_delivery_for_tenants",
     "measure_freshness",
+    "measure_freshness_for_tenants",
     "status_for_score",
     "summarise_channels",
     "thresholds_for_tenant",
+    "thresholds_for_tenants",
     "weighted_score",
 ]

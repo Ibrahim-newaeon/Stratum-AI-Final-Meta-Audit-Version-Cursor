@@ -6,10 +6,11 @@ Tenant (Organization) management endpoints.
 Provides CRUD operations for multi-tenant administration.
 """
 
-from typing import Optional
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -21,9 +22,122 @@ from app.schemas import (
     TenantResponse,
     TenantUpdate,
 )
+from app.services.account_portfolio import SPEND_WINDOW_DAYS, build_tenant_portfolio
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+# =============================================================================
+# Response Models
+# =============================================================================
+class TenantPortfolioRow(BaseModel):
+    """
+    One tenant as the account-manager portfolio renders it.
+
+    Optional fields are ``None`` when this deployment has no source for that
+    metric on that tenant, and the UI must render that as unknown - a dash, not
+    a zero. ``0`` here is a measurement: no spend, no held budget, no open
+    incident. The view used to fabricate every one of these with
+    ``Math.random()`` against the real customer list.
+    """
+
+    id: int
+    name: str
+    slug: str
+    industry: str | None = None
+    plan: str | None = None
+    # Paddle subscription status; "active" for free / admin-granted plans.
+    subscription_status: str
+    mrr: float
+    renewal_date: datetime | None = None
+
+    # The composite the trust gate grades, and its EMQ component. ``None`` with
+    # status "insufficient_data" means not enough evidence to score - unknown,
+    # not bad - and ``missing_input_codes`` names the gaps for translation.
+    signal_health_score: float | None = Field(default=None, ge=0, le=100)
+    signal_health_status: str
+    emq_score: float | None = Field(default=None, ge=0, le=100)
+    emq_trend: float | None = None
+    channel: str | None = None
+    # Channels with no score of their own. The representative channel does not
+    # speak for these - naming them keeps the row from reading healthier than
+    # the tenant's own dashboard.
+    unscored_channels: list[str] = []
+    missing_inputs: list[str] = []
+    missing_input_codes: list[str] = []
+
+    # The trust gate's own current decision. ``gate_health_date`` is null
+    # exactly when the gate had no snapshot to grade, which is "no data" rather
+    # than a BLOCK the tenant caused.
+    gate_decision: str | None = None
+    gate_reason: str | None = None
+    gate_health_date: date | None = None
+
+    # Daily budget of the campaigns with unapplied autopilot actions. ``None``
+    # when actions are outstanding but none of them could be priced.
+    budget_at_risk: float | None = None
+    # Actions autopilot has proposed and not applied: waiting on a human, or
+    # released and withheld by the trust gate.
+    unapplied_actions: int = 0
+    active_incidents: int | None = None
+    incident_open_hours: float | None = None
+
+    monthly_spend: float | None = None
+    roas: float | None = None
+    roas_trend: float | None = None
+
+    # Newest sign-in by any user of the tenant. This product keeps no record of
+    # an account manager contacting a customer, so this is not one.
+    last_login_at: datetime | None = None
+
+
+class TenantPortfolioResponse(BaseModel):
+    """The portfolio rows and the window the performance figures cover."""
+
+    tenants: list[TenantPortfolioRow]
+    # Tenants visible to this caller in total, not the length of this page: the
+    # view sums MRR and counts tenants from what it received, so a page length
+    # reported as a total would under-report both on a deployment with more
+    # tenants than the page size.
+    total: int
+    # How many of `total` this response carries, so the caller can tell a
+    # complete portfolio from a first page.
+    returned: int
+    spend_window_days: int
+
+
+def _visible_tenants_query(
+    request: Request,
+    search: str | None = None,
+) -> "Select":
+    """
+    Build the tenant query the caller is allowed to see.
+
+    Cross-tenant listing is a platform action: a tenant ADMIN is an admin of
+    their own tenant only and must never enumerate other customers. Both the
+    plain listing and the portfolio go through here so the rule cannot be
+    tightened in one and left open in the other.
+
+    Args:
+        request: Incoming request; identity was set by TenantMiddleware from a
+            signature-verified access token
+        search: Optional name/slug substring filter
+
+    Returns:
+        A SELECT over the tenants this caller may list
+    """
+    user_role = getattr(request.state, "role", None)
+    tenant_id = getattr(request.state, "tenant_id", None)
+
+    query = select(Tenant).where(Tenant.is_deleted == False)
+    if user_role != UserRole.SUPERADMIN.value:
+        query = query.where(Tenant.id == tenant_id)
+    if search:
+        query = query.where(
+            (Tenant.name.ilike(f"%{search}%")) | (Tenant.slug.ilike(f"%{search}%"))
+        )
+    return query
 
 
 def _authorize_tenant_action(
@@ -114,7 +228,9 @@ def require_admin(request: Request, target_tenant_id: int | None = None) -> int:
     )
 
 
-def require_platform_admin(request: Request, target_tenant_id: int | None = None) -> int:
+def require_platform_admin(
+    request: Request, target_tenant_id: int | None = None
+) -> int:
     """
     Verify the caller holds the cross-tenant platform role (SUPERADMIN).
 
@@ -182,7 +298,7 @@ async def list_tenants(
     db: AsyncSession = Depends(get_async_session),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    search: Optional[str] = Query(None, max_length=100),
+    search: str | None = Query(None, max_length=100),
 ):
     """
     List tenants.
@@ -190,21 +306,7 @@ async def list_tenants(
     Only the platform role (SUPERADMIN) sees every tenant; every tenant-scoped
     role - ADMIN included - sees just its own tenant.
     """
-    user_role = getattr(request.state, "role", None)
-    tenant_id = getattr(request.state, "tenant_id", None)
-
-    query = select(Tenant).where(Tenant.is_deleted == False)
-
-    # Cross-tenant listing is a platform action: a tenant ADMIN is an admin of
-    # their own tenant only and must never enumerate other customers.
-    if user_role != UserRole.SUPERADMIN.value:
-        query = query.where(Tenant.id == tenant_id)
-
-    # Search filter
-    if search:
-        query = query.where((Tenant.name.ilike(f"%{search}%")) | (Tenant.slug.ilike(f"%{search}%")))
-
-    query = query.offset(skip).limit(limit)
+    query = _visible_tenants_query(request, search=search).offset(skip).limit(limit)
     result = await db.execute(query)
     tenants = result.scalars().all()
 
@@ -274,6 +376,86 @@ async def get_current_tenant(
     )
 
 
+@router.get("/portfolio", response_model=APIResponse[TenantPortfolioResponse])
+async def get_tenant_portfolio(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    search: str | None = Query(None, max_length=100),
+):
+    """
+    List tenants with the metrics the account-manager portfolio renders.
+
+    Declared before ``/{tenant_id}``: FastAPI matches routes in declaration
+    order, and behind the integer-typed path parameter this would never be
+    reached.
+
+    Visibility is exactly :func:`list_tenants`': the platform role sees every
+    tenant, every tenant-scoped role - ADMIN included - sees only its own. Both
+    build their query through :func:`_visible_tenants_query`, so a change to
+    one cannot quietly widen the other.
+
+    Every metric is measured or null, and null means "no source for this
+    tenant" rather than zero. This endpoint exists because the view previously
+    generated all of them with ``Math.random()`` and attached them to the real,
+    named customer list.
+    """
+    query = _visible_tenants_query(request, search=search)
+
+    # The real number of tenants this caller can see, so the view's totals are
+    # not silently the page's totals.
+    total = await db.scalar(
+        select(func.count()).select_from(query.order_by(None).subquery())
+    )
+
+    result = await db.execute(query.order_by(Tenant.name).offset(skip).limit(limit))
+    tenants = list(result.scalars().all())
+
+    rows = await build_tenant_portfolio(db, tenants)
+
+    return APIResponse(
+        success=True,
+        data=TenantPortfolioResponse(
+            tenants=[
+                TenantPortfolioRow(
+                    id=row.tenant_id,
+                    name=row.name,
+                    slug=row.slug,
+                    industry=row.industry,
+                    plan=row.plan,
+                    subscription_status=row.subscription_status,
+                    mrr=row.mrr,
+                    renewal_date=row.renewal_date,
+                    signal_health_score=row.signal_health_score,
+                    signal_health_status=row.signal_health_status,
+                    emq_score=row.emq_score,
+                    emq_trend=row.emq_trend,
+                    channel=row.channel,
+                    unscored_channels=row.unscored_channels,
+                    missing_inputs=row.missing_inputs,
+                    missing_input_codes=row.missing_input_codes,
+                    gate_decision=row.gate_decision,
+                    gate_reason=row.gate_reason,
+                    gate_health_date=row.gate_health_date,
+                    budget_at_risk=row.budget_at_risk,
+                    unapplied_actions=row.unapplied_actions,
+                    active_incidents=row.active_incidents,
+                    incident_open_hours=row.incident_open_hours,
+                    monthly_spend=row.monthly_spend,
+                    roas=row.roas,
+                    roas_trend=row.roas_trend,
+                    last_login_at=row.last_login_at,
+                )
+                for row in rows
+            ],
+            total=int(total or 0),
+            returned=len(rows),
+            spend_window_days=SPEND_WINDOW_DAYS,
+        ),
+    )
+
+
 @router.get("/{tenant_id}", response_model=APIResponse[TenantResponse])
 async def get_tenant(
     request: Request,
@@ -314,7 +496,9 @@ async def get_tenant(
     )
 
 
-@router.post("", response_model=APIResponse[TenantResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=APIResponse[TenantResponse], status_code=status.HTTP_201_CREATED
+)
 async def create_tenant(
     request: Request,
     tenant_data: TenantCreate,
@@ -524,7 +708,9 @@ async def get_tenant_users(
 
     # Get user count
     count_result = await db.execute(
-        select(func.count(User.id)).where(User.tenant_id == tenant_id, User.is_deleted == False)
+        select(func.count(User.id)).where(
+            User.tenant_id == tenant_id, User.is_deleted == False
+        )
     )
     user_count = count_result.scalar()
 

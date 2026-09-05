@@ -73,15 +73,21 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "META_CHANNELS",
+    "compute_portfolio_signal_health",
     "compute_signal_health",
     "compute_tenant_signal_health",
+    "daily_delivery_history",
     "day_window",
     "default_window",
     "measure_connection",
+    "measure_connection_for_tenants",
     "measure_delivery",
+    "measure_delivery_for_tenants",
     "measure_freshness",
+    "measure_freshness_for_tenants",
     "summarise_channels",
     "thresholds_for_tenant",
+    "thresholds_for_tenants",
 ]
 
 # The Meta channels the trust layer grades, matching fact_signal_health_daily
@@ -608,6 +614,329 @@ def summarise_channels(
     if scored:
         return min(scored, key=lambda item: item.score or 0.0)
     return max(computations.values(), key=lambda item: item.available_weight)
+
+
+# =============================================================================
+# Batched, multi-tenant measurement
+# =============================================================================
+# The per-tenant functions above answer for one tenant at a time, which is what
+# a tenant-scoped dashboard needs. The account-manager portfolio needs the same
+# answer for every tenant it lists at once, and running the single-tenant path
+# in a loop is one query per tenant per channel. The functions below read the
+# same tables with the same filters and hand their measurements to the same
+# ``_build_computation``, so a tenant's portfolio row and its own dashboard
+# cannot report different numbers.
+
+
+async def measure_delivery_for_tenants(
+    db: AsyncSession,
+    tenant_ids: Sequence[int],
+    platforms: Sequence[str],
+    window: SignalHealthWindow,
+) -> dict[int, dict[str, DeliveryMeasurement]]:
+    """
+    Count CAPI delivery attempts for many tenants in one query.
+
+    The batched counterpart of :func:`measure_delivery`: same table, same
+    window bounds, same success and identifier predicates, grouped by tenant
+    and platform instead of filtered to one tenant. ``tenant_id`` is still in
+    the WHERE clause - the caller passes only the tenants it is authorised to
+    see, and the grouping keeps one tenant's conversion traffic out of
+    another's row.
+
+    Args:
+        db: Async database session.
+        tenant_ids: Tenants to count for. An empty sequence runs no query.
+        platforms: ``capi_delivery_logs.platform`` values to count.
+        window: Half-open window to count over.
+
+    Returns:
+        ``{tenant_id: {platform: measurement}}``, holding only the pairs that
+        had rows. A tenant or platform absent from the mapping delivered
+        nothing, which the caller reports as a missing input rather than as a
+        zero score.
+    """
+    if not tenant_ids or not platforms:
+        return {}
+
+    result = await db.execute(
+        select(
+            CAPIDeliveryLog.tenant_id.label("tenant_id"),
+            CAPIDeliveryLog.platform.label("platform"),
+            func.count(CAPIDeliveryLog.id).label("total"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (CAPIDeliveryLog.status == DELIVERY_SUCCESS_STATUS, 1), else_=0
+                    )
+                ),
+                0,
+            ).label("successful"),
+            func.coalesce(
+                func.sum(
+                    case((CAPIDeliveryLog.user_data_hash.isnot(None), 1), else_=0)
+                ),
+                0,
+            ).label("identified"),
+        )
+        .where(
+            and_(
+                CAPIDeliveryLog.tenant_id.in_(list(tenant_ids)),
+                CAPIDeliveryLog.platform.in_(list(platforms)),
+                CAPIDeliveryLog.delivery_time >= window.start,
+                CAPIDeliveryLog.delivery_time < window.end,
+            )
+        )
+        .group_by(CAPIDeliveryLog.tenant_id, CAPIDeliveryLog.platform)
+    )
+
+    measurements: dict[int, dict[str, DeliveryMeasurement]] = {}
+    for row in result.all():
+        total = int(row.total or 0)
+        successful = int(row.successful or 0)
+        measurements.setdefault(int(row.tenant_id), {})[str(row.platform)] = (
+            DeliveryMeasurement(
+                total_events=total,
+                successful_events=successful,
+                failed_events=max(total - successful, 0),
+                identifier_events=int(row.identified or 0),
+            )
+        )
+    return measurements
+
+
+def _combine_delivery(
+    measurements: Sequence[DeliveryMeasurement],
+) -> DeliveryMeasurement:
+    """
+    Add up the delivery counts of several platforms into one channel total.
+
+    A channel may read more than one ``capi_delivery_logs.platform`` value, and
+    the rates are derived from the summed counts rather than averaged, so a
+    platform with a handful of events cannot swing a channel that delivered
+    thousands.
+
+    Args:
+        measurements: Per-platform counts belonging to one channel.
+
+    Returns:
+        The combined counts, all zero when there were none.
+    """
+    return DeliveryMeasurement(
+        total_events=sum(item.total_events for item in measurements),
+        successful_events=sum(item.successful_events for item in measurements),
+        failed_events=sum(item.failed_events for item in measurements),
+        identifier_events=sum(item.identifier_events for item in measurements),
+    )
+
+
+async def measure_freshness_for_tenants(
+    db: AsyncSession,
+    tenant_ids: Sequence[int],
+    as_of: datetime,
+) -> dict[int, FreshnessMeasurement]:
+    """
+    Find the newest genuine Meta insights pull of many tenants in one query.
+
+    The batched counterpart of :func:`measure_freshness`, including its
+    ``last_synced_at <= as_of`` bound: a sync that happened after the window
+    did not exist during it and must not report the window as fresh.
+
+    Args:
+        db: Async database session.
+        tenant_ids: Tenants whose campaigns to read.
+        as_of: The instant to measure ages against (the window end).
+
+    Returns:
+        ``{tenant_id: measurement}`` for the tenants that had a qualifying
+        sync. A tenant absent from the mapping has none, which is a missing
+        input rather than an age of zero.
+    """
+    if not tenant_ids:
+        return {}
+
+    result = await db.execute(
+        select(
+            Campaign.tenant_id.label("tenant_id"),
+            func.max(Campaign.last_synced_at).label("newest"),
+        )
+        .where(
+            and_(
+                Campaign.tenant_id.in_(list(tenant_ids)),
+                Campaign.is_deleted.is_(False),
+                Campaign.last_synced_at <= as_of,
+            )
+        )
+        .group_by(Campaign.tenant_id)
+    )
+
+    measurements: dict[int, FreshnessMeasurement] = {}
+    for row in result.all():
+        newest = row.newest
+        if newest is None:
+            continue
+        if newest.tzinfo is None:
+            newest = newest.replace(tzinfo=UTC)
+        age_minutes = int(max((as_of - newest).total_seconds(), 0.0) // 60)
+        measurements[int(row.tenant_id)] = FreshnessMeasurement(
+            last_synced_at=newest, age_minutes=age_minutes
+        )
+    return measurements
+
+
+async def measure_connection_for_tenants(
+    db: AsyncSession,
+    tenant_ids: Sequence[int],
+) -> dict[int, ConnectionMeasurement]:
+    """
+    Read the Meta platform connection of many tenants in one query.
+
+    The batched counterpart of :func:`measure_connection`.
+    ``tenant_platform_connection`` is unique on (tenant, platform), so there is
+    at most one row per tenant here.
+
+    Args:
+        db: Async database session.
+        tenant_ids: Tenants whose connections to read.
+
+    Returns:
+        ``{tenant_id: measurement}`` for the tenants that have ever connected
+        Meta. A tenant absent from the mapping has never connected, which is
+        not the same as being disconnected.
+    """
+    if not tenant_ids:
+        return {}
+
+    result = await db.execute(
+        select(TenantPlatformConnection).where(
+            and_(
+                TenantPlatformConnection.tenant_id.in_(list(tenant_ids)),
+                TenantPlatformConnection.platform == AdPlatform.META.value,
+            )
+        )
+    )
+    return {
+        int(connection.tenant_id): ConnectionMeasurement(
+            status=str(connection.status),
+            error_count=int(connection.error_count or 0),
+            has_last_error=bool(connection.last_error),
+            last_error=connection.last_error,
+        )
+        for connection in result.scalars().all()
+    }
+
+
+async def thresholds_for_tenants(
+    db: AsyncSession,
+    tenant_ids: Sequence[int],
+) -> dict[int, SignalHealthThresholds]:
+    """
+    Read the band edges many tenants are graded against, in one query.
+
+    The batched counterpart of :func:`thresholds_for_tenant`, resolving the
+    same onboarding overrides through the same
+    :meth:`SignalHealthThresholds.resolve`, so a tenant that asked for 90 is
+    graded at 90 in the portfolio too.
+
+    Args:
+        db: Async database session.
+        tenant_ids: Tenants whose thresholds to read.
+
+    Returns:
+        ``{tenant_id: thresholds}`` for every requested tenant, falling back to
+        the configured defaults for those without a usable onboarding pair.
+    """
+    if not tenant_ids:
+        return {}
+
+    from app.models.onboarding import TenantOnboarding
+
+    defaults = SignalHealthThresholds.from_settings()
+    resolved = {int(tenant_id): defaults for tenant_id in tenant_ids}
+
+    result = await db.execute(
+        select(
+            TenantOnboarding.tenant_id,
+            TenantOnboarding.trust_threshold_autopilot,
+            TenantOnboarding.trust_threshold_alert,
+        ).where(TenantOnboarding.tenant_id.in_(list(tenant_ids)))
+    )
+    for row in result.all():
+        resolved[int(row[0])] = SignalHealthThresholds.resolve(row[1], row[2])
+    return resolved
+
+
+async def compute_portfolio_signal_health(
+    db: AsyncSession,
+    tenant_ids: Sequence[int],
+    channels: Sequence[str] = META_CHANNELS,
+    window: SignalHealthWindow | None = None,
+) -> dict[int, dict[str, SignalHealthComputation]]:
+    """
+    Compute signal health for every channel of many tenants, in four queries.
+
+    Delivery, freshness, connection state and thresholds are each read once for
+    the whole set, then handed to the same :func:`_build_computation` the
+    single-tenant path uses. The portfolio therefore grades on the identical
+    weights, the identical minimum-evidence rule and the identical per-tenant
+    band edges - a tenant that is ``insufficient_data`` on its own dashboard is
+    ``insufficient_data`` in the account manager's list, with the same missing
+    inputs named.
+
+    Args:
+        db: Async database session.
+        tenant_ids: Tenants to compute for. The caller is responsible for
+            having authorised every one of them; an empty sequence returns an
+            empty mapping without querying.
+        channels: Channels to compute; defaults to all Meta channels.
+        window: Optional explicit window; defaults to the configured trailing
+            delivery window ending now.
+
+    Returns:
+        ``{tenant_id: {channel: computation}}`` covering every requested tenant
+        and channel, scored or explicitly insufficient.
+    """
+    if not tenant_ids:
+        return {}
+
+    window = window or default_window()
+    unique_ids = list(dict.fromkeys(int(tenant_id) for tenant_id in tenant_ids))
+    platforms = sorted(
+        {
+            platform
+            for channel in channels
+            for platform in CHANNEL_DELIVERY_PLATFORMS.get(channel, (channel,))
+        }
+    )
+
+    delivery = await measure_delivery_for_tenants(db, unique_ids, platforms, window)
+    freshness = await measure_freshness_for_tenants(db, unique_ids, window.end)
+    connections = await measure_connection_for_tenants(db, unique_ids)
+    thresholds = await thresholds_for_tenants(db, unique_ids)
+
+    computations: dict[int, dict[str, SignalHealthComputation]] = {}
+    for tenant_id in unique_ids:
+        by_platform = delivery.get(tenant_id, {})
+        per_channel: dict[str, SignalHealthComputation] = {}
+        for channel in channels:
+            channel_platforms = CHANNEL_DELIVERY_PLATFORMS.get(channel, (channel,))
+            per_channel[channel] = _build_computation(
+                tenant_id=tenant_id,
+                channel=channel,
+                window=window,
+                delivery=_combine_delivery(
+                    [
+                        by_platform[platform]
+                        for platform in channel_platforms
+                        if platform in by_platform
+                    ]
+                ),
+                freshness=freshness.get(tenant_id),
+                connection=connections.get(tenant_id),
+                thresholds=thresholds.get(tenant_id),
+            )
+        computations[tenant_id] = per_channel
+    return computations
 
 
 async def daily_delivery_history(
