@@ -23,7 +23,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  PYTHON_VERSION: "3.11"
+  # Must track the runtime image (backend/Dockerfile: python:3.12-slim-bookworm).
+  # While this said 3.11, CI was not testing the interpreter production runs:
+  # app/monitoring/visualizations.py nests an f-string in a way that only
+  # parses on 3.12, so it reached main green while being unimportable under
+  # the version CI actually used.
+  PYTHON_VERSION: "3.12"
   NODE_VERSION: "20"
 
 jobs:
