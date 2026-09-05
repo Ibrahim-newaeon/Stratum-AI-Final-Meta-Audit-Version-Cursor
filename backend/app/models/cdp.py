@@ -107,7 +107,7 @@ class CDPSource(Base, TimestampMixin):
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    events = relationship("CDPEvent", back_populates="source", lazy="dynamic")
+    events: Mapped[list["CDPEvent"]] = relationship("CDPEvent", back_populates="source", lazy="dynamic")
 
     __table_args__ = (
         Index("ix_cdp_sources_tenant", "tenant_id"),
@@ -161,14 +161,14 @@ class CDPProfile(Base, TimestampMixin):
     total_revenue: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False, default=Decimal("0"))
 
     # Relationships
-    identifiers = relationship(
+    identifiers: Mapped[list["CDPProfileIdentifier"]] = relationship(
         "CDPProfileIdentifier",
         back_populates="profile",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-    events = relationship("CDPEvent", back_populates="profile", lazy="dynamic")
-    consents = relationship(
+    events: Mapped[list["CDPEvent"]] = relationship("CDPEvent", back_populates="profile", lazy="dynamic")
+    consents: Mapped[list["CDPConsent"]] = relationship(
         "CDPConsent",
         back_populates="profile",
         cascade="all, delete-orphan",
@@ -245,7 +245,7 @@ class CDPProfileIdentifier(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    profile = relationship("CDPProfile", back_populates="identifiers")
+    profile: Mapped["CDPProfile"] = relationship("CDPProfile", back_populates="identifiers")
 
     __table_args__ = (
         Index("ix_cdp_identifiers_tenant", "tenant_id"),
@@ -321,8 +321,8 @@ class CDPEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    profile = relationship("CDPProfile", back_populates="events")
-    source = relationship("CDPSource", back_populates="events")
+    profile: Mapped["CDPProfile | None"] = relationship("CDPProfile", back_populates="events")
+    source: Mapped["CDPSource | None"] = relationship("CDPSource", back_populates="events")
 
     __table_args__ = (
         Index("ix_cdp_events_tenant", "tenant_id"),
@@ -378,7 +378,7 @@ class CDPConsent(Base, TimestampMixin):
     consent_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
-    profile = relationship("CDPProfile", back_populates="consents")
+    profile: Mapped["CDPProfile"] = relationship("CDPProfile", back_populates="consents")
 
     __table_args__ = (
         Index("ix_cdp_consents_tenant", "tenant_id"),
@@ -539,12 +539,12 @@ class CDPIdentityLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    source_identifier = relationship(
+    source_identifier: Mapped["CDPProfileIdentifier"] = relationship(
         "CDPProfileIdentifier",
         foreign_keys=[source_identifier_id],
         backref="outgoing_links",
     )
-    target_identifier = relationship(
+    target_identifier: Mapped["CDPProfileIdentifier"] = relationship(
         "CDPProfileIdentifier",
         foreign_keys=[target_identifier_id],
         backref="incoming_links",
@@ -623,7 +623,7 @@ class CDPProfileMerge(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    surviving_profile = relationship("CDPProfile", foreign_keys=[surviving_profile_id])
+    surviving_profile: Mapped["CDPProfile | None"] = relationship("CDPProfile", foreign_keys=[surviving_profile_id])
 
     __table_args__ = (
         Index("ix_cdp_profile_merges_tenant", "tenant_id"),
@@ -685,8 +685,8 @@ class CDPCanonicalIdentity(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    profile = relationship("CDPProfile", backref="canonical_identity")
-    canonical_identifier = relationship("CDPProfileIdentifier")
+    profile: Mapped["CDPProfile"] = relationship("CDPProfile", backref="canonical_identity")
+    canonical_identifier: Mapped["CDPProfileIdentifier | None"] = relationship("CDPProfileIdentifier")
 
     __table_args__ = (
         Index("ix_cdp_canonical_tenant", "tenant_id"),
@@ -793,7 +793,7 @@ class CDPSegment(Base, TimestampMixin):
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
-    memberships = relationship(
+    memberships: Mapped[list["CDPSegmentMembership"]] = relationship(
         "CDPSegmentMembership",
         back_populates="segment",
         cascade="all, delete-orphan",
@@ -853,8 +853,8 @@ class CDPSegmentMembership(Base):
     match_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     # Relationships
-    segment = relationship("CDPSegment", back_populates="memberships")
-    profile = relationship("CDPProfile", backref="segment_memberships")
+    segment: Mapped["CDPSegment"] = relationship("CDPSegment", back_populates="memberships")
+    profile: Mapped["CDPProfile"] = relationship("CDPProfile", backref="segment_memberships")
 
     __table_args__ = (
         Index("ix_cdp_memberships_tenant", "tenant_id"),
@@ -1077,8 +1077,8 @@ class CDPFunnelEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    funnel = relationship("CDPFunnel", backref="entries")
-    profile = relationship("CDPProfile", backref="funnel_entries")
+    funnel: Mapped["CDPFunnel"] = relationship("CDPFunnel", backref="entries")
+    profile: Mapped["CDPProfile"] = relationship("CDPProfile", backref="funnel_entries")
 
     __table_args__ = (
         Index("ix_cdp_funnel_entries_tenant", "tenant_id"),

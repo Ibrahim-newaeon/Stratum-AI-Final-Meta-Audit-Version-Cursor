@@ -13,7 +13,7 @@ Models:
 import enum
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime
@@ -24,6 +24,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant
 
 # =============================================================================
 # Enums
@@ -110,8 +113,8 @@ class TenantEnforcementSettings(Base, TimestampMixin):
     min_hours_between_changes: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
 
     # Relationships
-    tenant = relationship("Tenant", backref="enforcement_settings")
-    rules = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", backref="enforcement_settings")
+    rules: Mapped[list["TenantEnforcementRule"]] = relationship(
         "TenantEnforcementRule",
         back_populates="settings",
         cascade="all, delete-orphan",
@@ -190,7 +193,7 @@ class TenantEnforcementRule(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    settings = relationship("TenantEnforcementSettings", back_populates="rules")
+    settings: Mapped["TenantEnforcementSettings"] = relationship("TenantEnforcementSettings", back_populates="rules")
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "rule_id", name="uq_tenant_rule_id"),

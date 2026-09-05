@@ -14,7 +14,7 @@ Models:
 import enum
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime
@@ -25,6 +25,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -147,9 +150,9 @@ class Target(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    alerts = relationship("PacingAlert", back_populates="target", cascade="all, delete-orphan")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    alerts: Mapped[list["PacingAlert"]] = relationship("PacingAlert", back_populates="target", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_targets_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -241,7 +244,7 @@ class DailyKPI(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_daily_kpis_tenant_date", "tenant_id", "date"),
@@ -314,9 +317,9 @@ class PacingAlert(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    target = relationship("Target", back_populates="alerts")
-    resolved_by = relationship("User", foreign_keys=[resolved_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    target: Mapped["Target | None"] = relationship("Target", back_populates="alerts")
+    resolved_by: Mapped["User | None"] = relationship("User", foreign_keys=[resolved_by_user_id])
 
     __table_args__ = (
         Index("ix_pacing_alerts_tenant_status", "tenant_id", "status"),
@@ -374,7 +377,7 @@ class Forecast(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_forecasts_tenant_date", "tenant_id", "forecast_date"),
@@ -446,8 +449,8 @@ class PacingSummary(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    target = relationship("Target", foreign_keys=[target_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    target: Mapped["Target"] = relationship("Target", foreign_keys=[target_id])
 
     __table_args__ = (
         Index("ix_pacing_summaries_tenant_date", "tenant_id", "snapshot_date"),

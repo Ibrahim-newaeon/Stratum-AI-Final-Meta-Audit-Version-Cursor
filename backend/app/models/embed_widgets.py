@@ -133,7 +133,7 @@ class EmbedWidget(Base, TimestampMixin):
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    tokens = relationship(
+    tokens: Mapped[list["EmbedToken"]] = relationship(
         "EmbedToken",
         back_populates="widget",
         cascade="all, delete-orphan",
@@ -215,7 +215,7 @@ class EmbedToken(Base, TimestampMixin):
     suspicious_activity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
-    widget = relationship("EmbedWidget", back_populates="tokens")
+    widget: Mapped["EmbedWidget"] = relationship("EmbedWidget", back_populates="tokens")
 
     __table_args__ = (
         Index("ix_embed_tokens_tenant", "tenant_id"),

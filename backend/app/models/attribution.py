@@ -15,7 +15,7 @@ Models:
 import enum
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime
@@ -27,6 +27,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
 from app.models.crm import AttributionModel
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Daily Attributed Revenue (Pre-calculated)
@@ -82,7 +85,7 @@ class DailyAttributedRevenue(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_daily_attributed_rev_tenant_date", "tenant_id", "date"),
@@ -154,7 +157,7 @@ class ConversionPath(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_conversion_paths_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -220,7 +223,7 @@ class AttributionSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_attribution_snapshot_tenant_date", "tenant_id", "snapshot_date"),
@@ -275,7 +278,7 @@ class ChannelInteraction(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_channel_interaction_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -376,8 +379,8 @@ class TrainedAttributionModel(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_trained_model_tenant", "tenant_id"),
@@ -439,9 +442,9 @@ class ModelTrainingRun(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    model = relationship("TrainedAttributionModel", foreign_keys=[model_id])
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    model: Mapped["TrainedAttributionModel | None"] = relationship("TrainedAttributionModel", foreign_keys=[model_id])
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
 
     __table_args__ = (
         Index("ix_training_run_tenant", "tenant_id", "started_at"),

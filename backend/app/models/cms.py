@@ -151,7 +151,7 @@ class CMSCategory(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relationships
-    posts = relationship("CMSPost", back_populates="category", lazy="dynamic")
+    posts: Mapped[list["CMSPost"]] = relationship("CMSPost", back_populates="category", lazy="dynamic")
 
     __table_args__ = (
         Index("ix_cms_categories_slug", "slug"),
@@ -189,7 +189,7 @@ class CMSTag(Base, TimestampMixin):
     usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Relationships
-    posts = relationship(
+    posts: Mapped[list["CMSPost"]] = relationship(
         "CMSPost",
         secondary=cms_post_tags,
         back_populates="tags",
@@ -244,7 +244,7 @@ class CMSAuthor(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relationships
-    posts = relationship("CMSPost", back_populates="author", lazy="dynamic")
+    posts: Mapped[list["CMSPost"]] = relationship("CMSPost", back_populates="author", lazy="dynamic")
 
     __table_args__ = (
         Index("ix_cms_authors_slug", "slug"),
@@ -364,21 +364,21 @@ class CMSPost(Base, TimestampMixin):
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    category = relationship("CMSCategory", back_populates="posts")
-    author = relationship("CMSAuthor", back_populates="posts")
-    tags = relationship(
+    category: Mapped["CMSCategory | None"] = relationship("CMSCategory", back_populates="posts")
+    author: Mapped["CMSAuthor | None"] = relationship("CMSAuthor", back_populates="posts")
+    tags: Mapped[list["CMSTag"]] = relationship(
         "CMSTag",
         secondary=cms_post_tags,
         back_populates="posts",
         lazy="selectin",
     )
-    versions = relationship(
+    versions: Mapped[list["CMSPostVersion"]] = relationship(
         "CMSPostVersion",
         back_populates="post",
         lazy="dynamic",
         order_by="desc(CMSPostVersion.version)",
     )
-    workflow_history = relationship(
+    workflow_history: Mapped[list["CMSWorkflowLog"]] = relationship(
         "CMSWorkflowLog",
         back_populates="post",
         lazy="dynamic",
@@ -631,7 +631,7 @@ class CMSPostVersion(Base, TimestampMixin):
     reading_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Relationships
-    post = relationship("CMSPost", back_populates="versions")
+    post: Mapped["CMSPost"] = relationship("CMSPost", back_populates="versions")
 
     __table_args__ = (
         Index("ix_cms_post_versions_post", "post_id"),
@@ -693,7 +693,7 @@ class CMSWorkflowLog(Base, TimestampMixin):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Relationships
-    post = relationship("CMSPost", back_populates="workflow_history")
+    post: Mapped["CMSPost"] = relationship("CMSPost", back_populates="workflow_history")
 
     __table_args__ = (
         Index("ix_cms_workflow_logs_post", "post_id"),

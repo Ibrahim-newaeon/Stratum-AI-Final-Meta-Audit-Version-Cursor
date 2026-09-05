@@ -14,7 +14,7 @@ Models:
 import enum
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -26,6 +26,9 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -155,10 +158,10 @@ class ReportTemplate(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    last_modified_by = relationship("User", foreign_keys=[last_modified_by_user_id])
-    schedules = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    last_modified_by: Mapped["User | None"] = relationship("User", foreign_keys=[last_modified_by_user_id])
+    schedules: Mapped[list["ScheduledReport"]] = relationship(
         "ScheduledReport", back_populates="template", cascade="all, delete-orphan"
     )
 
@@ -257,10 +260,10 @@ class ScheduledReport(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    template = relationship("ReportTemplate", back_populates="schedules")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    executions = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    template: Mapped["ReportTemplate"] = relationship("ReportTemplate", back_populates="schedules")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    executions: Mapped[list["ReportExecution"]] = relationship(
         "ReportExecution", back_populates="schedule", cascade="all, delete-orphan"
     )
 
@@ -333,11 +336,11 @@ class ReportExecution(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    template = relationship("ReportTemplate", foreign_keys=[template_id])
-    schedule = relationship("ScheduledReport", back_populates="executions")
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
-    deliveries = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    template: Mapped["ReportTemplate | None"] = relationship("ReportTemplate", foreign_keys=[template_id])
+    schedule: Mapped["ScheduledReport | None"] = relationship("ScheduledReport", back_populates="executions")
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
+    deliveries: Mapped[list["ReportDelivery"]] = relationship(
         "ReportDelivery", back_populates="execution", cascade="all, delete-orphan"
     )
 
@@ -389,8 +392,8 @@ class ReportDelivery(Base):
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    execution = relationship("ReportExecution", back_populates="deliveries")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    execution: Mapped["ReportExecution"] = relationship("ReportExecution", back_populates="deliveries")
 
     __table_args__ = (
         Index("ix_report_delivery_execution", "execution_id"),
@@ -464,7 +467,7 @@ class DeliveryChannelConfig(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_delivery_config_tenant", "tenant_id"),

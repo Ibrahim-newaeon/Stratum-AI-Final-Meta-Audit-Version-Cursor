@@ -15,7 +15,7 @@ Models:
 import enum
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime
@@ -26,6 +26,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -106,8 +109,8 @@ class ProductCatalog(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    margins = relationship("ProductMargin", back_populates="product", cascade="all, delete-orphan")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    margins: Mapped[list["ProductMargin"]] = relationship("ProductMargin", back_populates="product", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_product_catalog_tenant_sku", "tenant_id", "sku"),
@@ -169,9 +172,9 @@ class ProductMargin(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    product = relationship("ProductCatalog", back_populates="margins")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    product: Mapped["ProductCatalog"] = relationship("ProductCatalog", back_populates="margins")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("ix_product_margins_product_date", "product_id", "effective_date"),
@@ -225,7 +228,7 @@ class MarginRule(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_margin_rules_tenant_priority", "tenant_id", "priority"),
@@ -307,9 +310,9 @@ class DailyProfitMetrics(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    product = relationship("ProductCatalog", foreign_keys=[product_id])
-    margin_rule = relationship("MarginRule", foreign_keys=[margin_rule_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    product: Mapped["ProductCatalog | None"] = relationship("ProductCatalog", foreign_keys=[product_id])
+    margin_rule: Mapped["MarginRule | None"] = relationship("MarginRule", foreign_keys=[margin_rule_id])
 
     __table_args__ = (
         Index("ix_daily_profit_tenant_date", "tenant_id", "date"),
@@ -389,8 +392,8 @@ class ProfitROASReport(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    generated_by = relationship("User", foreign_keys=[generated_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    generated_by: Mapped["User | None"] = relationship("User", foreign_keys=[generated_by_user_id])
 
     __table_args__ = (
         Index("ix_profit_reports_tenant_period", "tenant_id", "period_start", "period_end"),
@@ -437,7 +440,7 @@ class COGSUpload(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    uploaded_by: Mapped["User | None"] = relationship("User", foreign_keys=[uploaded_by_user_id])
 
     __table_args__ = (Index("ix_cogs_uploads_tenant_date", "tenant_id", "uploaded_at"),)

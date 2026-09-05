@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 # =============================================================================
 # Stratum AI - Trust Layer Database Models
 # =============================================================================
@@ -19,6 +21,9 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -92,7 +97,7 @@ class FactSignalHealthDaily(Base):
     )
 
     # Relationships - use foreign_keys to resolve ambiguity
-    tenant = relationship(
+    tenant: Mapped["Tenant"] = relationship(
         "Tenant", foreign_keys=[tenant_id], back_populates="signal_health_records"
     )
 
@@ -151,7 +156,7 @@ class FactAttributionVarianceDaily(Base):
     )
 
     # Relationships - use foreign_keys to resolve ambiguity
-    tenant = relationship(
+    tenant: Mapped["Tenant"] = relationship(
         "Tenant", foreign_keys=[tenant_id], back_populates="attribution_variance_records"
     )
 
@@ -259,7 +264,7 @@ class TrustGateAuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
 
     __table_args__ = (
         Index("ix_trust_gate_audit_tenant_date", "tenant_id", "created_at"),
@@ -318,10 +323,10 @@ class FactActionsQueue(Base):
     platform_response: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
 
     # Relationships - use foreign_keys to resolve ambiguity
-    tenant = relationship("Tenant", foreign_keys=[tenant_id], back_populates="actions_queue")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    approved_by = relationship("User", foreign_keys=[approved_by_user_id])
-    applied_by = relationship("User", foreign_keys=[applied_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id], back_populates="actions_queue")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    approved_by: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by_user_id])
+    applied_by: Mapped["User | None"] = relationship("User", foreign_keys=[applied_by_user_id])
 
     __table_args__ = (
         Index("ix_fact_actions_queue_tenant_date", "tenant_id", "date"),

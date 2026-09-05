@@ -13,7 +13,7 @@ import enum
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, Integer, Numeric,
@@ -22,6 +22,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -112,9 +115,9 @@ class TenantPlatformConnection(Base):
     error_count: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id], back_populates="platform_connections")
-    granted_by = relationship("User", foreign_keys=[granted_by_user_id])
-    ad_accounts = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id], back_populates="platform_connections")
+    granted_by: Mapped["User | None"] = relationship("User", foreign_keys=[granted_by_user_id])
+    ad_accounts: Mapped[list["TenantAdAccount"]] = relationship(
         "TenantAdAccount", back_populates="connection", cascade="all, delete-orphan"
     )
 
@@ -172,9 +175,9 @@ class TenantAdAccount(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id], back_populates="ad_accounts")
-    connection = relationship("TenantPlatformConnection", back_populates="ad_accounts")
-    campaign_drafts = relationship("CampaignDraft", back_populates="ad_account")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id], back_populates="ad_accounts")
+    connection: Mapped["TenantPlatformConnection"] = relationship("TenantPlatformConnection", back_populates="ad_accounts")
+    campaign_drafts: Mapped[list["CampaignDraft"]] = relationship("CampaignDraft", back_populates="ad_account")
 
     __table_args__ = (
         UniqueConstraint(
@@ -237,13 +240,13 @@ class CampaignDraft(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id], back_populates="campaign_drafts")
-    ad_account = relationship("TenantAdAccount", back_populates="campaign_drafts")
-    created_by = relationship("User", foreign_keys=[created_by_user_id])
-    submitted_by = relationship("User", foreign_keys=[submitted_by_user_id])
-    approved_by = relationship("User", foreign_keys=[approved_by_user_id])
-    rejected_by = relationship("User", foreign_keys=[rejected_by_user_id])
-    publish_logs = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id], back_populates="campaign_drafts")
+    ad_account: Mapped["TenantAdAccount | None"] = relationship("TenantAdAccount", back_populates="campaign_drafts")
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_user_id])
+    submitted_by: Mapped["User | None"] = relationship("User", foreign_keys=[submitted_by_user_id])
+    approved_by: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by_user_id])
+    rejected_by: Mapped["User | None"] = relationship("User", foreign_keys=[rejected_by_user_id])
+    publish_logs: Mapped[list["CampaignPublishLog"]] = relationship(
         "CampaignPublishLog", back_populates="draft", cascade="all, delete-orphan"
     )
 
@@ -296,9 +299,9 @@ class CampaignPublishLog(Base):
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id], back_populates="publish_logs")
-    draft = relationship("CampaignDraft", back_populates="publish_logs")
-    published_by = relationship("User", foreign_keys=[published_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id], back_populates="publish_logs")
+    draft: Mapped["CampaignDraft | None"] = relationship("CampaignDraft", back_populates="publish_logs")
+    published_by: Mapped["User | None"] = relationship("User", foreign_keys=[published_by_user_id])
 
     __table_args__ = (
         Index("ix_campaign_publish_log_tenant_time", "tenant_id", "event_time"),

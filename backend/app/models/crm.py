@@ -15,7 +15,7 @@ Models:
 import enum
 import uuid
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime
@@ -25,6 +25,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.base_models import Tenant, User
 
 # =============================================================================
 # Enums
@@ -129,10 +132,10 @@ class CRMConnection(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    contacts = relationship("CRMContact", back_populates="connection", cascade="all, delete-orphan")
-    deals = relationship("CRMDeal", back_populates="connection", cascade="all, delete-orphan")
-    writeback_config = relationship(
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    contacts: Mapped[list["CRMContact"]] = relationship("CRMContact", back_populates="connection", cascade="all, delete-orphan")
+    deals: Mapped[list["CRMDeal"]] = relationship("CRMDeal", back_populates="connection", cascade="all, delete-orphan")
+    writeback_config: Mapped["CRMWritebackConfig | None"] = relationship(
         "CRMWritebackConfig",
         back_populates="connection",
         uselist=False,
@@ -212,10 +215,10 @@ class CRMContact(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    connection = relationship("CRMConnection", back_populates="contacts")
-    deals = relationship("CRMDeal", back_populates="contact")
-    touchpoints = relationship("Touchpoint", back_populates="contact")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    connection: Mapped["CRMConnection"] = relationship("CRMConnection", back_populates="contacts")
+    deals: Mapped[list["CRMDeal"]] = relationship("CRMDeal", back_populates="contact")
+    touchpoints: Mapped[list["Touchpoint"]] = relationship("Touchpoint", back_populates="contact")
 
     __table_args__ = (
         Index("ix_crm_contacts_tenant_email", "tenant_id", "email_hash"),
@@ -297,10 +300,10 @@ class CRMDeal(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    connection = relationship("CRMConnection", back_populates="deals")
-    contact = relationship("CRMContact", back_populates="deals")
-    attributed_touchpoint = relationship("Touchpoint", foreign_keys=[attributed_touchpoint_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    connection: Mapped["CRMConnection"] = relationship("CRMConnection", back_populates="deals")
+    contact: Mapped["CRMContact | None"] = relationship("CRMContact", back_populates="deals")
+    attributed_touchpoint: Mapped["Touchpoint | None"] = relationship("Touchpoint", foreign_keys=[attributed_touchpoint_id])
 
     __table_args__ = (
         Index("ix_crm_deals_tenant_stage", "tenant_id", "stage_normalized"),
@@ -395,8 +398,8 @@ class Touchpoint(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    contact = relationship("CRMContact", back_populates="touchpoints")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    contact: Mapped["CRMContact | None"] = relationship("CRMContact", back_populates="touchpoints")
 
     __table_args__ = (
         Index("ix_touchpoints_tenant_contact", "tenant_id", "contact_id"),
@@ -477,7 +480,7 @@ class DailyPipelineMetrics(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_daily_pipeline_metrics_tenant_date", "tenant_id", "date"),
@@ -526,7 +529,7 @@ class CRMSyncLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
 
     __table_args__ = (
         Index("ix_crm_sync_logs_tenant_date", "tenant_id", "started_at"),
@@ -603,8 +606,8 @@ class CRMWritebackConfig(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    connection = relationship("CRMConnection", back_populates="writeback_config")
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    connection: Mapped["CRMConnection"] = relationship("CRMConnection", back_populates="writeback_config")
 
     __table_args__ = (Index("ix_writeback_config_tenant", "tenant_id"),)
 
@@ -660,9 +663,9 @@ class CRMWritebackSync(Base):
     )
 
     # Relationships
-    tenant = relationship("Tenant", foreign_keys=[tenant_id])
-    connection = relationship("CRMConnection")
-    triggered_by = relationship("User", foreign_keys=[triggered_by_user_id])
+    tenant: Mapped["Tenant"] = relationship("Tenant", foreign_keys=[tenant_id])
+    connection: Mapped["CRMConnection"] = relationship("CRMConnection")
+    triggered_by: Mapped["User | None"] = relationship("User", foreign_keys=[triggered_by_user_id])
 
     __table_args__ = (
         Index("ix_writeback_sync_tenant_date", "tenant_id", "started_at"),
