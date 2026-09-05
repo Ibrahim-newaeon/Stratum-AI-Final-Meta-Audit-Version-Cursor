@@ -111,3 +111,38 @@ def test_known_unregistered_list_stays_honest() -> None:
             f"{stem} is now imported by app.models ({reason}); "
             f"remove it from KNOWN_UNREGISTERED"
         )
+
+
+def test_no_table_is_declared_by_two_modules() -> None:
+    """Two modules declaring the same table is a loaded gun, not redundancy.
+
+    ``app/domain/`` held a second copy of seven tables from ``app/models/``. It
+    was imported by nothing, so it looked harmless, but importing it alongside
+    ``app.models`` raised InvalidRequestError: "Table
+    'tenant_platform_connection' is already defined for this MetaData
+    instance." One stray import would have taken the application down at
+    startup, and in the meantime the copy silently rotted out of step with the
+    schema the application actually used.
+
+    This searches the whole backend rather than ``app/models``, because the
+    duplicate lived outside it and that is precisely why nothing caught it.
+    """
+    backend = MODELS_DIR.parent.parent
+    owners: dict[str, list[str]] = {}
+    for path in sorted(backend.rglob("*.py")):
+        if any(part in {".venv", "__pycache__", "migrations"} for part in path.parts):
+            continue
+        # Historical copies; CLAUDE.md treats the unsuffixed path as canonical.
+        if path.stem.endswith(" 2"):
+            continue
+        for table in _declared_tables(path):
+            owners.setdefault(table, []).append(str(path.relative_to(backend)))
+
+    duplicated = {t: files for t, files in owners.items() if len(files) > 1}
+    assert not duplicated, (
+        "These tables are declared by more than one module. Importing both "
+        "raises InvalidRequestError, and the copies drift apart:\n"
+        + "\n".join(
+            f"  {t}: {', '.join(files)}" for t, files in sorted(duplicated.items())
+        )
+    )
