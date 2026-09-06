@@ -259,15 +259,37 @@ async def check_tier_limit(
     """
     Raise 403 if tenant has exceeded tier limit for this resource.
 
+    The tenant row is locked FOR UPDATE, which is what makes the limit a limit
+    rather than a suggestion. Counting and then inserting is not atomic, so
+    without the lock each concurrent request can land the tenant a further seat
+    past its plan. Measured: against a tenant with exactly one free seat, eight
+    invites fired together were every one accepted bar an address collision,
+    finishing six seats over the limit it had sold. With the lock, the same
+    eight leave it exactly at the limit - one accepted, seven refused.
+
+    Every caller creates its row and commits on the same session this is given,
+    so the lock taken here is still held across the count and the insert, and
+    released by the caller's commit. A second request for the same tenant
+    therefore waits, then counts the row the first one added.
+
+    The tenant row is the right thing to lock and not merely a convenient
+    mutex: it carries the limit being read. An admin raising `max_users` while
+    an invite is checking it serializes against that invite too, so the check
+    cannot straddle the change.
+
+    Postgres only, which this deployment is. Locks are per tenant and one row
+    deep, so there is no ordering between them to deadlock on.
+
     Args:
         resource: One of "users", "clients", "campaigns"
         tenant_id: The tenant to check
-        db: Database session
+        db: Database session; the caller must insert and commit on this same
+            session, or the lock is released before it has done any good
     """
     from app.models import Campaign, Tenant, User
 
     result = await db.execute(
-        select(Tenant).where(Tenant.id == tenant_id)
+        select(Tenant).where(Tenant.id == tenant_id).with_for_update()
     )
     tenant = result.scalar_one_or_none()
     if not tenant:
