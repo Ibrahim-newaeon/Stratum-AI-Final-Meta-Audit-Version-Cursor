@@ -103,6 +103,8 @@ mypy app --ignore-missing-imports --no-error-summary
 
 Backend tests are blocking in GitHub Actions. Backend lint, formatting, and type checks currently report legacy debt without blocking; keep new and touched code clean and do not increase that debt. Coverage is reported but is not currently gated.
 
+Ruff, black, isort, and mypy read their settings from `backend/pyproject.toml`, and those four tools are pinned to exact versions in `backend/requirements.txt`. Both matter for comparing a finding count against the base commit: with a ranged pin and no configuration, ruff's default rule set moved with whatever version was installed, so the same commit reported different results at different times. Upgrade them deliberately and expect the backlog number to move when you do.
+
 ### Frontend
 
 From `frontend/`:
