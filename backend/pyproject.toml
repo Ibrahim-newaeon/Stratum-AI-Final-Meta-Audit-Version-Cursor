@@ -1,0 +1,56 @@
+# =============================================================================
+# Stratum AI - Backend tool configuration
+# =============================================================================
+# There was no configuration file here, which made two of the three lint gates
+# in .github/workflows/ci.yml unreliable rather than merely noisy.
+#
+# 1. `ruff>=0.2.0,<1.0.0` in requirements.txt is an unpinned major range, and
+#    ruff's default rule set changed substantially across it. With no config,
+#    the rules were whatever the version CI happened to install turned on by
+#    default, so the same commit could report a different lint result weeks
+#    apart with no code change. Fixed by pinning the tool versions in
+#    requirements.txt - not by re-selecting rules here, which would change what
+#    is enforced rather than just making it reproducible.
+#
+# 2. isort and black disagreed about how to wrap an import block, so
+#    `isort --check-only .` failed on 195 files of which about 123 were the two
+#    tools rewriting each other rather than anything a human did.
+#    `profile = "black"` settles that and takes it to 72 real findings.
+#
+# Everything here is chosen to leave the current numbers alone except where the
+# point is to improve them. Measured before and after:
+#
+#     ruff    4702 findings  ->  4702   (unchanged; defaults, now pinned)
+#     isort   195 files      ->  72     (the conflict removed)
+#     black   280 files      ->  280    (unchanged; 88 is already its default)
+#
+# The remaining backlog is deliberately left alone. This file exists so it can
+# be paid down against a fixed target instead of one that moves on upgrade.
+# =============================================================================
+
+[tool.ruff]
+# Both of these are already ruff's defaults; recorded so they stay put, and so
+# they visibly match [tool.black] below. Two formatters with different line
+# lengths rewrite each other forever.
+line-length = 88
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+# The reason 123 of the 195 isort failures existed.
+profile = "black"
+line_length = 88
+known_first_party = ["app"]
+
+[tool.mypy]
+# mypy only began checking anything once every package had an __init__.py;
+# before that a duplicate module name aborted the run before the first file.
+# The CI invocation passes --ignore-missing-imports on the command line, so it
+# is recorded here as well rather than living only in a workflow argument.
+#
+# Deliberately not strict. There is a large existing backlog (1134 findings)
+# and most of it is annotations mypy cannot narrow rather than defects - see
+# the triage in the PR that fixed the one real crash it did surface. Turning
+# strictness on here would bury that distinction, not resolve it.
+ignore_missing_imports = true

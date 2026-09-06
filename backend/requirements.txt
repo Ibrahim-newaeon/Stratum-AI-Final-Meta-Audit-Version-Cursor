@@ -72,10 +72,14 @@ pytest-cov>=4.1.0,<8.0.0
 faker>=22.0.0,<30.0.0
 
 # Development
-black>=24.1.0,<25.0.0
-isort>=5.13.0,<6.0.0
-mypy>=1.8.0,<2.0.0
-ruff>=0.2.0,<1.0.0
+# Pinned exactly, not ranged. These four decide what CI reports, and ruff's
+# default rule set in particular changed enough across >=0.2,<1.0 that the same
+# commit produced different lint results depending on when the image was built.
+# A range here makes the gates non-reproducible; upgrading is a deliberate edit.
+black==24.10.0
+isort==5.13.2
+mypy==1.20.2
+ruff==0.16.6
 
 # Memory Profiling & Audit
 psutil>=5.9.0,<7.0.0
