@@ -84,7 +84,9 @@ class EmailDelivery(DeliveryChannelHandler):
         try:
             # Build email
             msg = MIMEMultipart()
-            msg["From"] = f"{config.get('from_name', 'Stratum Reports')} <{config['from_email']}>"
+            msg["From"] = (
+                f"{config.get('from_name', 'Stratum Reports')} <{config['from_email']}>"
+            )
             msg["To"] = recipient
             msg["Subject"] = self._render_subject(execution, config)
 
@@ -120,16 +122,21 @@ class EmailDelivery(DeliveryChannelHandler):
                 "error": str(e),
             }
 
-    def _render_subject(self, execution: ReportExecution, config: dict[str, Any]) -> str:
+    def _render_subject(
+        self, execution: ReportExecution, config: dict[str, Any]
+    ) -> str:
         """Render email subject from template."""
-        template = config.get("subject_template", "{{report_type}} Report - {{date_range}}")
+        template = config.get(
+            "subject_template", "{{report_type}} Report - {{date_range}}"
+        )
 
         # Simple template replacement
         subject = template.replace(
             "{{report_type}}", execution.report_type.value.replace("_", " ").title()
         )
         subject = subject.replace(
-            "{{date_range}}", f"{execution.date_range_start} to {execution.date_range_end}"
+            "{{date_range}}",
+            f"{execution.date_range_start} to {execution.date_range_end}",
         )
 
         return subject
@@ -169,13 +176,16 @@ class EmailDelivery(DeliveryChannelHandler):
             "{{report_type}}", execution.report_type.value.replace("_", " ").title()
         )
         body = body.replace(
-            "{{date_range}}", f"{execution.date_range_start} to {execution.date_range_end}"
+            "{{date_range}}",
+            f"{execution.date_range_start} to {execution.date_range_end}",
         )
         body = body.replace(
             "{{generated_at}}",
-            execution.completed_at.strftime("%Y-%m-%d %H:%M UTC")
-            if execution.completed_at
-            else "N/A",
+            (
+                execution.completed_at.strftime("%Y-%m-%d %H:%M UTC")
+                if execution.completed_at
+                else "N/A"
+            ),
         )
 
         return body
@@ -258,7 +268,9 @@ class SlackDelivery(DeliveryChannelHandler):
                 "error": str(e),
             }
 
-    def _build_message(self, execution: ReportExecution, config: dict[str, Any]) -> dict[str, Any]:
+    def _build_message(
+        self, execution: ReportExecution, config: dict[str, Any]
+    ) -> dict[str, Any]:
         """Build Slack Block Kit message."""
         report_type = execution.report_type.value.replace("_", " ").title()
         date_range = f"{execution.date_range_start} to {execution.date_range_end}"
@@ -385,7 +397,9 @@ class TeamsDelivery(DeliveryChannelHandler):
                 "error": str(e),
             }
 
-    def _build_card(self, execution: ReportExecution, config: dict[str, Any]) -> dict[str, Any]:
+    def _build_card(
+        self, execution: ReportExecution, config: dict[str, Any]
+    ) -> dict[str, Any]:
         """Build Microsoft Teams Adaptive Card."""
         report_type = execution.report_type.value.replace("_", " ").title()
         date_range = f"{execution.date_range_start} to {execution.date_range_end}"
@@ -393,20 +407,30 @@ class TeamsDelivery(DeliveryChannelHandler):
         facts = [
             {"title": "Report Type", "value": report_type},
             {"title": "Date Range", "value": date_range},
-            {"title": "Generated", "value": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")},
+            {
+                "title": "Generated",
+                "value": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            },
         ]
 
         # Add metrics if available
         if execution.metrics_summary:
             metrics = execution.metrics_summary
             if "total_spend" in metrics:
-                facts.append({"title": "Total Spend", "value": f"${metrics['total_spend']:,.2f}"})
+                facts.append(
+                    {"title": "Total Spend", "value": f"${metrics['total_spend']:,.2f}"}
+                )
             if "total_revenue" in metrics:
                 facts.append(
-                    {"title": "Total Revenue", "value": f"${metrics['total_revenue']:,.2f}"}
+                    {
+                        "title": "Total Revenue",
+                        "value": f"${metrics['total_revenue']:,.2f}",
+                    }
                 )
             if "overall_roas" in metrics:
-                facts.append({"title": "ROAS", "value": f"{metrics['overall_roas']:.2f}x"})
+                facts.append(
+                    {"title": "ROAS", "value": f"{metrics['overall_roas']:.2f}x"}
+                )
 
         card = {
             "@type": "MessageCard",
@@ -494,7 +518,9 @@ class WebhookDelivery(DeliveryChannelHandler):
                 "error": str(e),
             }
 
-    def _build_payload(self, execution: ReportExecution, config: dict[str, Any]) -> dict[str, Any]:
+    def _build_payload(
+        self, execution: ReportExecution, config: dict[str, Any]
+    ) -> dict[str, Any]:
         """Build webhook payload."""
         return {
             "event": "report.generated",
@@ -506,9 +532,11 @@ class WebhookDelivery(DeliveryChannelHandler):
                     "start": str(execution.date_range_start),
                     "end": str(execution.date_range_end),
                 },
-                "generated_at": execution.completed_at.isoformat()
-                if execution.completed_at
-                else None,
+                "generated_at": (
+                    execution.completed_at.isoformat()
+                    if execution.completed_at
+                    else None
+                ),
                 "file_url": execution.file_url,
                 "metrics_summary": execution.metrics_summary,
             },
@@ -756,14 +784,24 @@ class DeliveryService:
 
         execution = await self.db.get(ReportExecution, delivery.execution_id)
 
-        # Get channel config from schedule or use empty dict
+        # Get channel config from schedule or use empty dict.
+        #
+        # `db.get` returns None for a row that is not there, and this used to
+        # dereference it immediately - so retrying a delivery whose execution
+        # row had gone raised AttributeError from inside the retry path instead
+        # of the ValueError this method raises for everything else it cannot
+        # find. Tolerated rather than raised, to match the `if schedule` below:
+        # the channel config is an enrichment, and an empty one is exactly what
+        # a missing schedule already falls back to.
         channel_config = {}
-        if execution.schedule_id:
+        if execution is not None and execution.schedule_id:
             from app.models.reporting import ScheduledReport
 
             schedule = await self.db.get(ScheduledReport, execution.schedule_id)
             if schedule:
-                channel_config = schedule.delivery_config.get(delivery.channel.value, {})
+                channel_config = schedule.delivery_config.get(
+                    delivery.channel.value, {}
+                )
 
         handler_class = self.CHANNEL_HANDLERS.get(delivery.channel)
         if not handler_class:
