@@ -35,6 +35,7 @@ from app.db.session import get_async_session
 from app.models import AuditAction, AuditLog, Tenant, User, UserRole
 from app.schemas import APIResponse, UserProfileResponse, UserResponse, UserUpdate
 from app.api.v1.endpoints.tenants import require_admin
+from app.auth.deps import check_tier_limit
 from app.services.email_service import get_email_service
 
 # Redis key prefix for invite tokens
@@ -371,6 +372,19 @@ async def invite_user(
     # Resolves the target and authorises it in one place: an ADMIN may invite
     # into their own tenant, only the platform role into anybody else's.
     tenant_id = resolve_target_tenant(request, invite_data.tenant_id)
+
+    # Seats are a plan entitlement: core.tiers sells 3 / 10 / unlimited by tier,
+    # the team screen renders `slots_available` from it, and the superadmin usage
+    # view raises "limit nearly reached" warnings against it - but nothing stopped
+    # an invite from going past it, so the number was advisory everywhere it was
+    # shown. The client-portal invite in endpoints/clients.py already calls this;
+    # the team invite, which creates a User in the same tenant and consumes the
+    # same seat, did not.
+    #
+    # Checked against the *target* tenant, which since cross-tenant invites need
+    # not be the caller's own - a platform operator must not spend a seat the
+    # customer they are acting on does not have.
+    await check_tier_limit("users", tenant_id, db)
 
     # Check if email already exists
     email_hash = hash_pii_for_lookup(invite_data.email.lower())
