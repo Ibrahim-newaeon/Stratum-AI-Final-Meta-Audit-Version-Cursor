@@ -24,6 +24,11 @@
 #     isort   195 files      ->  72     (the conflict removed)
 #     black   280 files      ->  280    (unchanged; 88 is already its default)
 #
+# Since then, [tool.ruff.lint.flake8-bugbear] below removed B008's 979 FastAPI
+# false positives, so the ruff target is now:
+#
+#     ruff    4702 findings  ->  3723   (B008 dependency-injection noise gone)
+#
 # The remaining backlog is deliberately left alone. This file exists so it can
 # be paid down against a fixed target instead of one that moves on upgrade.
 # =============================================================================
@@ -33,6 +38,43 @@
 # they visibly match [tool.black] below. Two formatters with different line
 # lengths rewrite each other forever.
 line-length = 88
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 ("do not perform function call in argument defaults") fires 979 times,
+# and every one of them is FastAPI's dependency-injection syntax, which
+# REQUIRES the call to sit in the default:
+#
+#     async def endpoint(db: AsyncSession = Depends(get_async_session)): ...
+#
+# The rule exists to catch a mutable default evaluated once at import and then
+# shared across calls. These are not that: FastAPI evaluates the marker at
+# import to build the dependency graph, then resolves it per request. Rewriting
+# them the way B008 suggests would break the framework.
+#
+# Listed by measurement, not by guesswork - these are exactly the four
+# callables that trigger the rule today:
+#
+#     Depends         876
+#     Query            91
+#     require_tenant    8
+#     File              4
+#
+# require_tenant is ours (defined in app/tenancy/deps.py): a factory that
+# returns the validator, always written as Depends(require_tenant("tenant_id")),
+# so the call being suppressed is the inner factory - same pattern, same safety.
+# It is listed under app.tenancy because ruff matches the path the symbol is
+# imported by, and every call site imports it from the package re-export
+# (app/tenancy/__init__.py) rather than from .deps directly.
+#
+# This removes 979 false positives (4702 -> 3723). It does not suppress a
+# single real finding: B008 stays on for every other callable, so an actual
+# mutable default still fails.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.File",
+    "app.tenancy.require_tenant",
+]
 
 [tool.black]
 line-length = 88

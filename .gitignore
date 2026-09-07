@@ -48,6 +48,11 @@ htmlcov/
 *.temp
 .cache/
 
+# Lint and type-checker caches (written wherever the tools are run from)
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
 # ML models and training data (generated)
 /backend/models/
 *.pkl
