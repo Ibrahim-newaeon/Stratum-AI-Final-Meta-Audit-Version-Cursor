@@ -141,6 +141,14 @@ class FacebookLoginConfigResponse(BaseModel):
             "Null means use the plain scope list below."
         ),
     )
+    use_code_flow: bool = Field(
+        False,
+        description=(
+            "True when the configuration requires the authorization code "
+            "grant, so FB.login() must send response_type 'code'. False is "
+            "what a User access token configuration expects."
+        ),
+    )
     scopes: list[str] = Field(
         default_factory=list, description="Permissions the login dialog requests"
     )
@@ -585,6 +593,7 @@ async def facebook_login_config():
             app_id=(settings.meta_app_id or "").strip(),
             api_version=settings.meta_graph_api_version,
             config_id=settings.facebook_login_config_id,
+            use_code_flow=settings.facebook_login_use_code_flow,
             scopes=scopes,
         ),
         message="Facebook Login is enabled",

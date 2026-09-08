@@ -161,22 +161,48 @@ describe('facebookLogin', () => {
     });
   });
 
-  it('passes config_id for Facebook Login for Business', async () => {
+  it('sends config_id alone for a User access token configuration', async () => {
     const { fb, login } = installFakeFb();
     login.mockImplementation((cb: (r: unknown) => void) => cb({ status: 'unknown' }));
 
     await facebookLogin(fb as never, { ...CONFIG, config_id: 'cfg-123' });
 
     // config_id replaces the scope list; sending both is not a valid call.
-    // response_type must be 'code': Login for Business rejects the default
-    // 'token' with "response_type=token is not supported in this flow".
+    // Meta's User access token example is exactly `{ config_id }` - adding a
+    // response_type would fail the dialog for that configuration.
+    expect(login).toHaveBeenCalledWith(expect.any(Function), { config_id: 'cfg-123' });
+  });
+
+  it('sends the code grant only when the configuration requires it', async () => {
+    const { fb, login } = installFakeFb();
+    login.mockImplementation((cb: (r: unknown) => void) => cb({ status: 'unknown' }));
+
+    await facebookLogin(fb as never, {
+      ...CONFIG,
+      config_id: 'cfg-123',
+      use_code_flow: true,
+    });
+
     // override_default_response_type is not optional: without it the SDK
     // appends its own token,signed_request,graph_domain and Meta refuses the
-    // dialog, which is exactly the bug this asserts against.
+    // dialog with "response_type=token is not supported in this flow".
     expect(login).toHaveBeenCalledWith(expect.any(Function), {
       config_id: 'cfg-123',
       response_type: 'code',
       override_default_response_type: true,
+    });
+  });
+
+  it('ignores use_code_flow without a config_id', async () => {
+    const { fb, login } = installFakeFb();
+    login.mockImplementation((cb: (r: unknown) => void) => cb({ status: 'unknown' }));
+
+    await facebookLogin(fb as never, { ...CONFIG, use_code_flow: true });
+
+    // Classic Facebook Login has no code grant to ask for.
+    expect(login).toHaveBeenCalledWith(expect.any(Function), {
+      scope: 'public_profile,email',
+      return_scopes: true,
     });
   });
 });
