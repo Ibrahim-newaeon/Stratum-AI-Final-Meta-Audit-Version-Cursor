@@ -78,6 +78,7 @@ interface FacebookSdk {
       auth_type?: string;
       return_scopes?: boolean;
       response_type?: 'code' | 'token';
+      override_default_response_type?: boolean;
     }
   ): void;
   logout(callback: (response: unknown) => void): void;
@@ -200,16 +201,32 @@ export function getFacebookLoginStatus(fb: FacebookSdk): Promise<FacebookStatusR
  *
  * With a `config_id` the deployment is on Facebook Login for Business, which
  * supports `response_type: 'code'` and nothing else - passing the default
- * `token` there fails the dialog before it renders. Without one, the classic
- * scope list is used and `return_scopes` asks Meta to report which permissions
- * were actually granted, since the person may decline `email`.
+ * `token` there fails the dialog before it renders:
+ *
+ *     Invalid parameter: response_type must be a valid enum.
+ *     response_type=token is not supported in this flow.
+ *
+ * `override_default_response_type` is what makes `response_type` take effect.
+ * Meta's own guidance is explicit that it "must be set to true. When true, any
+ * response types passed in the response_type will take precedence over the
+ * default types" - without it the SDK keeps appending its default
+ * `token,signed_request,graph_domain` and the dialog fails exactly as above,
+ * whatever `response_type` says.
+ *
+ * Without a `config_id` the classic scope list is used, and `return_scopes`
+ * asks Meta to report which permissions were actually granted, since the person
+ * may decline `email`.
  */
 export function facebookLogin(
   fb: FacebookSdk,
   config: FacebookSdkConfig
 ): Promise<FacebookStatusResponse> {
   const options: Parameters<FacebookSdk['login']>[1] = config.config_id
-    ? { config_id: config.config_id, response_type: 'code' }
+    ? {
+        config_id: config.config_id,
+        response_type: 'code',
+        override_default_response_type: true,
+      }
     : { scope: (config.scopes ?? ['public_profile', 'email']).join(','), return_scopes: true };
 
   return new Promise((resolve) => {

@@ -229,6 +229,12 @@ Invalid parameter: response_type must be a valid enum.
 response_type=token is not supported in this flow.
 ```
 
+`override_default_response_type: true` must accompany it. Meta's guidance is explicit that it "must be
+set to true. When true, any response types passed in the response_type will take precedence over the
+default types" - without it the SDK keeps appending its own
+`token,signed_request,graph_domain` and the dialog fails with the error above no matter what
+`response_type` says.
+
 So the browser holds an authorization code, and `MetaLoginClient.exchange_code_for_token` redeems it
 server-side with `GET /oauth/access_token` (`client_id`, `client_secret`, `code`, and an **empty**
 `redirect_uri`, which is what Meta requires for a code minted by the JS SDK). The app secret never
