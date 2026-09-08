@@ -577,9 +577,22 @@ Merging this cannot start spending money. Three independent things must all be t
    **`AUTOPILOT_EXECUTION_DRY_RUN=false`** (default `true`). With dry-run on, every gate, enforcement
    and guard-rail check runs and the intended change is recorded, but no write endpoint is called.
    Run a full day in dry-run and read the recorded intents before turning it off.
-3. **The Celery task must be scheduled.** `tasks.apply_actions_queue` has no beat entry and
-   `app.tasks.apply_actions_queue` is not in `celery_app.include`, so no worker registers it. That is
-   still true after this change and is asserted by a test.
+3. **The Celery task is scheduled, which is not the same as enabled.** `tasks.apply_actions_queue`
+   runs on beat key `autopilot-apply-actions-queue`, every 5 minutes, on queue `sync` (a queue the
+   worker already drains — a beat entry on an unconsumed queue would look scheduled while the
+   messages piled up unread, so a test asserts the queue is in `CELERY_QUEUES`).
+
+   Scheduling it does **not** start writes, and that is the point of wiring it separately from
+   turning execution on. The master switch is checked before the row's token is decrypted and
+   before the trust gate is consulted, so with the shipped defaults every run refuses each approved
+   row with `EXECUTION_DISABLED` and issues no Meta request at all — asserted by
+   `test_a_scheduled_run_writes_nothing_while_execution_is_disabled`, which checks that *no* HTTP
+   request is made, not merely no `POST`.
+
+   Only the fan-out wrapper is left off the schedule: `tasks.schedule_apply_actions_queue` exists
+   solely to re-enqueue `tasks.apply_actions_queue`, so scheduling both would run the batch twice
+   per tick against the same day-scoped guard rails. A test asserts exactly one of the two is
+   scheduled.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|

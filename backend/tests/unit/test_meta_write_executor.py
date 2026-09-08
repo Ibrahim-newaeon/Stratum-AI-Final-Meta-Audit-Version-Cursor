@@ -1813,14 +1813,71 @@ class TestOffByDefault:
         assert action.status == ActionStatus.APPROVED.value
         assert action.applied_at is None
 
-    def test_the_task_module_is_still_unscheduled(self):
-        """Nothing schedules the write path; an operator must wire it up."""
-        from app.workers.celery_app import BEAT_SCHEDULE, celery_app
+    def test_the_task_is_scheduled_and_its_queue_is_consumed(self):
+        """
+        The write path is wired into beat, and onto a queue a worker drains.
 
-        assert "app.tasks.apply_actions_queue" not in celery_app.conf.include
-        tasks = {entry.get("task") for entry in BEAT_SCHEDULE.values()}
-        assert "tasks.apply_actions_queue" not in tasks
-        assert "tasks.schedule_apply_actions_queue" not in tasks
+        A beat entry whose queue no worker consumes is worse than no entry at
+        all: the run looks scheduled and the messages pile up unread.
+        """
+        from app.workers.celery_app import BEAT_SCHEDULE, CELERY_QUEUES, celery_app
+
+        assert "app.tasks.apply_actions_queue" in celery_app.conf.include
+
+        entry = BEAT_SCHEDULE["autopilot-apply-actions-queue"]
+        assert entry["task"] == "tasks.apply_actions_queue"
+        assert entry["options"]["queue"] in CELERY_QUEUES
+
+    def test_the_fan_out_wrapper_is_not_also_scheduled(self):
+        """
+        Only one of the two entry points may be on the schedule.
+
+        ``tasks.schedule_apply_actions_queue`` exists only to re-enqueue
+        ``tasks.apply_actions_queue``. Scheduling both would run the batch twice
+        per tick against the same day-scoped guard rails.
+        """
+        from app.workers.celery_app import BEAT_SCHEDULE
+
+        scheduled = {entry.get("task") for entry in BEAT_SCHEDULE.values()}
+        assert "tasks.apply_actions_queue" in scheduled
+        assert "tasks.schedule_apply_actions_queue" not in scheduled
+
+    def test_being_scheduled_does_not_enable_writes(self):
+        """
+        Scheduling is not the switch. The defaults still refuse every write.
+
+        This is the whole safety argument for wiring beat up separately from
+        turning execution on, so it is asserted rather than assumed.
+        """
+        from app.core.config import Settings
+
+        defaults = Settings.model_fields
+        assert defaults["autopilot_execution_enabled"].default is False
+        assert defaults["autopilot_execution_dry_run"].default is True
+
+    async def test_a_scheduled_run_writes_nothing_while_execution_is_disabled(
+        self, monkeypatch
+    ):
+        """
+        With the master switch off, an approved row is refused, not written.
+
+        The executor checks the switch before it decrypts a token or consults
+        the trust gate, so a default deployment running this on a five-minute
+        beat issues no Meta request at all.
+        """
+        monkeypatch.setattr(settings, "autopilot_execution_enabled", False)
+        recorder = Recorder({})
+        action = make_action()
+
+        outcome = await run(action, recorder)
+
+        assert outcome.status is ExecutionStatus.REFUSED
+        assert outcome.code is RefusalCode.EXECUTION_DISABLED
+        # Not just no POST: no request of any kind, because the switch is
+        # checked before the entity is even read.
+        assert recorder.requests == []
+        assert action.status == ActionStatus.APPROVED.value
+        assert action.applied_at is None
 
 
 # =============================================================================

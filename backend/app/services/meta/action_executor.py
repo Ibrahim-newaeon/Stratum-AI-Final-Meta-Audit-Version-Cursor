@@ -76,7 +76,12 @@ write is not repeated in either case.
 
 ## Turning it on
 
-Off by default and unscheduled. To enable, an operator must, in order:
+Off by default. ``tasks.apply_actions_queue`` is on the beat schedule every 5
+minutes, but the master switch below is checked before this module decrypts a
+token or consults the trust gate, so a scheduled run on a default deployment
+refuses every row with ``EXECUTION_DISABLED`` and issues no Meta request.
+
+To enable, an operator must, in order:
 
 1. Complete Meta App Review for **``ads_management``** and reconnect the
    tenant, so the stored token carries the scope. ``ads_read`` cannot write.
@@ -84,8 +89,6 @@ Off by default and unscheduled. To enable, an operator must, in order:
 3. Leave ``AUTOPILOT_EXECUTION_DRY_RUN=true`` and watch the recorded intended
    changes for a full day.
 4. Only then set ``AUTOPILOT_EXECUTION_DRY_RUN=false``.
-5. Separately schedule ``tasks.apply_actions_queue``; this module's task is
-   still absent from the Celery beat schedule and from ``celery_app.include``.
 
 Every one of those steps is independent, so no single mistake starts spending.
 """
