@@ -148,7 +148,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex" style={{ background: theme.bgVoid }}>
-      <SEO {...pageSEO.login} url="https://stratum-ai.com/login" />
+      <SEO {...pageSEO.login} />
 
       {/* HUD Corners */}
       <HUDCorner position="top-left" />

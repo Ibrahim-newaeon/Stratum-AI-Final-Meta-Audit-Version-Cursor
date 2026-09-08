@@ -149,7 +149,7 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen flex" style={{ background: theme.bgVoid }}>
-      <SEO {...pageSEO.signup} url="https://stratum-ai.com/signup" />
+      <SEO {...pageSEO.signup} />
 
       {/* HUD Corners */}
       <HUDCorner position="top-left" />

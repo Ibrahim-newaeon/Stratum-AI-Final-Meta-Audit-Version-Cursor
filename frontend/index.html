@@ -22,20 +22,25 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
 
-    <!-- Open Graph / Facebook -->
+    <!-- Open Graph / Facebook.
+         Crawlers do not execute the SPA, so these static tags - not the ones
+         src/components/common/SEO.tsx renders - are what Meta's Sharing Debugger
+         and every social preview actually read. They have to be absolute, which
+         is why this host is spelled out; keep it pointing at the origin the SPA
+         is served from. -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://stratum-ai.com/" />
+    <meta property="og:url" content="https://meta.stratumai.app/" />
     <meta property="og:title" content="Stratum AI - Revenue Operating System" />
     <meta property="og:description" content="AI-powered marketing intelligence with Trust-Gated Autopilot. Automate ad optimization with confidence." />
-    <meta property="og:image" content="https://stratum-ai.com/og-image.png" />
+    <meta property="og:image" content="https://meta.stratumai.app/og-image.png" />
     <meta property="og:site_name" content="Stratum AI" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:url" content="https://stratum-ai.com/" />
+    <meta name="twitter:url" content="https://meta.stratumai.app/" />
     <meta name="twitter:title" content="Stratum AI - Revenue Operating System" />
     <meta name="twitter:description" content="AI-powered marketing intelligence with Trust-Gated Autopilot." />
-    <meta name="twitter:image" content="https://stratum-ai.com/og-image.png" />
+    <meta name="twitter:image" content="https://meta.stratumai.app/og-image.png" />
 
     <style>
       /* ============================================
