@@ -170,9 +170,13 @@ describe('facebookLogin', () => {
     // config_id replaces the scope list; sending both is not a valid call.
     // response_type must be 'code': Login for Business rejects the default
     // 'token' with "response_type=token is not supported in this flow".
+    // override_default_response_type is not optional: without it the SDK
+    // appends its own token,signed_request,graph_domain and Meta refuses the
+    // dialog, which is exactly the bug this asserts against.
     expect(login).toHaveBeenCalledWith(expect.any(Function), {
       config_id: 'cfg-123',
       response_type: 'code',
+      override_default_response_type: true,
     });
   });
 });
