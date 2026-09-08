@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  credentialFrom,
   facebookLogin,
   getFacebookLoginStatus,
   loadFacebookSdk,
@@ -167,6 +168,40 @@ describe('facebookLogin', () => {
     await facebookLogin(fb as never, { ...CONFIG, config_id: 'cfg-123' });
 
     // config_id replaces the scope list; sending both is not a valid call.
-    expect(login).toHaveBeenCalledWith(expect.any(Function), { config_id: 'cfg-123' });
+    // response_type must be 'code': Login for Business rejects the default
+    // 'token' with "response_type=token is not supported in this flow".
+    expect(login).toHaveBeenCalledWith(expect.any(Function), {
+      config_id: 'cfg-123',
+      response_type: 'code',
+    });
+  });
+});
+
+describe('credentialFrom', () => {
+  it('prefers the code the Login-for-Business flow returns', () => {
+    expect(
+      credentialFrom({ status: 'connected', authResponse: { code: 'c-1' } })
+    ).toEqual({ code: 'c-1' });
+  });
+
+  it('falls back to the access token of the classic flow', () => {
+    expect(
+      credentialFrom({ status: 'connected', authResponse: { accessToken: 'tok' } })
+    ).toEqual({ access_token: 'tok' });
+  });
+
+  it('sends the code when Meta returns both, so the secret stays server-side', () => {
+    expect(
+      credentialFrom({ status: 'connected', authResponse: { code: 'c-1', accessToken: 'tok' } })
+    ).toEqual({ code: 'c-1' });
+  });
+
+  it.each([
+    ['a dismissed dialog', { status: 'unknown' as const }],
+    ['a declined app', { status: 'not_authorized' as const }],
+    ['a connected status with no authResponse', { status: 'connected' as const }],
+    ['a connected status with an empty authResponse', { status: 'connected' as const, authResponse: {} }],
+  ])('returns null for %s', (_label, response) => {
+    expect(credentialFrom(response)).toBeNull();
   });
 });

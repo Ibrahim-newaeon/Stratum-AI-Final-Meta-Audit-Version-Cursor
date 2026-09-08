@@ -377,7 +377,9 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "Optional Facebook Login for Business configuration id passed to "
-            "FB.login() as config_id. Unset uses the plain scope list."
+            "FB.login() as config_id. Set means the SPA uses response_type "
+            "'code' and the backend redeems that code; unset means the plain "
+            "scope list and an access token. Must match the Meta app."
         ),
     )
     facebook_login_allow_signup: bool = Field(

@@ -8,7 +8,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, ApiResponse } from './client';
-import type { FacebookSdkConfig } from '@/lib/facebookSdk';
+import type { FacebookCredential, FacebookSdkConfig } from '@/lib/facebookSdk';
 
 /**
  * Sign-in result. Mirrors the backend `LoginResponse`, so a Facebook sign-in
@@ -44,11 +44,12 @@ export const facebookAuthApi = {
     return response.data.data;
   },
 
-  /** Exchange a Facebook access token for Stratum tokens (or an MFA challenge). */
-  login: async (accessToken: string): Promise<FacebookLoginResponse> => {
-    const response = await apiClient.post<ApiResponse<FacebookLoginResponse>>('/auth/facebook', {
-      access_token: accessToken,
-    });
+  /** Exchange a Facebook credential for Stratum tokens (or an MFA challenge). */
+  login: async (credential: FacebookCredential): Promise<FacebookLoginResponse> => {
+    const response = await apiClient.post<ApiResponse<FacebookLoginResponse>>(
+      '/auth/facebook',
+      credential
+    );
     return response.data.data;
   },
 
@@ -59,10 +60,11 @@ export const facebookAuthApi = {
   },
 
   /** Attach Facebook to the signed-in account. */
-  link: async (accessToken: string): Promise<FacebookLinkResult> => {
-    const response = await apiClient.post<ApiResponse<FacebookLinkResult>>('/auth/facebook/link', {
-      access_token: accessToken,
-    });
+  link: async (credential: FacebookCredential): Promise<FacebookLinkResult> => {
+    const response = await apiClient.post<ApiResponse<FacebookLinkResult>>(
+      '/auth/facebook/link',
+      credential
+    );
     return response.data.data;
   },
 

@@ -15,6 +15,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { pageSEO, SEO } from '@/components/common/SEO';
 import FacebookLoginButton from '@/components/auth/FacebookLoginButton';
+import type { FacebookCredential } from '@/lib/facebookSdk';
 
 // Stratum Theme v4.0 - Trust-Gated Autopilot
 const theme = {
@@ -101,12 +102,12 @@ export default function Login() {
    * Shares the page's single error slot and the same post-login redirect as the
    * password form, so the two routes cannot drift apart.
    */
-  const handleFacebookToken = async (facebookAccessToken: string) => {
+  const handleFacebookCredential = async (credential: FacebookCredential) => {
     setError('');
     setIsLoading(true);
 
     try {
-      const result = await loginWithFacebook(facebookAccessToken);
+      const result = await loginWithFacebook(credential);
       if (result.success) {
         navigate(from, { replace: true });
       } else {
@@ -472,7 +473,7 @@ export default function Login() {
                 otherwise the component returns null and no Meta script loads. */}
             <div className="mt-5">
               <FacebookLoginButton
-                onToken={handleFacebookToken}
+                onCredential={handleFacebookCredential}
                 onError={setError}
                 disabled={isLoading}
                 theme={{

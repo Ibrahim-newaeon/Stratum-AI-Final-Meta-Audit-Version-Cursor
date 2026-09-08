@@ -19,14 +19,27 @@
  * source of truth (the backend's settings) and a rebuild is not required to
  * change them.
  *
- * Nothing here is trusted as proof of identity. `authResponse.accessToken` is
- * posted to the backend, which re-derives the person server-side; the browser's
- * `userID` is never sent and never used.
+ * Two credential shapes, decided by the Meta app, not by this code
+ * ----------------------------------------------------------------
+ * A **Facebook Login for Business** app rejects the implicit flow outright
+ * (`response_type=token is not supported in this flow`). It requires a
+ * `config_id` and `response_type: 'code'`, and returns `authResponse.code`.
+ * A **classic Facebook Login** app returns `authResponse.accessToken`.
+ *
+ * The backend accepts either and verifies both the same way, so the only thing
+ * that decides which is sent is whether the served config carries a `config_id`.
+ *
+ * Nothing here is trusted as proof of identity. The credential is posted to the
+ * backend, which re-derives the person server-side; the browser's `userID` is
+ * never sent and never used.
  */
 
 /** Shape of `FB.getLoginStatus` / `FB.login` responses (the fields used here). */
 export interface FacebookAuthResponse {
-  accessToken: string;
+  /** Present in the classic (implicit) flow only. */
+  accessToken?: string;
+  /** Present in the Facebook Login for Business code flow only. */
+  code?: string;
   expiresIn?: number;
   signedRequest?: string;
   userID?: string;
@@ -59,7 +72,13 @@ interface FacebookSdk {
   getLoginStatus(callback: (response: FacebookStatusResponse) => void, force?: boolean): void;
   login(
     callback: (response: FacebookStatusResponse) => void,
-    options?: { scope?: string; config_id?: string; auth_type?: string; return_scopes?: boolean }
+    options?: {
+      scope?: string;
+      config_id?: string;
+      auth_type?: string;
+      return_scopes?: boolean;
+      response_type?: 'code' | 'token';
+    }
   ): void;
   logout(callback: (response: unknown) => void): void;
 }
@@ -179,21 +198,43 @@ export function getFacebookLoginStatus(fb: FacebookSdk): Promise<FacebookStatusR
 /**
  * Open the Facebook login dialog and resolve with the resulting status.
  *
- * Passes `config_id` when the deployment uses Facebook Login for Business, and
- * the plain scope list otherwise. `return_scopes` asks Meta to report which
- * permissions were actually granted, since the person may decline `email`.
+ * With a `config_id` the deployment is on Facebook Login for Business, which
+ * supports `response_type: 'code'` and nothing else - passing the default
+ * `token` there fails the dialog before it renders. Without one, the classic
+ * scope list is used and `return_scopes` asks Meta to report which permissions
+ * were actually granted, since the person may decline `email`.
  */
 export function facebookLogin(
   fb: FacebookSdk,
   config: FacebookSdkConfig
 ): Promise<FacebookStatusResponse> {
-  const options = config.config_id
-    ? { config_id: config.config_id }
+  const options: Parameters<FacebookSdk['login']>[1] = config.config_id
+    ? { config_id: config.config_id, response_type: 'code' }
     : { scope: (config.scopes ?? ['public_profile', 'email']).join(','), return_scopes: true };
 
   return new Promise((resolve) => {
     fb.login((response) => resolve(response), options);
   });
+}
+
+/** What the backend accepts: exactly one of the two credential shapes. */
+export type FacebookCredential = { code: string } | { access_token: string };
+
+/**
+ * Pull the credential out of an SDK response, or null when there is none.
+ *
+ * A dialog the person dismissed, a `not_authorized` status and a `connected`
+ * status with an empty `authResponse` all land on null, and the caller treats
+ * all three as "not completed" rather than as an error.
+ */
+export function credentialFrom(response: FacebookStatusResponse): FacebookCredential | null {
+  if (response.status !== 'connected' || !response.authResponse) {
+    return null;
+  }
+  const { code, accessToken } = response.authResponse;
+  if (code) return { code };
+  if (accessToken) return { access_token: accessToken };
+  return null;
 }
 
 /**

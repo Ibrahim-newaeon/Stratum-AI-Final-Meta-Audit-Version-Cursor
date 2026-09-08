@@ -21,6 +21,7 @@ import { useSignup } from '@/api/auth';
 import { pageSEO, SEO } from '@/components/common/SEO';
 import { useAuth } from '@/contexts/AuthContext';
 import FacebookLoginButton from '@/components/auth/FacebookLoginButton';
+import type { FacebookCredential } from '@/lib/facebookSdk';
 
 // Stratum Theme v4.0 - Trust-Gated Autopilot
 const theme = {
@@ -113,12 +114,12 @@ export default function Signup() {
    * dashboard rather than the "check your email" step the password form uses -
    * there is no address to verify when Meta already confirmed one.
    */
-  const handleFacebookToken = async (facebookAccessToken: string) => {
+  const handleFacebookCredential = async (credential: FacebookCredential) => {
     setFacebookError('');
     setFacebookPending(true);
 
     try {
-      const result = await loginWithFacebook(facebookAccessToken);
+      const result = await loginWithFacebook(credential);
       if (result.success) {
         navigate('/dashboard/overview', { replace: true });
       } else {
@@ -548,7 +549,7 @@ export default function Signup() {
             {/* Renders only when the deployment has Facebook Login configured. */}
             <div className="mt-5">
               <FacebookLoginButton
-                onToken={handleFacebookToken}
+                onCredential={handleFacebookCredential}
                 onError={setFacebookError}
                 disabled={isLoading}
                 label="Sign up with Facebook"

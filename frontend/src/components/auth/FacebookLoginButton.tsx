@@ -5,11 +5,18 @@
  * enabled, so a deployment without Meta credentials shows no dead button and
  * loads no Meta script.
  *
- * The click path follows Meta's own sequence: check `FB.getLoginStatus` first
- * and reuse an existing `connected` session, otherwise open the login dialog
- * with `FB.login`. Either way the resulting `authResponse.accessToken` is
- * handed to `onToken`, which posts it to the backend for verification. Nothing
- * on this side decides who the person is.
+ * The click path depends on which flow the Meta app uses:
+ *
+ * - **Classic Facebook Login** follows Meta's own sequence: check
+ *   `FB.getLoginStatus` first and reuse an existing `connected` session,
+ *   otherwise open the dialog with `FB.login`.
+ * - **Facebook Login for Business** (`config_id` present) always opens the
+ *   dialog. `getLoginStatus` can only ever return an access token, and that
+ *   flow needs a single-use `code`, so a cached session has nothing to reuse.
+ *
+ * Either way the resulting credential is handed to `onCredential`, which posts
+ * it to the backend for verification. Nothing on this side decides who the
+ * person is.
  *
  * Accessibility: a real `<button>`, keyboard reachable, at least 44px tall,
  * `aria-busy` while a sign-in is in flight, and errors announced through a
@@ -18,11 +25,17 @@
 
 import { useCallback, useState } from 'react';
 import { useFacebookLoginConfig } from '@/api/facebookAuth';
-import { facebookLogin, getFacebookLoginStatus, loadFacebookSdk } from '@/lib/facebookSdk';
+import {
+  credentialFrom,
+  facebookLogin,
+  getFacebookLoginStatus,
+  loadFacebookSdk,
+} from '@/lib/facebookSdk';
+import type { FacebookCredential } from '@/lib/facebookSdk';
 
 interface FacebookLoginButtonProps {
-  /** Receives the verified-by-Meta access token to exchange with the backend. */
-  onToken: (accessToken: string) => Promise<void> | void;
+  /** Receives the credential (code or access token) to exchange with the backend. */
+  onCredential: (credential: FacebookCredential) => Promise<void> | void;
   /** Surfaced when the SDK or the dialog fails, so the page can show one error. */
   onError?: (message: string) => void;
   /** Disables the button while the page is busy with another sign-in. */
@@ -63,7 +76,7 @@ function FacebookMark() {
 }
 
 export default function FacebookLoginButton({
-  onToken,
+  onCredential,
   onError,
   disabled = false,
   label = 'Continue with Facebook',
@@ -89,28 +102,31 @@ export default function FacebookLoginButton({
     try {
       const fb = await loadFacebookSdk(config);
 
-      // Meta's "Check Login Status" step: a person already connected to this
-      // app does not need to be shown the dialog again.
-      let response = await getFacebookLoginStatus(fb);
-      if (response.status !== 'connected' || !response.authResponse?.accessToken) {
-        response = await facebookLogin(fb, config);
+      // Meta's "Check Login Status" step, but only where it can help: a cached
+      // session yields an access token, which the code flow cannot use.
+      let credential: FacebookCredential | null = null;
+      if (!config.config_id) {
+        credential = credentialFrom(await getFacebookLoginStatus(fb));
+      }
+      if (!credential) {
+        credential = credentialFrom(await facebookLogin(fb, config));
       }
 
-      if (response.status !== 'connected' || !response.authResponse?.accessToken) {
+      if (!credential) {
         // `not_authorized` and `unknown` both land here, as does closing the
         // dialog. None of them is an error worth alarming anyone about.
         fail('Facebook sign-in was not completed.');
         return;
       }
 
-      await onToken(response.authResponse.accessToken);
+      await onCredential(credential);
     } catch (error) {
       console.error('Facebook sign-in error:', error);
       fail('Could not start Facebook sign-in. Please try again.');
     } finally {
       setIsBusy(false);
     }
-  }, [config, fail, onToken]);
+  }, [config, fail, onCredential]);
 
   // Hidden while the configuration is still unknown, and permanently when the
   // deployment has Facebook Login switched off.

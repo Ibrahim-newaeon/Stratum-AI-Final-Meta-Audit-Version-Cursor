@@ -403,3 +403,117 @@ class TestRedaction:
         error = FacebookLoginError("token_invalid", "Facebook rejected the sign-in")
         assert APP_SECRET not in str(error)
         assert str(error) == "Facebook rejected the sign-in"
+
+
+# =============================================================================
+# Facebook Login for Business code exchange
+# =============================================================================
+AUTH_CODE = "AQD-single-use-authorization-code"
+
+
+def code_routing_handler(
+    token_body=None,
+    token_status=200,
+    debug_body=None,
+    profile_body=None,
+    seen: list | None = None,
+):
+    """Answer ``/oauth/access_token`` as well as the two verification calls."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        if request.url.path.endswith("/oauth/access_token"):
+            return httpx.Response(
+                token_status, json=token_body or {"access_token": USER_TOKEN}
+            )
+        return routing_handler(debug_body=debug_body, profile_body=profile_body)(
+            request
+        )
+
+    return handler
+
+
+class TestExchangeCodeForToken:
+    """The code flow is how the token arrives, never a reason to trust it more."""
+
+    @pytest.mark.asyncio
+    async def test_exchange_returns_the_access_token(self):
+        client = make_client(code_routing_handler())
+        assert await client.exchange_code_for_token(AUTH_CODE) == USER_TOKEN
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_exchange_sends_meta_the_parameters_it_requires(self):
+        seen: list[httpx.Request] = []
+        client = make_client(code_routing_handler(seen=seen))
+        await client.exchange_code_for_token(AUTH_CODE)
+
+        request = seen[0]
+        assert request.method == "GET"
+        assert request.url.params["client_id"] == APP_ID
+        assert request.url.params["client_secret"] == APP_SECRET
+        assert request.url.params["code"] == AUTH_CODE
+        # Empty on purpose: a JS SDK code has no redirect, and Meta rejects the
+        # exchange when one is supplied.
+        assert request.url.params["redirect_uri"] == ""
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_empty_code_is_refused_before_any_request(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("no request should be made for an empty code")
+
+        client = make_client(handler)
+        with pytest.raises(FacebookLoginError) as exc:
+            await client.exchange_code_for_token("   ")
+        assert exc.value.reason == "missing_code"
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_code_fails_closed(self):
+        client = make_client(
+            code_routing_handler(
+                token_status=400, token_body={"error": {"message": "code expired"}}
+            )
+        )
+        with pytest.raises(FacebookLoginError) as exc:
+            await client.exchange_code_for_token(AUTH_CODE)
+        assert exc.value.reason == "code_exchange_failed"
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_a_200_without_a_token_fails_closed(self):
+        client = make_client(code_routing_handler(token_body={"machine_id": "abc"}))
+        with pytest.raises(FacebookLoginError) as exc:
+            await client.exchange_code_for_token(AUTH_CODE)
+        assert exc.value.reason == "code_exchange_failed"
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_code_flow_still_runs_every_verification_check(self):
+        """A foreign app id must fail even when the code exchange succeeded."""
+        client = make_client(
+            code_routing_handler(debug_body=debug_payload(app_id=OTHER_APP_ID))
+        )
+        with pytest.raises(FacebookLoginError) as exc:
+            await client.verify_and_fetch_profile_from_code(AUTH_CODE)
+        assert exc.value.reason == "wrong_app"
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_code_flow_yields_the_same_verified_profile(self):
+        client = make_client(code_routing_handler())
+        profile = await client.verify_and_fetch_profile_from_code(AUTH_CODE)
+        assert profile.user_id == USER_ID
+        assert profile.email == "person@example.com"
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_exchange_issues_only_get_requests(self):
+        """The read-only contract holds for the new endpoint too."""
+        seen: list[httpx.Request] = []
+        client = make_client(code_routing_handler(seen=seen))
+        await client.verify_and_fetch_profile_from_code(AUTH_CODE)
+        assert [request.method for request in seen] == ["GET", "GET", "GET"]
+        await client.aclose()
