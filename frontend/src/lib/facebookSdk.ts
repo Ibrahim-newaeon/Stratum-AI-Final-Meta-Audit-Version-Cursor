@@ -59,6 +59,7 @@ export interface FacebookSdkConfig {
   app_id?: string | null;
   api_version?: string | null;
   config_id?: string | null;
+  use_code_flow?: boolean;
   scopes?: string[];
 }
 
@@ -199,19 +200,24 @@ export function getFacebookLoginStatus(fb: FacebookSdk): Promise<FacebookStatusR
 /**
  * Open the Facebook login dialog and resolve with the resulting status.
  *
- * With a `config_id` the deployment is on Facebook Login for Business, which
- * supports `response_type: 'code'` and nothing else - passing the default
- * `token` there fails the dialog before it renders:
+ * Meta documents two Login-for-Business recipes, and which one applies is a
+ * property of the saved configuration rather than a choice this code makes:
  *
- *     Invalid parameter: response_type must be a valid enum.
- *     response_type=token is not supported in this flow.
+ * - A **User access token** configuration takes `config_id` and nothing else.
+ *   Its example is literally `{ config_id: '<CONFIG_ID>' }`; the dialog returns
+ *   an access token. This is the shape a website sign-in button wants, because
+ *   it is the only one that identifies a *person*.
+ * - A **System User** configuration "require[s] the authorization code grant
+ *   type", so `response_type` is `'code'` and
+ *   `override_default_response_type` "must be set to true. When true, any
+ *   response types passed in the response_type will take precedence over the
+ *   default types". Without that second flag the SDK keeps appending its own
+ *   `token,signed_request,graph_domain` and the dialog fails before it renders
+ *   with `response_type=token is not supported in this flow`.
  *
- * `override_default_response_type` is what makes `response_type` take effect.
- * Meta's own guidance is explicit that it "must be set to true. When true, any
- * response types passed in the response_type will take precedence over the
- * default types" - without it the SDK keeps appending its default
- * `token,signed_request,graph_domain` and the dialog fails exactly as above,
- * whatever `response_type` says.
+ * `use_code_flow` from the served config picks between them. Sending `code` to
+ * a User access token configuration, or `token` to a System User one, fails the
+ * dialog either way - hence a setting rather than a guess.
  *
  * Without a `config_id` the classic scope list is used, and `return_scopes`
  * asks Meta to report which permissions were actually granted, since the person
@@ -221,13 +227,21 @@ export function facebookLogin(
   fb: FacebookSdk,
   config: FacebookSdkConfig
 ): Promise<FacebookStatusResponse> {
-  const options: Parameters<FacebookSdk['login']>[1] = config.config_id
-    ? {
-        config_id: config.config_id,
-        response_type: 'code',
-        override_default_response_type: true,
-      }
-    : { scope: (config.scopes ?? ['public_profile', 'email']).join(','), return_scopes: true };
+  let options: Parameters<FacebookSdk['login']>[1];
+  if (config.config_id && config.use_code_flow) {
+    options = {
+      config_id: config.config_id,
+      response_type: 'code',
+      override_default_response_type: true,
+    };
+  } else if (config.config_id) {
+    options = { config_id: config.config_id };
+  } else {
+    options = {
+      scope: (config.scopes ?? ['public_profile', 'email']).join(','),
+      return_scopes: true,
+    };
+  }
 
   return new Promise((resolve) => {
     fb.login((response) => resolve(response), options);

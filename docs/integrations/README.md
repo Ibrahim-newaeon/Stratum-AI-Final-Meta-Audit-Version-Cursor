@@ -218,11 +218,39 @@ It is **off by default** (`FACEBOOK_LOGIN_ENABLED=false`).
    `access_token` on classic login, exactly one of the two. The browser's `userID` is never sent,
    because it is not evidence of anything.
 
+### The configuration must be a User access token configuration
+
+Facebook Login for Business configurations come in two kinds, and only one of them can sign a person in.
+
+| Configuration | Dialog the person sees | Token returned | Usable for sign-in |
+|---|---|---|---|
+| **User access token** | Consent for `public_profile`/`email` | User access token | **Yes** |
+| **System User** (WhatsApp Embedded Signup, Conversions API onboarding, any "share business assets" template) | Business onboarding: portfolio, WhatsApp account, catalog | System user token | **No** |
+
+Meta's own Access Token Guide draws the line: a System User token "performs programmatic, automated
+actions on your business clients' Ad objects or Pages **without having to rely on input from an app
+user**", while a User access token "is used if your app takes actions in real time, based on input from
+the user". `login_client.py` requires `debug_token` to report `type` `USER`, so a System User token is
+refused as `not_a_user_token` - which is correct, because it identifies a business portfolio and not a
+person.
+
+A System User configuration is also what forces `FACEBOOK_LOGIN_USE_CODE_FLOW`, so a deployment that
+needs the code flow for a sign-in button has almost certainly pointed `FACEBOOK_LOGIN_CONFIG_ID` at the
+wrong configuration.
+
 ### The two flows, and why the app decides
 
-A Meta app configured as **Facebook Login for Business** does not support the implicit flow. `FB.login`
-must be called with a `config_id` and `response_type: 'code'`; the default `token` is refused before the
-dialog renders:
+Meta documents two recipes, and which applies is a property of the saved configuration:
+
+- A **User access token** configuration takes `config_id` and nothing else. Its documented example is
+  literally `{ config_id: '<CONFIG_ID>' }`, and the dialog returns an access token.
+- A **System User** configuration "require[s] the authorization code grant type", so `response_type` is
+  `'code'` and `override_default_response_type` "must be set to true. When true, any response types
+  passed in the response_type will take precedence over the default types."
+
+`FACEBOOK_LOGIN_USE_CODE_FLOW` picks between them and defaults to false. Sending `code` to a User access
+token configuration, or the SDK's default `token` to a System User one, fails the dialog before it
+renders:
 
 ```text
 Invalid parameter: response_type must be a valid enum.

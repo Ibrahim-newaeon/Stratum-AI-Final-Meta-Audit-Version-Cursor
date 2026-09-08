@@ -377,9 +377,27 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "Optional Facebook Login for Business configuration id passed to "
-            "FB.login() as config_id. Set means the SPA uses response_type "
-            "'code' and the backend redeems that code; unset means the plain "
-            "scope list and an access token. Must match the Meta app."
+            "FB.login() as config_id. Unset uses the plain scope list. Must "
+            "match a configuration that exists on the Meta app."
+        ),
+    )
+    # Which of Meta's two Login-for-Business recipes the configuration needs.
+    # A *User access token* configuration takes config_id alone and returns an
+    # access token. A *System User* configuration requires response_type 'code'
+    # with override_default_response_type, and returns a single-use code.
+    #
+    # Default false, because a System User token authenticates a business
+    # portfolio rather than a person: debug_token reports a type that is not
+    # USER, and login_client refuses it as not_a_user_token. Sign-in needs a
+    # User access token configuration. The flag exists so a deployment whose
+    # configuration does issue a redeemable user code is not locked out.
+    facebook_login_use_code_flow: bool = Field(
+        default=False,
+        description=(
+            "Send response_type 'code' with the config id, for a Meta "
+            "configuration that requires the authorization code grant. False "
+            "sends the config id alone, which is what a User access token "
+            "configuration expects."
         ),
     )
     facebook_login_allow_signup: bool = Field(

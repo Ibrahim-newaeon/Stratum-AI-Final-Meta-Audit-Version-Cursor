@@ -7,12 +7,13 @@
  *
  * The click path depends on which flow the Meta app uses:
  *
- * - **Classic Facebook Login** follows Meta's own sequence: check
+ * - **Any token flow** - classic Facebook Login, or a Login-for-Business
+ *   *User access token* configuration - follows Meta's own sequence: check
  *   `FB.getLoginStatus` first and reuse an existing `connected` session,
  *   otherwise open the dialog with `FB.login`.
- * - **Facebook Login for Business** (`config_id` present) always opens the
- *   dialog. `getLoginStatus` can only ever return an access token, and that
- *   flow needs a single-use `code`, so a cached session has nothing to reuse.
+ * - **The code flow** (`use_code_flow`) always opens the dialog.
+ *   `getLoginStatus` can only ever return an access token, and that flow needs
+ *   a single-use `code`, so a cached session has nothing to reuse.
  *
  * Either way the resulting credential is handed to `onCredential`, which posts
  * it to the backend for verification. Nothing on this side decides who the
@@ -105,7 +106,7 @@ export default function FacebookLoginButton({
       // Meta's "Check Login Status" step, but only where it can help: a cached
       // session yields an access token, which the code flow cannot use.
       let credential: FacebookCredential | null = null;
-      if (!config.config_id) {
+      if (!config.use_code_flow) {
         credential = credentialFrom(await getFacebookLoginStatus(fb));
       }
       if (!credential) {

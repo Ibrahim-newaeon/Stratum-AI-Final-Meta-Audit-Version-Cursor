@@ -258,6 +258,7 @@ class TestConfigEndpoint:
             "app_id": None,
             "api_version": None,
             "config_id": None,
+            "use_code_flow": False,
             "scopes": [],
         }
 
