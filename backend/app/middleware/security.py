@@ -41,6 +41,26 @@ PADDLE_SCRIPT_HOSTS = "https://cdn.paddle.com"
 PADDLE_CONNECT_HOSTS = "https://*.paddle.com"
 PADDLE_FRAME_HOSTS = "https://*.paddle.com"
 
+# "Log in with Facebook": Meta's JS SDK. Authentication only - this is not an
+# ad-platform integration and grants no ads_read/ads_management (see
+# docs/integrations/README.md). Three directives are involved, and omitting any
+# one of them breaks the button with a console-only error:
+#
+#   script-src   connect.facebook.net serves sdk.js. Meta documents this host
+#                explicitly as the one a CSP must allow.
+#   frame-src    the SDK injects a hidden cross-domain iframe (the "xd_arbiter"
+#                on staticxx.facebook.com) to talk to Facebook. The login dialog
+#                itself is a popup window, which CSP does not govern, so this is
+#                needed for FB.init/FB.getLoginStatus rather than for the dialog.
+#   connect-src  the SDK's own XHRs to Facebook while resolving login status.
+#
+# Nothing here loads on a page that does not render the button: the SDK is
+# injected on demand by frontend/src/lib/facebookSdk.ts, so a deployment with
+# FACEBOOK_LOGIN_ENABLED off contacts none of these hosts.
+FACEBOOK_SCRIPT_HOSTS = "https://connect.facebook.net"
+FACEBOOK_FRAME_HOSTS = "https://www.facebook.com https://staticxx.facebook.com"
+FACEBOOK_CONNECT_HOSTS = "https://graph.facebook.com https://www.facebook.com"
+
 # Permissions-Policy: the Payment Request API is only needed inside the Paddle
 # checkout frames (Apple Pay / Google Pay).
 PAYMENT_PERMISSION_POLICY = 'payment=(self "https://buy.paddle.com" "https://sandbox-buy.paddle.com")'
@@ -60,15 +80,18 @@ def build_csp(production: bool) -> str:
     if production:
         directives = [
             "default-src 'self'",
-            f"script-src 'self' https://cdn.jsdelivr.net {GTM_SCRIPT_HOSTS} {PADDLE_SCRIPT_HOSTS}",
+            (
+                f"script-src 'self' https://cdn.jsdelivr.net {GTM_SCRIPT_HOSTS} "
+                f"{PADDLE_SCRIPT_HOSTS} {FACEBOOK_SCRIPT_HOSTS}"
+            ),
             "style-src 'self' 'unsafe-inline'",
             "font-src 'self' data:",
             f"img-src 'self' data: https: blob: {GA_IMG_HOSTS}",
             (
                 f"connect-src 'self' {PADDLE_CONNECT_HOSTS} https://*.sentry.io wss: ws: "
-                f"{GA_CONNECT_HOSTS}"
+                f"{GA_CONNECT_HOSTS} {FACEBOOK_CONNECT_HOSTS}"
             ),
-            f"frame-src 'self' {PADDLE_FRAME_HOSTS}",
+            f"frame-src 'self' {PADDLE_FRAME_HOSTS} {FACEBOOK_FRAME_HOSTS}",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
@@ -80,16 +103,17 @@ def build_csp(production: bool) -> str:
             "default-src 'self'",
             (
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
-                f"{GTM_SCRIPT_HOSTS} {PADDLE_SCRIPT_HOSTS}"
+                f"{GTM_SCRIPT_HOSTS} {PADDLE_SCRIPT_HOSTS} {FACEBOOK_SCRIPT_HOSTS}"
             ),
             "style-src 'self' 'unsafe-inline'",
             "font-src 'self' data:",
             f"img-src 'self' data: https: blob: {GA_IMG_HOSTS}",
             (
                 f"connect-src 'self' {PADDLE_CONNECT_HOSTS} ws: wss: "
-                f"http://localhost:* http://127.0.0.1:* {GA_CONNECT_HOSTS}"
+                f"http://localhost:* http://127.0.0.1:* {GA_CONNECT_HOSTS} "
+                f"{FACEBOOK_CONNECT_HOSTS}"
             ),
-            f"frame-src 'self' {PADDLE_FRAME_HOSTS}",
+            f"frame-src 'self' {PADDLE_FRAME_HOSTS} {FACEBOOK_FRAME_HOSTS}",
             "object-src 'none'",
         ]
     return "; ".join(directives)
