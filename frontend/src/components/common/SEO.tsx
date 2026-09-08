@@ -17,13 +17,56 @@ interface SEOProps {
   structuredData?: object;
 }
 
+/**
+ * Fallback origin for the rare context with no `window` (unit tests, any future
+ * prerender). Never used in a browser - see `siteOrigin()`.
+ *
+ * It is deliberately the host the SPA is actually served from. The previous
+ * value, `https://stratum-ai.com`, was a different domain from the deployment,
+ * so every canonical link and every og:url pointed somewhere the page does not
+ * live - which is what Meta's Sharing Debugger surfaced.
+ */
+const FALLBACK_ORIGIN = 'https://meta.stratumai.app';
+
+/**
+ * Origin to build absolute canonical and social URLs from.
+ *
+ * Read from the browser at call time rather than hardcoded, so a deployment on
+ * any host - production, a preview build, localhost - describes itself
+ * correctly instead of advertising somebody else's domain. `VITE_SITE_URL`
+ * overrides it for a deployment whose public origin differs from the origin the
+ * SPA is served on (behind a proxy or a vanity domain).
+ */
+function siteOrigin(): string {
+  const configured = import.meta.env.VITE_SITE_URL;
+  if (typeof configured === 'string' && configured.trim()) {
+    return configured.trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return FALLBACK_ORIGIN;
+}
+
+/**
+ * Absolute URL of the page being rendered, used when a caller passes no `url`.
+ *
+ * Pages no longer hardcode their own absolute URL: doing so meant every new
+ * route had to remember the host, and four of them had the wrong one.
+ */
+function currentUrl(): string {
+  if (typeof window !== 'undefined' && window.location) {
+    return `${siteOrigin()}${window.location.pathname}`;
+  }
+  return siteOrigin();
+}
+
 const defaultMeta = {
   siteName: 'Stratum AI',
   title: 'Stratum AI - Revenue Operating System',
   description:
     'Stratum AI is an AI-powered revenue operating system for ad teams. We optimize Facebook, Instagram and WhatsApp campaigns with Trust-Gated Autopilot — every AI decision is auditable, explainable and reversible, with one-click human override.',
   image: '/og-image.png',
-  url: 'https://stratum-ai.com',
   keywords:
     'marketing intelligence, CDP, customer data platform, ad optimization, ROAS, attribution, Facebook ads, Instagram ads, WhatsApp campaigns, Meta ads',
 };
@@ -33,7 +76,7 @@ export function SEO({
   description = defaultMeta.description,
   keywords = defaultMeta.keywords,
   image = defaultMeta.image,
-  url = defaultMeta.url,
+  url,
   type = 'website',
   twitterCard = 'summary_large_image',
   noIndex = false,
@@ -41,7 +84,10 @@ export function SEO({
 }: SEOProps) {
   const fullTitle = title ? `${title} | ${defaultMeta.siteName}` : defaultMeta.title;
 
-  const fullImageUrl = image.startsWith('http') ? image : `${defaultMeta.url}${image}`;
+  // Absolute URLs are required here: og:url, og:image and the canonical link are
+  // read by crawlers that have no page context to resolve a relative path against.
+  const canonicalUrl = url ?? currentUrl();
+  const fullImageUrl = image.startsWith('http') ? image : `${siteOrigin()}${image}`;
 
   return (
     <Helmet>
@@ -56,7 +102,7 @@ export function SEO({
 
       {/* Open Graph / Facebook */}
       <meta property="og:type" content={type} />
-      <meta property="og:url" content={url} />
+      <meta property="og:url" content={canonicalUrl} />
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />
       <meta property="og:image" content={fullImageUrl} />
@@ -64,13 +110,13 @@ export function SEO({
 
       {/* Twitter Card */}
       <meta name="twitter:card" content={twitterCard} />
-      <meta name="twitter:url" content={url} />
+      <meta name="twitter:url" content={canonicalUrl} />
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={fullImageUrl} />
 
       {/* Canonical URL */}
-      <link rel="canonical" href={url} />
+      <link rel="canonical" href={canonicalUrl} />
 
       {/* Structured Data / JSON-LD */}
       {structuredData && (

@@ -75,7 +75,7 @@ const tiers = [
 export default function Pricing() {
   return (
     <PageLayout>
-      <SEO {...pageSEO.pricing} url="https://stratum-ai.com/pricing" />
+      <SEO {...pageSEO.pricing} />
       {/* Hero Section */}
       <section className="py-20 px-6">
         <div className="max-w-7xl mx-auto text-center">

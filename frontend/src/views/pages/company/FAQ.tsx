@@ -214,7 +214,7 @@ export default function FAQ() {
 
   return (
     <PageLayout>
-      <SEO {...pageSEO.faq} url="https://stratum-ai.com/faq" />
+      <SEO {...pageSEO.faq} />
       {/* Hero Section */}
       <section className="py-20 px-6">
         <div className="max-w-7xl mx-auto text-center">
