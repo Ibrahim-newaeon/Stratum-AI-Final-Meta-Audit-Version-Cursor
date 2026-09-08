@@ -29,6 +29,17 @@ interface SEOProps {
 const FALLBACK_ORIGIN = 'https://meta.stratumai.app';
 
 /**
+ * The shared social card in `public/og-image.png`, and its real dimensions.
+ *
+ * 1200x630 is the ratio Facebook and X both crop to without letterboxing.
+ * Declaring the size lets the first scrape render the large card immediately
+ * instead of a small one until Facebook has fetched the file once.
+ */
+const OG_IMAGE_PATH = '/og-image.png';
+const OG_IMAGE_WIDTH = 1200;
+const OG_IMAGE_HEIGHT = 630;
+
+/**
  * Origin to build absolute canonical and social URLs from.
  *
  * Read from the browser at call time rather than hardcoded, so a deployment on
@@ -66,7 +77,7 @@ const defaultMeta = {
   title: 'Stratum AI - Revenue Operating System',
   description:
     'Stratum AI is an AI-powered revenue operating system for ad teams. We optimize Facebook, Instagram and WhatsApp campaigns with Trust-Gated Autopilot — every AI decision is auditable, explainable and reversible, with one-click human override.',
-  image: '/og-image.png',
+  image: OG_IMAGE_PATH,
   keywords:
     'marketing intelligence, CDP, customer data platform, ad optimization, ROAS, attribution, Facebook ads, Instagram ads, WhatsApp campaigns, Meta ads',
 };
@@ -106,6 +117,12 @@ export function SEO({
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />
       <meta property="og:image" content={fullImageUrl} />
+      {/* Declared so the first scrape renders the large card rather than a
+          small one. These match public/og-image.png; a page passing its own
+          `image` is responsible for its own dimensions. */}
+      <meta property="og:image:width" content={String(OG_IMAGE_WIDTH)} />
+      <meta property="og:image:height" content={String(OG_IMAGE_HEIGHT)} />
+      <meta property="og:image:alt" content={fullTitle} />
       <meta property="og:site_name" content={defaultMeta.siteName} />
 
       {/* Twitter Card */}
