@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     audience_sync,
     audit_services,
     auth,
+    auth_facebook,
     autopilot,
     autopilot_enforcement,
     # Billing (Paddle Billing)
@@ -98,6 +99,15 @@ api_router = APIRouter(dependencies=[Depends(require_authenticated_request)])
 # Authentication
 api_router.include_router(
     auth.router,
+    prefix="/auth",
+    tags=["Authentication"],
+)
+
+# "Log in with Facebook". Separate module, same /auth prefix: it shares the
+# LoginResponse shape and the MFA session mechanism with auth.py but has its own
+# Graph verification, account-resolution and link-management surface.
+api_router.include_router(
+    auth_facebook.router,
     prefix="/auth",
     tags=["Authentication"],
 )

@@ -38,6 +38,7 @@ from app.models import (
     User,
 )
 from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
+from app.models.social_identity import SocialProvider, UserSocialIdentity
 from tests.unit.test_meta_signed_request import _b64url
 
 pytestmark = pytest.mark.unit
@@ -187,12 +188,15 @@ class FakeSession:
         users: list[Any] | None = None,
         deletion_record: Any = None,
         raise_on_erasure: bool = False,
+        social_identities: list[Any] | None = None,
     ) -> None:
         self.connections = connections or []
         self.users = users or []
         self.deletion_record = deletion_record
         self.raise_on_erasure = raise_on_erasure
+        self.social_identities = social_identities or []
         self.added: list[Any] = []
+        self.deleted: list[Any] = []
         self.committed = False
         self.rolled_back = False
         self.savepoint_rolled_back = False
@@ -209,6 +213,9 @@ class FakeSession:
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)
+
+    async def delete(self, obj: Any) -> None:
+        self.deleted.append(obj)
 
     async def flush(self) -> None:
         return None
@@ -240,6 +247,8 @@ class FakeSession:
             return _Result(rows=self.users)
         if entity is MetaDataDeletionRequest:
             return _Result(scalar=self.deletion_record)
+        if entity is UserSocialIdentity:
+            return _Result(rows=self.social_identities)
         raise AssertionError(f"unexpected query entity: {entity}")
 
 
@@ -589,6 +598,89 @@ def test_data_deletion_persists_the_request_record(
     assert record.connections_cleared == 1
     assert record.tenant_id == TENANT_ID
     assert session.committed is True
+
+
+def _make_social_identity(identity_id: int = 11) -> SimpleNamespace:
+    """A stored "Log in with Facebook" link for :data:`META_USER_ID`."""
+    return SimpleNamespace(
+        id=identity_id,
+        user_id=GRANTING_USER_ID,
+        tenant_id=TENANT_ID,
+        provider=SocialProvider.FACEBOOK,
+        provider_user_id=META_USER_ID,
+        granted_scopes=["public_profile", "email"],
+    )
+
+
+def test_data_deletion_removes_the_facebook_login_link(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sign-in link stores the same ASID, so it is Meta-derived data too."""
+    identity = _make_social_identity()
+    session = _bind(
+        monkeypatch,
+        FakeSession(
+            connections=[_make_connection()],
+            users=[_make_user()],
+            social_identities=[identity],
+        ),
+    )
+
+    client.post(DATA_DELETION_URL, data={"signed_request": _signed_request()})
+
+    assert session.deleted == [identity]
+
+
+def test_data_deletion_audits_the_removed_login_link(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An erasure that leaves no trace cannot be shown to have happened."""
+    session = _bind(
+        monkeypatch,
+        FakeSession(
+            connections=[],
+            users=[],
+            social_identities=[_make_social_identity()],
+        ),
+    )
+
+    body = client.post(
+        DATA_DELETION_URL, data={"signed_request": _signed_request()}
+    ).json()
+
+    logs = [
+        log
+        for log in session.added_of(AuditLog)
+        if log.resource_type == "user_social_identity"
+    ]
+    assert len(logs) == 1
+    assert logs[0].action == AuditAction.DELETE
+    assert logs[0].tenant_id == TENANT_ID
+    # Attributed to Meta, not to a Stratum user - nobody signed in to do this.
+    assert logs[0].user_id is None
+    assert logs[0].new_value["confirmation_code"] == body["confirmation_code"]
+
+
+def test_deauthorize_keeps_the_facebook_login_link(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deauthorizing disconnects; it does not ask to be forgotten.
+
+    The token stops verifying at Meta on its own, so keeping the row grants no
+    access - and re-adding the app then lands the person back in the workspace
+    they already have instead of silently provisioning a second one.
+    """
+    identity = _make_social_identity()
+    session = _bind(
+        monkeypatch,
+        FakeSession(
+            connections=[_make_connection()], social_identities=[identity]
+        ),
+    )
+
+    client.post(DEAUTHORIZE_URL, data={"signed_request": _signed_request()})
+
+    assert session.deleted == []
 
 
 def test_data_deletion_severs_the_connection_and_wipes_its_tokens(

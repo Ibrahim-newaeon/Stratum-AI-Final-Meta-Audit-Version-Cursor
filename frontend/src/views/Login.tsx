@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '@/contexts/AuthContext';
 import { pageSEO, SEO } from '@/components/common/SEO';
+import FacebookLoginButton from '@/components/auth/FacebookLoginButton';
 
 // Stratum Theme v4.0 - Trust-Gated Autopilot
 const theme = {
@@ -64,7 +65,7 @@ const HUDCorner = ({ position }: { position: 'top-left' | 'top-right' | 'bottom-
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, loginWithFacebook } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -86,6 +87,30 @@ export default function Login() {
         navigate(from, { replace: true });
       } else {
         setError(result.error || 'Login failed');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Exchange the token Facebook's JS SDK produced for a Stratum session.
+   *
+   * Shares the page's single error slot and the same post-login redirect as the
+   * password form, so the two routes cannot drift apart.
+   */
+  const handleFacebookToken = async (facebookAccessToken: string) => {
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const result = await loginWithFacebook(facebookAccessToken);
+      if (result.success) {
+        navigate(from, { replace: true });
+      } else {
+        setError(result.error || 'Facebook sign-in failed');
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -442,6 +467,22 @@ export default function Login() {
                 )}
               </button>
             </form>
+
+            {/* Renders only when the deployment has Facebook Login configured;
+                otherwise the component returns null and no Meta script loads. */}
+            <div className="mt-5">
+              <FacebookLoginButton
+                onToken={handleFacebookToken}
+                onError={setError}
+                disabled={isLoading}
+                theme={{
+                  textPrimary: theme.textPrimary,
+                  textMuted: theme.textMuted,
+                  border: theme.border,
+                  bgCard: theme.bgCard,
+                }}
+              />
+            </div>
 
             <div className="mt-6 pt-6" style={{ borderTop: `1px solid ${theme.border}` }}>
               <p className="text-center text-xs mb-3" style={{ color: theme.textMuted }}>

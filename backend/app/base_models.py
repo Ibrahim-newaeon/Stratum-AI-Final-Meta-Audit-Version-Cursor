@@ -274,6 +274,17 @@ class User(Base, TimestampMixin, SoftDeleteMixin, TenantMixin):
     email: Mapped[str] = mapped_column(String(255), nullable=False)  # Encrypted
     email_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # For lookups
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # False only for an account provisioned by social sign-in (see
+    # app.models.social_identity). Such a row still carries a password_hash -
+    # the column is NOT NULL and bcrypt.checkpw raises on a non-hash - but it is
+    # a random one nobody holds, so password login can never succeed against it.
+    # This flag is what tells "no password was ever chosen" apart from "the
+    # password simply does not match", which /auth/facebook/link needs before it
+    # will unlink the person's only way in. Set by the password reset and change
+    # flows the moment a real password is chosen.
+    has_usable_password: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     # Profile (PII - encrypted)
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

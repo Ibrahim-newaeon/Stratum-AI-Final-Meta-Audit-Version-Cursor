@@ -49,6 +49,14 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/auth/resend-verification",
     "/api/v1/auth/whatsapp/send-otp",
     "/api/v1/auth/whatsapp/verify-otp",
+    # "Log in with Facebook". /facebook/config only reports whether the button
+    # should render and with which public app id; /facebook exchanges the
+    # browser's Facebook access token for Stratum tokens and is authenticated by
+    # that token, which app.services.meta.login_client verifies against our own
+    # app id before any account is touched. The authenticated link-management
+    # routes (/api/v1/auth/facebook/link) are deliberately NOT listed here.
+    "/api/v1/auth/facebook/config",
+    "/api/v1/auth/facebook",
     # Key-only CDP ingest for server-side GTM containers (Measurement & Verification).
     # Authenticates with X-Source-Key; the endpoint derives the tenant from the
     # CDP source itself and never reads request.state.tenant_id.

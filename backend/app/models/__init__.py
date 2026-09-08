@@ -200,6 +200,12 @@ from app.models.meta_privacy import (
     MetaDataDeletionRequest,
 )
 
+# Social login identities (Facebook Login)
+from app.models.social_identity import (
+    SocialProvider,
+    UserSocialIdentity,
+)
+
 # Onboarding models
 from app.models.onboarding import (
     AutomationMode,
@@ -489,4 +495,7 @@ __all__ = [
     "TokenStatus",
     "WidgetSize",
     "WidgetType",
+    # Social login identity models
+    "SocialProvider",
+    "UserSocialIdentity",
 ]

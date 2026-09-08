@@ -78,6 +78,7 @@ from app.models.campaign_builder import (
     ConnectionStatus,
     TenantPlatformConnection,
 )
+from app.models.social_identity import SocialProvider, UserSocialIdentity
 from app.services.meta.signed_request import SignedRequestError, parse_signed_request
 
 logger = get_logger(__name__)
@@ -478,6 +479,65 @@ def build_status_url(request: Request, confirmation_code: str) -> str:
     return f"{base}{path}?code={confirmation_code}"
 
 
+async def forget_login_identities(
+    db: AsyncSession, meta_user_id: str, confirmation_code: str
+) -> int:
+    """
+    Delete the "Log in with Facebook" links held for one Meta user.
+
+    ``user_social_identity`` stores the same app-scoped id this callback names,
+    so it is Meta-derived data about the person asking to be forgotten and it
+    goes when they ask. The Stratum account itself is left exactly as the module
+    docstring describes - untouched and still usable - it simply loses its
+    Facebook sign-in route. Where that route was the account's only one, the
+    password reset flow remains, which is why the deletion is safe to perform
+    from an unauthenticated callback while deactivating the account would not be.
+
+    This runs **only** for a data deletion request, never for a deauthorize.
+    That mirrors the ``forget_platform_user_id`` split above: deauthorizing asks
+    to disconnect, and a person who later re-adds the app should land back in the
+    workspace they already have rather than silently provisioning a second one.
+    A deauthorized token stops verifying at Meta on its own, so keeping the row
+    grants no access in the meantime.
+
+    Nothing is committed here; the caller owns the transaction.
+
+    Args:
+        db: Open async session
+        meta_user_id: App-scoped Meta user id from the verified request
+        confirmation_code: Recorded on the audit row for traceability
+
+    Returns:
+        How many links were deleted (0 is the normal case)
+    """
+    result = await db.execute(
+        select(UserSocialIdentity).where(
+            UserSocialIdentity.provider == SocialProvider.FACEBOOK,
+            UserSocialIdentity.provider_user_id == meta_user_id,
+        )
+    )
+    identities = list(result.scalars().all())
+
+    for identity in identities:
+        db.add(
+            AuditLog(
+                tenant_id=identity.tenant_id,
+                user_id=None,  # Meta acted, not a Stratum user
+                action=AuditAction.DELETE,
+                resource_type="user_social_identity",
+                resource_id=str(identity.id),
+                new_value={
+                    "provider": SocialProvider.FACEBOOK.value,
+                    "reason": REASON_DATA_DELETION,
+                    "confirmation_code": confirmation_code,
+                },
+            )
+        )
+        await db.delete(identity)
+
+    return len(identities)
+
+
 async def erase_meta_user(
     db: AsyncSession, meta_user_id: str, confirmation_code: str
 ) -> list[TenantPlatformConnection]:
@@ -516,6 +576,8 @@ async def erase_meta_user(
             forget_platform_user_id=True,
             audit_context={"confirmation_code": confirmation_code},
         )
+
+    await forget_login_identities(db, meta_user_id, confirmation_code)
 
     return connections
 

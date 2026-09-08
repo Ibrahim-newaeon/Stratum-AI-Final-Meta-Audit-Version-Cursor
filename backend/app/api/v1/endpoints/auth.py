@@ -601,7 +601,9 @@ async def login_with_mfa(
         resource_id=str(user.id),
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("User-Agent", "")[:500],
-        details={"mfa_verified": True},
+        # AuditLog's JSONB context column is `new_value`; there is no `details`
+        # attribute, so passing one raised TypeError and broke every MFA login.
+        new_value={"mfa_verified": True},
     )
     db.add(audit_log)
     await db.commit()
@@ -1160,6 +1162,10 @@ async def reset_password(
 
     # Update password
     user.password_hash = get_password_hash(reset_data.new_password)
+    # The account now has a password its owner chose. For a social sign-in
+    # account this is the moment it stops depending on Facebook alone, so
+    # unlinking Facebook is no longer a lockout (see auth_facebook.unlink).
+    user.has_usable_password = True
     await db.commit()
 
     logger.info("password_reset_completed", user_id=user.id)
@@ -1198,6 +1204,9 @@ async def change_password(
 
     # Update password
     current_user.user.password_hash = get_password_hash(change_data.new_password)
+    # Reaching here required the current password, so the flag was already True;
+    # it is set anyway so "a password was chosen" is asserted wherever one is.
+    current_user.user.has_usable_password = True
     await db.commit()
 
     logger.info("password_changed", user_id=current_user.id)

@@ -191,6 +191,92 @@ when `APP_ENV=production`.
 
 ---
 
+## "Log in with Facebook" (authentication, not activation)
+
+Signing in with a Facebook account is a **sign-in method**, not an integration with an ad account. It
+reuses `META_APP_ID` / `META_APP_SECRET` because a person signs in to the same Meta app Stratum already
+is, but it is otherwise entirely separate from the OAuth flow above: it asks for `public_profile` and
+`email`, reads two Graph endpoints, and grants no `ads_read` and no `ads_management`. It creates no
+`tenant_platform_connection` row and appears in no platform enum.
+
+It is **off by default** (`FACEBOOK_LOGIN_ENABLED=false`).
+
+### The flow
+
+1. The SPA calls `GET /api/v1/auth/facebook/config`. When it answers `enabled: false` the button does
+   not render and Meta's script is never loaded. The response carries only public values - app id,
+   Graph version, scopes, optional `config_id`. The app secret is not in it.
+2. `frontend/src/lib/facebookSdk.ts` injects `connect.facebook.net/en_US/sdk.js` **on demand** and calls
+   `FB.init` once. The script is deliberately not in `frontend/public/*.html`, for the same reason
+   Paddle.js is not: a tag there runs for every visitor of the marketing site whether or not the feature
+   is on.
+3. `FB.getLoginStatus` is checked first, so an already-connected person skips the dialog; otherwise
+   `FB.login` opens it with the configured scopes (or `config_id` for Facebook Login for Business).
+4. The SPA posts **only** `authResponse.accessToken` to `POST /api/v1/auth/facebook`. The browser's
+   `userID` is never sent, because it is not evidence of anything.
+
+### Why the server re-derives the identity
+
+The token arrives over a request the caller fully controls. A caller can post any string as a user id,
+and can post a *real* access token minted for a **different Facebook app** where they are the developer.
+So `backend/app/services/meta/login_client.py` calls `GET /debug_token` with the app access token and
+refuses the sign-in unless the token is valid, unexpired, of type `USER`, and **issued to our own app
+id**. It then reads `GET /me?fields=id,name,email` (with `appsecret_proof`) and requires the id to match
+the one `debug_token` reported. Both calls are GET; nothing is written to Meta.
+
+### Account resolution
+
+| Situation | Result |
+|---|---|
+| A `user_social_identity` row exists for the app-scoped id | Signed in to that account |
+| The email matches an existing active account | **409** by default. "Same email address" is not proof of "same person", so the account is claimed by signing in with its password and connecting Facebook from account settings - something only its controller can do. `FACEBOOK_LOGIN_AUTO_LINK_BY_EMAIL=true` accepts the trade-off instead. |
+| Nobody matches | A tenant and admin user are provisioned, mirroring `POST /auth/signup`, unless `FACEBOOK_LOGIN_ALLOW_SIGNUP=false` (then **403**) |
+
+A provisioned account carries a random bcrypt hash nobody holds and `users.has_usable_password=false`, so
+`POST /auth/login` can never sign into it with a password. That flag is also what stops
+`DELETE /api/v1/auth/facebook/link` from removing an account's only way in; setting a password through
+the reset flow clears the restriction.
+
+**MFA is not bypassed.** An account with TOTP enabled gets the same `mfa_required` + `mfa_session_token`
+answer a password login gets, completed by the existing `POST /api/v1/auth/login/mfa`.
+
+### Privacy callbacks
+
+`user_social_identity` stores the same app-scoped id the callbacks above carry. A **Data Deletion**
+request deletes the link (audited, attributed to Meta rather than a user). A **Deauthorize** callback
+deliberately does not: it asks to disconnect, not to erase, the deauthorized token stops verifying at
+Meta on its own, and keeping the row means re-adding the app returns the person to the workspace they
+already have instead of silently provisioning a second one. This mirrors the existing
+`forget_platform_user_id` split for connections.
+
+### Meta App Dashboard prerequisites
+
+| Setting | Why it matters |
+|---|---|
+| **Facebook Login > Settings > Allowed Domains for the JavaScript SDK** | Must list the exact origin the SPA is served from. When the list is non-empty and your origin is missing, `FB.login()` refuses to run - the button fails in the browser with nothing in the server logs. |
+| **App Review > `email` at Advanced Access** | At Standard Access the app can be live, but only people holding a role on the app get an email back. Everyone else provisions an account with no address, which stays unverified and cannot use password reset. |
+| **Deauthorize Callback URL** | Already required for `ads_read`; see the table above. |
+
+### Endpoints
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/auth/facebook/config` | public | Whether to render the button, and the public SDK configuration |
+| `POST /api/v1/auth/facebook` | public | Exchange a Facebook access token for Stratum tokens (or an MFA challenge) |
+| `GET /api/v1/auth/facebook/link` | authenticated | Whether the caller's own account has Facebook attached |
+| `POST /api/v1/auth/facebook/link` | authenticated | Attach Facebook to the caller's own account |
+| `DELETE /api/v1/auth/facebook/link` | authenticated | Detach it, refused when it is the only way in |
+
+The two public paths are listed in `PUBLIC_ENDPOINTS`; the three link routes are deliberately not,
+because they change an existing account and therefore require that account's session.
+
+**Key files**: `backend/app/services/meta/login_client.py` (Graph verification, GET only),
+`backend/app/api/v1/endpoints/auth_facebook.py` (endpoints and account resolution),
+`backend/app/models/social_identity.py` (`user_social_identity`),
+`frontend/src/lib/facebookSdk.ts`, `frontend/src/components/auth/FacebookLoginButton.tsx`.
+
+---
+
 ## Billing (Paddle Billing)
 
 Tenant subscriptions are billed through Paddle Billing as Merchant of Record: a thin httpx client over the

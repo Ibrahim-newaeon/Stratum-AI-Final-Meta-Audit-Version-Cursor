@@ -19,6 +19,8 @@ import {
 } from '@heroicons/react/24/outline';
 import { useSignup } from '@/api/auth';
 import { pageSEO, SEO } from '@/components/common/SEO';
+import { useAuth } from '@/contexts/AuthContext';
+import FacebookLoginButton from '@/components/auth/FacebookLoginButton';
 
 // Stratum Theme v4.0 - Trust-Gated Autopilot
 const theme = {
@@ -86,9 +88,14 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const { loginWithFacebook } = useAuth();
+  const [facebookError, setFacebookError] = useState('');
+  const [facebookPending, setFacebookPending] = useState(false);
+
   const registerMutation = useSignup();
-  const isLoading = registerMutation.isPending;
-  const apiError = registerMutation.error?.message;
+  const isLoading = registerMutation.isPending || facebookPending;
+  // One error slot for the page: whichever route failed most recently.
+  const apiError = facebookError || registerMutation.error?.message;
 
   const {
     register,
@@ -97,6 +104,32 @@ export default function Signup() {
   } = useForm<SignupForm>({
     resolver: zodResolver(signupSchema),
   });
+
+  /**
+   * Sign up (or sign in) with Facebook.
+   *
+   * The backend provisions a workspace the first time it sees the Facebook
+   * identity and signs the person straight in afterwards, so this lands on the
+   * dashboard rather than the "check your email" step the password form uses -
+   * there is no address to verify when Meta already confirmed one.
+   */
+  const handleFacebookToken = async (facebookAccessToken: string) => {
+    setFacebookError('');
+    setFacebookPending(true);
+
+    try {
+      const result = await loginWithFacebook(facebookAccessToken);
+      if (result.success) {
+        navigate('/dashboard/overview', { replace: true });
+      } else {
+        setFacebookError(result.error || 'Facebook sign-up failed');
+      }
+    } catch (err) {
+      setFacebookError('An unexpected error occurred');
+    } finally {
+      setFacebookPending(false);
+    }
+  };
 
   const onSubmit = async (data: SignupForm) => {
     registerMutation.mutate(
@@ -511,6 +544,22 @@ export default function Signup() {
                 )}
               </button>
             </form>
+
+            {/* Renders only when the deployment has Facebook Login configured. */}
+            <div className="mt-5">
+              <FacebookLoginButton
+                onToken={handleFacebookToken}
+                onError={setFacebookError}
+                disabled={isLoading}
+                label="Sign up with Facebook"
+                theme={{
+                  textPrimary: theme.textPrimary,
+                  textMuted: theme.textMuted,
+                  border: theme.border,
+                  bgCard: theme.bgCard,
+                }}
+              />
+            </div>
 
             {/* Login link */}
             <p className="text-center text-sm mt-6" style={{ color: theme.textMuted }}>
