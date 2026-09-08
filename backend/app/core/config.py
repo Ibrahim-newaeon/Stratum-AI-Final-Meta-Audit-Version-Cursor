@@ -346,6 +346,65 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # Facebook Login ("Log in with Facebook")
+    # -------------------------------------------------------------------------
+    # Sign-in only. This flow asks for public_profile/email, reads
+    # GET /debug_token and GET /me, and issues no other Meta call - it is
+    # unrelated to the ad-account OAuth in app/services/oauth/meta.py and grants
+    # no ads_read or ads_management. It reuses META_APP_ID / META_APP_SECRET,
+    # because a person signs in to the same Meta app that Stratum already is.
+    facebook_login_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable 'Log in with Facebook'. Off by default: it also needs "
+            "META_APP_ID and META_APP_SECRET, and the app needs Advanced "
+            "Access for the 'email' permission before the general public "
+            "(rather than only app roles) can use it."
+        ),
+    )
+    facebook_login_scopes: str = Field(
+        default="public_profile,email",
+        description=(
+            "Comma-separated permissions the login dialog requests. "
+            "public_profile is always granted; email may be declined by the "
+            "person, so the backend never assumes it came back."
+        ),
+    )
+    # Facebook Login for Business hands the dialog a saved configuration id
+    # instead of a scope list. Unset means the consumer Facebook Login dialog
+    # with the scopes above, which is what a website sign-in button wants.
+    facebook_login_config_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional Facebook Login for Business configuration id passed to "
+            "FB.login() as config_id. Unset uses the plain scope list."
+        ),
+    )
+    facebook_login_allow_signup: bool = Field(
+        default=True,
+        description=(
+            "Allow a Facebook identity nobody has seen before to provision a "
+            "new tenant and admin user, mirroring POST /auth/signup. False "
+            "restricts Facebook to signing in accounts that already linked it."
+        ),
+    )
+    # Account takeover boundary. Meta returns an email it considers confirmed,
+    # but "same email address" is still not proof of "same person" - anyone who
+    # can put an address on a Facebook profile could otherwise claim the
+    # Stratum account holding it, password and MFA bypassed entirely. Default
+    # off: an existing password account must be claimed by logging in with the
+    # password and linking Facebook from settings, which is a deliberate act by
+    # someone who already controls the account.
+    facebook_login_auto_link_by_email: bool = Field(
+        default=False,
+        description=(
+            "Automatically attach a Facebook sign-in to an existing password "
+            "account with the same email. Off by default - leaving it off "
+            "means the account must be linked from an authenticated session."
+        ),
+    )
+
+    # -------------------------------------------------------------------------
     # Meta Marketing API insights ingestion (READ-ONLY)
     # -------------------------------------------------------------------------
     # The nightly/hourly campaign sync pulls Ads Insights rows and writes them
