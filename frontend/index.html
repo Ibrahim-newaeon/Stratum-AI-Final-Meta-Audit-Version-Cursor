@@ -41,6 +41,15 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Stratum AI - Revenue Operating System" />
     <meta property="og:site_name" content="Stratum AI" />
+    <!-- fb:app_id ties a shared link back to the Meta app, and the Sharing
+         Debugger reports it as a missing required property without it. The app
+         id is a public value - the SPA already receives it from
+         GET /auth/facebook/config to initialise the JS SDK - so spelling it out
+         here leaks nothing. It is hardcoded rather than injected for the same
+         reason the URLs above are: Meta's crawler does not run the SPA, so the
+         value has to be in the served HTML. The secret that pairs with it,
+         META_APP_SECRET, stays server-side and appears nowhere in this bundle. -->
+    <meta property="fb:app_id" content="1510739363341814" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
