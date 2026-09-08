@@ -5,7 +5,7 @@
 Server-side verification of the access token the Facebook JS SDK hands the SPA.
 
 READ-ONLY BY CONSTRUCTION: like ``insights_client``, the only HTTP verb this
-module ever issues is GET. It reads two Graph endpoints and writes nothing to
+module ever issues is GET. It reads three Graph endpoints and writes nothing to
 Meta. The permissions involved are ``public_profile`` and ``email`` - it never
 requests, needs or uses ``ads_read`` or ``ads_management``, and it is entirely
 separate from the ad-account OAuth flow in ``app.services.oauth.meta``.
@@ -59,14 +59,41 @@ against this app from somewhere else. The app dashboard currently does not
 *require* it; sending it anyway costs nothing, and means turning "Require app
 secret" on later does not break this flow.
 
+Facebook Login for Business: the code flow
+------------------------------------------
+An app configured as **Facebook Login for Business** does not support the
+implicit flow. ``FB.login()`` there must be called with ``response_type: 'code'``
+and a ``config_id``, and Meta refuses ``response_type=token`` outright::
+
+    Invalid parameter: response_type must be a valid enum.
+    response_type=token is not supported in this flow.
+
+So the browser receives an **authorization code** rather than an access token,
+and :meth:`exchange_code_for_token` trades it for one server-side::
+
+    GET /{version}/oauth/access_token
+        ?client_id=<app id>&client_secret=<app secret>&code=<code>&redirect_uri=
+
+``redirect_uri`` is deliberately **empty**: that is what Meta requires for a code
+minted by the JS SDK, which had no redirect of its own. The code is single-use
+and short-lived, and the exchange needs the app secret, so it can only happen
+here - the browser never sees the secret and never sees the resulting token.
+
+Everything after the exchange is unchanged. The token this yields still goes
+through ``debug_token`` and ``/me`` with every check below applied, including
+the ``app_id`` comparison. The code flow changes how the token is *obtained*,
+never how it is *trusted*.
+
 Secret and token safety
 -----------------------
-The app secret is never placed in a URL, a query string, a log line or an
-exception message: the app access token goes in an ``Authorization: Bearer``
-header, and :meth:`_redact` scrubs both the secret and the user token out of any
-message built from a Graph response. ``FacebookLoginError`` messages are short,
-fixed strings; the Graph error body is logged at debug level after redaction and
-is never returned to the caller.
+The app secret appears in exactly one place: the query string of the
+``/oauth/access_token`` call above, over TLS, because Meta's endpoint accepts it
+no other way. It is in no other URL, and in no log line or exception message -
+the app access token goes in an ``Authorization: Bearer`` header, ``_get`` logs
+the bare path rather than the query string, and :meth:`_redact` scrubs both the
+secret and the user token out of any message built from a Graph response.
+``FacebookLoginError`` messages are short, fixed strings; the Graph error body is
+logged at debug level after redaction and is never returned to the caller.
 """
 
 from __future__ import annotations
@@ -355,6 +382,53 @@ class MetaLoginClient:
 
     # ------------------------------------------------------------------- API
 
+    async def exchange_code_for_token(self, code: str) -> str:
+        """
+        Trade a Facebook Login for Business authorization code for a token.
+
+        Args:
+            code: ``authResponse.code`` produced by ``FB.login()`` when it was
+                called with ``response_type: 'code'`` and a ``config_id``.
+
+        Returns:
+            The user access token Meta minted for that code.
+
+        Raises:
+            FacebookLoginError: When the code is empty, or Meta refuses the
+                exchange (already used, expired, or issued to another app).
+        """
+        value = (code or "").strip()
+        if not value:
+            raise FacebookLoginError(
+                "missing_code", "No Facebook sign-in code supplied"
+            )
+
+        payload = await self._get(
+            "/oauth/access_token",
+            {
+                "client_id": self._app_id,
+                "client_secret": self._app_secret,
+                "code": value,
+                # Empty on purpose: a code minted by the JS SDK has no redirect
+                # of its own, and Meta rejects the exchange if one is supplied.
+                "redirect_uri": "",
+            },
+            # This endpoint authenticates by client_secret in the query string;
+            # there is no bearer form of it. Sending the app access token as
+            # well costs nothing and keeps _get's contract uniform.
+            bearer=self._app_access_token,
+            user_token=value,
+            reason="code_exchange_failed",
+        )
+
+        token = str(payload.get("access_token", "")).strip()
+        if not token:
+            logger.warning("facebook_login_code_exchange_empty")
+            raise FacebookLoginError(
+                "code_exchange_failed", "Facebook rejected the sign-in"
+            )
+        return token
+
     async def verify_access_token(self, access_token: str) -> FacebookTokenInfo:
         """
         Inspect a browser-supplied access token and prove it belongs to this app.
@@ -502,3 +576,23 @@ class MetaLoginClient:
         """
         token_info = await self.verify_access_token(access_token)
         return await self.fetch_profile(access_token, token_info)
+
+    async def verify_and_fetch_profile_from_code(self, code: str) -> FacebookProfile:
+        """
+        Exchange a Login-for-Business code, then verify what it yields.
+
+        The exchange is only how the token is obtained. Every check
+        :meth:`verify_access_token` applies still runs against it, so a code
+        flow is no more trusted than a token flow.
+
+        Args:
+            code: ``authResponse.code`` from the JS SDK.
+
+        Returns:
+            The verified profile.
+
+        Raises:
+            FacebookLoginError: When the exchange or any later check fails.
+        """
+        access_token = await self.exchange_code_for_token(code)
+        return await self.verify_and_fetch_profile(access_token)

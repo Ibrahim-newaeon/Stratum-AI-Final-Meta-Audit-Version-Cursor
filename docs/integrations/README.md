@@ -210,10 +210,35 @@ It is **off by default** (`FACEBOOK_LOGIN_ENABLED=false`).
    `FB.init` once. The script is deliberately not in `frontend/public/*.html`, for the same reason
    Paddle.js is not: a tag there runs for every visitor of the marketing site whether or not the feature
    is on.
-3. `FB.getLoginStatus` is checked first, so an already-connected person skips the dialog; otherwise
-   `FB.login` opens it with the configured scopes (or `config_id` for Facebook Login for Business).
-4. The SPA posts **only** `authResponse.accessToken` to `POST /api/v1/auth/facebook`. The browser's
-   `userID` is never sent, because it is not evidence of anything.
+3. On **classic Facebook Login**, `FB.getLoginStatus` is checked first so an already-connected person
+   skips the dialog; otherwise `FB.login` opens it with the configured scopes. On **Facebook Login for
+   Business** (`config_id` present) the dialog always opens: `getLoginStatus` can only return an access
+   token, and that flow needs a single-use code, so there is nothing to reuse.
+4. The SPA posts **only** the credential to `POST /api/v1/auth/facebook` - `code` on Login for Business,
+   `access_token` on classic login, exactly one of the two. The browser's `userID` is never sent,
+   because it is not evidence of anything.
+
+### The two flows, and why the app decides
+
+A Meta app configured as **Facebook Login for Business** does not support the implicit flow. `FB.login`
+must be called with a `config_id` and `response_type: 'code'`; the default `token` is refused before the
+dialog renders:
+
+```text
+Invalid parameter: response_type must be a valid enum.
+response_type=token is not supported in this flow.
+```
+
+So the browser holds an authorization code, and `MetaLoginClient.exchange_code_for_token` redeems it
+server-side with `GET /oauth/access_token` (`client_id`, `client_secret`, `code`, and an **empty**
+`redirect_uri`, which is what Meta requires for a code minted by the JS SDK). The app secret never
+reaches the browser and neither does the resulting token.
+
+The exchange changes only how the token is *obtained*. Every check below still runs against it, so a
+code flow is trusted exactly as much as a token flow - which is to say, not at all until Meta confirms
+it. Whether a deployment is on one flow or the other is set by `FACEBOOK_LOGIN_CONFIG_ID`, which must
+match the app's configuration in the Meta dashboard; a `config_id` on a classic app, or none on a
+Login-for-Business app, fails the dialog.
 
 ### Why the server re-derives the identity
 
@@ -222,7 +247,7 @@ and can post a *real* access token minted for a **different Facebook app** where
 So `backend/app/services/meta/login_client.py` calls `GET /debug_token` with the app access token and
 refuses the sign-in unless the token is valid, unexpired, of type `USER`, and **issued to our own app
 id**. It then reads `GET /me?fields=id,name,email` (with `appsecret_proof`) and requires the id to match
-the one `debug_token` reported. Both calls are GET; nothing is written to Meta.
+the one `debug_token` reported. Every call is GET; nothing is written to Meta.
 
 ### Account resolution
 

@@ -61,7 +61,7 @@ import secrets
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -147,14 +147,42 @@ class FacebookLoginConfigResponse(BaseModel):
 
 
 class FacebookLoginRequest(BaseModel):
-    """The short-lived access token ``FB.login()`` handed the browser."""
+    """
+    The short-lived credential ``FB.login()`` handed the browser.
 
-    access_token: str = Field(
-        ...,
+    Which of the two arrives depends on how the Meta app is configured, not on
+    anything the caller chooses:
+
+    - **Facebook Login for Business** must use ``response_type: 'code'``, so the
+      browser gets ``authResponse.code`` and sends ``code``. The app secret is
+      needed to redeem it, so the exchange happens server-side.
+    - **Classic Facebook Login** yields ``authResponse.accessToken`` and sends
+      ``access_token``.
+
+    Exactly one must be present. Neither is trusted on arrival: both end up in
+    the same ``debug_token`` + ``/me`` verification, including the check that
+    the token was minted for *our* app.
+    """
+
+    access_token: str | None = Field(
+        None,
         min_length=20,
         max_length=1024,
         description="authResponse.accessToken from the Facebook JS SDK",
     )
+    code: str | None = Field(
+        None,
+        min_length=8,
+        max_length=1024,
+        description="authResponse.code from Facebook Login for Business",
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_credential(self) -> FacebookLoginRequest:
+        """Reject a body carrying both credentials, or neither."""
+        if bool(self.access_token) == bool(self.code):
+            raise ValueError("Supply exactly one of 'access_token' or 'code'")
+        return self
 
 
 class FacebookLinkStatusResponse(BaseModel):
@@ -207,23 +235,27 @@ def _login_client() -> MetaLoginClient:
         ) from exc
 
 
-async def _verified_profile(access_token: str) -> FacebookProfile:
+async def _verified_profile(login_data: FacebookLoginRequest) -> FacebookProfile:
     """
-    Turn a browser access token into an identity Meta vouches for.
+    Turn a browser credential into an identity Meta vouches for.
 
     Args:
-        access_token: ``authResponse.accessToken`` from the JS SDK.
+        login_data: The request body, carrying exactly one of ``code``
+            (Facebook Login for Business) or ``access_token`` (classic login).
+            The schema has already rejected a body with both or neither.
 
     Returns:
         The verified profile.
 
     Raises:
-        HTTPException: 401 when the token does not verify, 502 when Graph could
-            not be reached (the caller may legitimately retry that one).
+        HTTPException: 401 when the credential does not verify, 502 when Graph
+            could not be reached (the caller may legitimately retry that one).
     """
     client = _login_client()
     try:
-        return await client.verify_and_fetch_profile(access_token)
+        if login_data.code:
+            return await client.verify_and_fetch_profile_from_code(login_data.code)
+        return await client.verify_and_fetch_profile(login_data.access_token or "")
     except FacebookLoginError as exc:
         logger.info("facebook_login_rejected", reason=exc.reason)
         if exc.reason == "graph_unreachable":
@@ -587,7 +619,7 @@ async def login_with_facebook(
             authenticated session; 429 when MFA lockout applies; 502/503 for
             Graph and configuration failures.
     """
-    profile = await _verified_profile(login_data.access_token)
+    profile = await _verified_profile(login_data)
 
     identity = await _find_identity(db, profile.user_id)
     user: User | None = None
@@ -770,7 +802,7 @@ async def link_facebook(
             already linked a different Facebook account, or when this Facebook
             account is attached to somebody else.
     """
-    profile = await _verified_profile(login_data.access_token)
+    profile = await _verified_profile(login_data)
 
     existing_for_user = await _find_identity_for_user(db, current_user.id)
     if existing_for_user is not None:

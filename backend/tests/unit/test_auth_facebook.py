@@ -197,7 +197,7 @@ def profile(email: str | None = EMAIL) -> FacebookProfile:
 def patch_verification(result: Any):
     """Replace Graph verification with a fixed profile or exception."""
 
-    async def _verified(_token: str) -> FacebookProfile:
+    async def _verified(_login_data: Any) -> FacebookProfile:
         if isinstance(result, Exception):
             raise result
         return result
@@ -295,7 +295,7 @@ class TestFacebookSignIn:
         session = FakeSession()
         error = FacebookLoginError("wrong_app", "Facebook rejected the sign-in")
 
-        async def _raise(_token: str):
+        async def _raise(_login_data: Any):
             raise auth_facebook.HTTPException(status_code=401, detail=str(error))
 
         with enabled_settings(), patch.object(
@@ -538,3 +538,84 @@ class TestHelpers:
     async def test_slug_falls_back_when_the_name_has_no_alphanumerics(self):
         session = FakeSession(tenants=[])
         assert await auth_facebook._unique_tenant_slug(session, "!!!") == "workspace"
+
+
+# =============================================================================
+# Credential shape
+# =============================================================================
+class TestCredentialShape:
+    """
+    Which credential arrives is decided by the Meta app, not by the caller.
+
+    A Facebook Login for Business app rejects ``response_type=token`` outright,
+    so its browser only ever holds a single-use ``code``. Accepting both shapes
+    is what lets the same endpoint serve either app configuration - but exactly
+    one of them, so a caller cannot supply a code and hope the token is trusted
+    instead.
+    """
+
+    def test_a_code_is_routed_to_the_exchange(self):
+        seen: dict[str, str] = {}
+
+        class _Client:
+            async def verify_and_fetch_profile_from_code(self, code: str):
+                seen["code"] = code
+                return profile()
+
+            async def verify_and_fetch_profile(self, token: str):
+                raise AssertionError("a code must not take the token path")
+
+            async def aclose(self) -> None:
+                return None
+
+        user = make_user()
+        session = FakeSession(identities=[make_identity()], users=[user])
+        with enabled_settings(), no_mfa(), patch.object(
+            auth_facebook, "_login_client", lambda: _Client()
+        ):
+            response = TestClient(build_app(session)).post(
+                LOGIN_URL, json={"code": "AQD-authorization-code"}
+            )
+        assert response.status_code == 200
+        assert seen["code"] == "AQD-authorization-code"
+
+    def test_an_access_token_is_routed_to_the_direct_verification(self):
+        seen: dict[str, str] = {}
+
+        class _Client:
+            async def verify_and_fetch_profile_from_code(self, code: str):
+                raise AssertionError("a token must not take the code path")
+
+            async def verify_and_fetch_profile(self, token: str):
+                seen["token"] = token
+                return profile()
+
+            async def aclose(self) -> None:
+                return None
+
+        user = make_user()
+        session = FakeSession(identities=[make_identity()], users=[user])
+        with enabled_settings(), no_mfa(), patch.object(
+            auth_facebook, "_login_client", lambda: _Client()
+        ):
+            response = TestClient(build_app(session)).post(
+                LOGIN_URL, json={"access_token": TOKEN}
+            )
+        assert response.status_code == 200
+        assert seen["token"] == TOKEN
+
+    def test_both_credentials_at_once_is_refused(self):
+        session = FakeSession()
+        with enabled_settings(), patch_verification(profile()), no_mfa():
+            response = TestClient(build_app(session)).post(
+                LOGIN_URL, json={"access_token": TOKEN, "code": "AQD-code"}
+            )
+        assert response.status_code == 422
+        assert session.added == []
+
+    def test_neither_credential_is_refused(self):
+        session = FakeSession()
+        with enabled_settings(), patch_verification(profile()), no_mfa():
+            response = TestClient(build_app(session)).post(LOGIN_URL, json={})
+        assert response.status_code == 422
+        assert session.added == []

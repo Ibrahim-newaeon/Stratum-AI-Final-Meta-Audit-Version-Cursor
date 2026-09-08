@@ -4,6 +4,7 @@
  */
 
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import type { FacebookCredential } from '@/lib/facebookSdk';
 
 export interface User {
   id: string;
@@ -43,7 +44,7 @@ interface AuthContextType {
    * app before it resolves an account. Nothing the SDK reports about who the
    * person is — `userID` in particular — is sent or trusted here.
    */
-  loginWithFacebook: (facebookAccessToken: string) => Promise<LoginResult>;
+  loginWithFacebook: (credential: FacebookCredential) => Promise<LoginResult>;
   logout: () => void;
   updateUser: (userData: Partial<User>) => void;
 }
@@ -186,16 +187,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loginWithFacebook = async (facebookAccessToken: string): Promise<LoginResult> => {
+  const loginWithFacebook = async (credential: FacebookCredential): Promise<LoginResult> => {
     try {
       const response = await fetch('/api/v1/auth/facebook', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        // Only the access token is sent. The SDK's `userID` is not evidence of
-        // anything - the backend re-derives the identity from Meta itself.
-        body: JSON.stringify({ access_token: facebookAccessToken }),
+        // Only the credential is sent - a Login-for-Business `code` or a
+        // classic `access_token`. The SDK's `userID` is not evidence of
+        // anything, so the backend re-derives the identity from Meta itself.
+        body: JSON.stringify(credential),
       });
 
       const data = await response.json();
