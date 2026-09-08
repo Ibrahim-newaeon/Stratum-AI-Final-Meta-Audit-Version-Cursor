@@ -12,6 +12,14 @@ Paddle Billing (merchant of record) needs Paddle.js from ``cdn.paddle.com``
 (``script-src``) and the checkout / API hosts ``*.paddle.com`` in
 ``connect-src`` and ``frame-src``. No other payment-gateway host may appear.
 
+"Log in with Facebook" needs Meta's JS SDK: ``connect.facebook.net`` in
+``script-src``, the ``staticxx.facebook.com`` cross-domain iframe in
+``frame-src``, and ``graph``/``www.facebook.com`` in ``connect-src``. All three
+are asserted because omitting any one breaks the button with a console-only
+error and nothing server-side to see. Facebook here is **authentication**, not
+an ad-platform integration - ``test_no_ad_platform_hosts_are_allowed`` still
+guards that boundary.
+
 Covers:
 - ``app.middleware.security`` (production + development policies, via build_csp
   and via the middleware with ``settings.is_production`` patched)
@@ -56,6 +64,10 @@ FORBIDDEN_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"]
 PADDLE_SCRIPT_HOST = "https://cdn.paddle.com"
 PADDLE_WILDCARD_HOST = "https://*.paddle.com"
 
+FACEBOOK_SCRIPT_HOST = "https://connect.facebook.net"
+FACEBOOK_FRAME_HOSTS = ["https://www.facebook.com", "https://staticxx.facebook.com"]
+FACEBOOK_CONNECT_HOSTS = ["https://graph.facebook.com", "https://www.facebook.com"]
+
 # Every third-party source allowed in script-src / connect-src / frame-src must
 # belong to one of these (host suffixes) - this is how we assert that no former
 # payment-gateway host survives in any policy.
@@ -66,6 +78,8 @@ ALLOWED_HOST_SUFFIXES = (
     "analytics.google.com",
     "sentry.io",
     "paddle.com",
+    "connect.facebook.net",
+    "facebook.com",
     "localhost:*",
     "127.0.0.1:*",
 )
@@ -110,6 +124,23 @@ def _assert_paddle_hosts(csp: str) -> None:
     assert "frame-src" in directives, f"frame-src missing: {csp}"
     assert "'self'" in directives["frame-src"], csp
     assert PADDLE_WILDCARD_HOST in directives["frame-src"], csp
+
+
+def _assert_facebook_login_hosts(csp: str) -> None:
+    """Meta's JS SDK is allowed in every directive it actually needs.
+
+    Each of the three is load-bearing: without ``script-src`` the SDK never
+    loads, without ``frame-src`` its cross-domain iframe is blocked, and without
+    ``connect-src`` its status calls fail. All three fail in the browser console
+    only, so a missing one is invisible server-side.
+    """
+    directives = _directives(csp)
+
+    assert FACEBOOK_SCRIPT_HOST in directives["script-src"], csp
+    for host in FACEBOOK_FRAME_HOSTS:
+        assert host in directives["frame-src"], f"{host} missing from frame-src: {csp}"
+    for host in FACEBOOK_CONNECT_HOSTS:
+        assert host in directives["connect-src"], f"{host} missing: {csp}"
 
 
 def _assert_only_allowed_third_parties(csp: str) -> None:
@@ -169,7 +200,7 @@ class TestBuildCsp:
         csp = build_csp(production=False)
         _assert_paddle_hosts(csp)
         _assert_only_allowed_third_parties(csp)
-        assert _directives(csp)["frame-src"] == ["'self'", PADDLE_WILDCARD_HOST]
+        assert _directives(csp)["frame-src"][:2] == ["'self'", PADDLE_WILDCARD_HOST]
 
     def test_paddle_hosts_identical_in_both_policies(self) -> None:
         prod = _directives(build_csp(production=True))
@@ -178,6 +209,25 @@ class TestBuildCsp:
             prod_paddle = {s for s in prod[directive] if "paddle.com" in s}
             dev_paddle = {s for s in dev[directive] if "paddle.com" in s}
             assert prod_paddle == dev_paddle, directive
+
+    def test_production_policy_allows_facebook_login_hosts(self) -> None:
+        csp = build_csp(production=True)
+        _assert_facebook_login_hosts(csp)
+        _assert_only_allowed_third_parties(csp)
+
+    def test_development_policy_allows_facebook_login_hosts(self) -> None:
+        csp = build_csp(production=False)
+        _assert_facebook_login_hosts(csp)
+        _assert_only_allowed_third_parties(csp)
+
+    def test_facebook_hosts_identical_in_both_policies(self) -> None:
+        """A host allowed in one policy and not the other breaks only in one env."""
+        prod = _directives(build_csp(production=True))
+        dev = _directives(build_csp(production=False))
+        for directive in ("script-src", "connect-src", "frame-src"):
+            prod_fb = {s for s in prod[directive] if "facebook" in s}
+            dev_fb = {s for s in dev[directive] if "facebook" in s}
+            assert prod_fb == dev_fb, directive
 
     def test_no_ad_platform_hosts_are_allowed(self) -> None:
         """GA4/GTM are measurement-only; no Google Ads / TikTok / Snap hosts sneak in."""
@@ -206,6 +256,7 @@ class TestSecurityHeadersMiddleware:
         csp = response.headers["Content-Security-Policy"]
         _assert_measurement_hosts(csp)
         _assert_paddle_hosts(csp)
+        _assert_facebook_login_hosts(csp)
         assert csp == build_csp(production=True)
         assert "Strict-Transport-Security" in response.headers
         assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -221,6 +272,7 @@ class TestSecurityHeadersMiddleware:
         csp = response.headers["Content-Security-Policy"]
         _assert_measurement_hosts(csp)
         _assert_paddle_hosts(csp)
+        _assert_facebook_login_hosts(csp)
         assert csp == build_csp(production=False)
         assert "Strict-Transport-Security" not in response.headers
 
@@ -279,3 +331,10 @@ class TestNginxCsp:
         csp = self._nginx_csp()
         _assert_paddle_hosts(csp)
         _assert_only_allowed_third_parties(csp)
+
+    @pytest.mark.skipif(
+        not NGINX_CONF.exists(), reason="frontend/nginx.conf not present"
+    )
+    def test_nginx_csp_allows_facebook_login_hosts(self) -> None:
+        """nginx serves the SPA, so its CSP - not the backend's - governs the button."""
+        _assert_facebook_login_hosts(self._nginx_csp())
