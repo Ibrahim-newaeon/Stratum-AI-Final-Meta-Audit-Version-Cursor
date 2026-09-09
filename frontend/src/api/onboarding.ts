@@ -145,10 +145,18 @@ const onboardingApi = {
     return response.data.data;
   },
 
-  submitStep: async <T>(step: string, payload: T): Promise<OnboardingStepResponse> => {
+  /**
+   * Complete one wizard step.
+   *
+   * The step goes in the body, not the path: the API exposes a single
+   * `POST /onboarding/steps` taking `{ step, data }`. Posting to
+   * `/onboarding/steps/<step>` - which this used to do - is a 404, which the
+   * wizard surfaced as "Failed to save. Please try again."
+   */
+  submitStep: async <T>(step: OnboardingStep, payload: T): Promise<OnboardingStepResponse> => {
     const response = await apiClient.post<ApiResponse<OnboardingStepResponse>>(
-      `/onboarding/steps/${step}`,
-      payload
+      '/onboarding/steps',
+      { step, data: payload }
     );
     return response.data.data;
   },
@@ -187,7 +195,7 @@ export function useOnboardingCheck() {
   });
 }
 
-function useOnboardingStepMutation<T>(step: string) {
+function useOnboardingStepMutation<T>(step: OnboardingStep) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: T) => onboardingApi.submitStep<T>(step, payload),
@@ -202,23 +210,23 @@ function useOnboardingStepMutation<T>(step: string) {
 }
 
 export function useSubmitBusinessProfile() {
-  return useOnboardingStepMutation<BusinessProfilePayload>('business-profile');
+  return useOnboardingStepMutation<BusinessProfilePayload>('business_profile');
 }
 
 export function useSubmitPlatformSelection() {
-  return useOnboardingStepMutation<PlatformSelectionPayload>('platform-selection');
+  return useOnboardingStepMutation<PlatformSelectionPayload>('platform_selection');
 }
 
 export function useSubmitGoalsSetup() {
-  return useOnboardingStepMutation<GoalsSetupPayload>('goals-setup');
+  return useOnboardingStepMutation<GoalsSetupPayload>('goals_setup');
 }
 
 export function useSubmitAutomationPreferences() {
-  return useOnboardingStepMutation<AutomationPreferencesPayload>('automation-preferences');
+  return useOnboardingStepMutation<AutomationPreferencesPayload>('automation_preferences');
 }
 
 export function useSubmitTrustGateConfig() {
-  return useOnboardingStepMutation<TrustGateConfigPayload>('trust-gate-config');
+  return useOnboardingStepMutation<TrustGateConfigPayload>('trust_gate_config');
 }
 
 /** Skip the onboarding wizard entirely */

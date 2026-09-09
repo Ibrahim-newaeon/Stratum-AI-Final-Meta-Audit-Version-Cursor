@@ -8,6 +8,7 @@ Tracks a tenant's progress through the guided setup wizard
 (business profile -> platforms -> goals -> automation -> trust gate).
 """
 
+import math
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -26,6 +27,61 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 _STEP_ORDER = [step.value for step in OnboardingStep]
+
+#: What each wizard step is allowed to write, mapping the payload key the SPA
+#: sends to the column it lands in.
+#:
+#: This is an allowlist rather than a convenience. The previous implementation
+#: walked ``payload.data`` and called ``setattr`` for any name the model happened
+#: to have, excluding only ``id`` and ``tenant_id`` - so a caller could post
+#: ``{"status": "completed"}`` or rewrite ``completed_steps`` and skip the wizard
+#: outright. Naming the fields per step closes that and makes the two renames
+#: below explicit instead of silent.
+#:
+#: Three payload keys do not match their column, and every one of them used to be
+#: dropped without a word because the model has no attribute by that name:
+#: ``platforms``, ``target_cpa`` and ``monthly_budget``.
+_STEP_FIELDS: dict[OnboardingStep, dict[str, str]] = {
+    OnboardingStep.BUSINESS_PROFILE: {
+        "industry": "industry",
+        "industry_other": "industry_other",
+        "monthly_ad_spend": "monthly_ad_spend",
+        "team_size": "team_size",
+        "company_website": "company_website",
+        "target_markets": "target_markets",
+    },
+    OnboardingStep.PLATFORM_SELECTION: {
+        "platforms": "selected_platforms",
+    },
+    OnboardingStep.GOALS_SETUP: {
+        "primary_kpi": "primary_kpi",
+        "target_roas": "target_roas",
+        "target_cpa": "target_cpa_cents",
+        "monthly_budget": "monthly_budget_cents",
+        "currency": "currency",
+        "timezone": "timezone",
+    },
+    OnboardingStep.AUTOMATION_PREFERENCES: {
+        "automation_mode": "automation_mode",
+        "auto_pause_enabled": "auto_pause_enabled",
+        "auto_scale_enabled": "auto_scale_enabled",
+        "notification_email": "notification_email",
+        "notification_slack": "notification_slack",
+        "notification_whatsapp": "notification_whatsapp",
+    },
+    OnboardingStep.TRUST_GATE_CONFIG: {
+        "trust_threshold_autopilot": "trust_threshold_autopilot",
+        "trust_threshold_alert": "trust_threshold_alert",
+        "require_approval_above": "require_approval_above",
+        "max_daily_actions": "max_daily_actions",
+    },
+}
+
+#: Payload keys the wizard collects in major units and the schema stores in
+#: hundredths of them. The form's inputs are plain numbers - "5000" means 5000
+#: of the tenant's currency - so they are scaled here rather than in the browser,
+#: where a later UI change could silently start sending the other unit.
+_MAJOR_UNIT_FIELDS = frozenset({"target_cpa", "monthly_budget"})
 
 
 # =============================================================================
@@ -53,6 +109,34 @@ class OnboardingStepUpdate(BaseModel):
 # =============================================================================
 # Helpers
 # =============================================================================
+
+
+def _to_cents(value: Any, field_name: str) -> int:
+    """
+    Scale a major-unit amount to the schema's hundredths-of-major-unit column.
+
+    Args:
+        value: The number the wizard collected, in whole currency units.
+        field_name: Payload key, used only for the error message.
+
+    Returns:
+        The value in hundredths, rounded to the nearest whole unit.
+
+    Raises:
+        HTTPException: 422 when the value is not a finite number. Storing a
+            budget the caller did not mean is worse than refusing the step.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"'{field_name}' must be a number",
+        )
+    if not math.isfinite(value) or value < 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"'{field_name}' must be a non-negative finite number",
+        )
+    return round(value * 100)
 
 
 def _progress(record: TenantOnboarding) -> int:
@@ -127,10 +211,15 @@ async def complete_onboarding_step(
     record.completed_steps = completed
     record.status = OnboardingStatus.IN_PROGRESS.value
 
-    # Persist known fields from the step data onto the record
+    # Persist this step's fields, and only this step's fields.
+    allowed = _STEP_FIELDS.get(payload.step, {})
     for field_name, value in payload.data.items():
-        if hasattr(record, field_name) and field_name not in {"id", "tenant_id"}:
-            setattr(record, field_name, value)
+        column = allowed.get(field_name)
+        if column is None or value is None:
+            continue
+        if field_name in _MAJOR_UNIT_FIELDS:
+            value = _to_cents(value, field_name)
+        setattr(record, column, value)
 
     # Advance to the next incomplete step
     next_step: Optional[str] = None

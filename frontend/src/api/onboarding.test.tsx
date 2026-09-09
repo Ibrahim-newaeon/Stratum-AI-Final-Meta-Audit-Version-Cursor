@@ -23,7 +23,13 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiClient } from './client';
-import { onboardingQueryKeys, useOnboardingCheck, useSkipOnboarding } from './onboarding';
+import {
+  onboardingQueryKeys,
+  useOnboardingCheck,
+  useSkipOnboarding,
+  useSubmitGoalsSetup,
+  useSubmitPlatformSelection,
+} from './onboarding';
 
 vi.mock('./client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn() },
@@ -101,4 +107,60 @@ describe('useSkipOnboarding', () => {
 
     expect(mockedClient.post).toHaveBeenCalledTimes(1);
   });
+});
+
+
+/**
+ * The wizard reported "Failed to save. Please try again." on every step.
+ *
+ * Three faults stacked: the request went to `/onboarding/steps/<step>`, which
+ * the API does not expose; the step payload was the whole body rather than
+ * `{ step, data }`; and the step names were hyphenated where the API's enum
+ * uses underscores. Each of those is pinned here, because each of them fails
+ * silently in a way a type check cannot see.
+ */
+describe('step submission', () => {
+  function setup() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    mockedClient.post.mockResolvedValue({
+      data: { data: { success: true, current_step: 'goals_setup', completed: false } },
+    } as never);
+    return queryClient;
+  }
+
+  it('posts to /onboarding/steps with the step in the body', async () => {
+    const queryClient = setup();
+    const { result } = renderHook(() => useSubmitPlatformSelection(), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    await result.current.mutateAsync({ platforms: ['facebook'] });
+
+    // Not `/onboarding/steps/platform-selection`, which is a 404.
+    expect(mockedClient.post).toHaveBeenCalledWith('/onboarding/steps', {
+      step: 'platform_selection',
+      data: { platforms: ['facebook'] },
+    });
+  });
+
+  it('names the step the way the API enum spells it', async () => {
+    const queryClient = setup();
+    const { result } = renderHook(() => useSubmitGoalsSetup(), {
+      wrapper: makeWrapper(queryClient),
+    });
+
+    await result.current.mutateAsync({ primary_kpi: 'roas', monthly_budget: 5000 });
+
+    // Two things at once: underscores rather than hyphens, since 'goals-setup'
+    // is not a member of OnboardingStep and would be rejected before reaching
+    // the handler; and monthly_budget sent in *major* units, with the scaling
+    // to the schema's hundredths column left to the server.
+    expect(mockedClient.post).toHaveBeenCalledWith('/onboarding/steps', {
+      step: 'goals_setup',
+      data: { primary_kpi: 'roas', monthly_budget: 5000 },
+    });
+  });
+
 });
