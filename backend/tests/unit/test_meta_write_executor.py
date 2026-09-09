@@ -1855,6 +1855,42 @@ class TestOffByDefault:
         assert defaults["autopilot_execution_enabled"].default is False
         assert defaults["autopilot_execution_dry_run"].default is True
 
+    def test_a_disabled_run_reads_no_rows_and_writes_no_audit(self, monkeypatch):
+        """
+        The batch returns before it queries, so a quiet deployment stays quiet.
+
+        `execute_action` refusing is correct but not sufficient on its own: a
+        refused row deliberately keeps its APPROVED status, so on the
+        five-minute beat the same rows would be re-read and one refusal audit
+        row written per action per tick - 288 a day, describing a decision that
+        has not changed since the row was queued.
+
+        Asserting on the session factory rather than on a row count is the
+        point: with execution off the task must not open a transaction at all.
+
+        Synchronous on purpose: the task ends in
+        ``asyncio.get_event_loop().run_until_complete(...)``, which cannot run
+        inside pytest-asyncio's already-running loop.
+        """
+        from app.tasks import apply_actions_queue as task_module
+
+        monkeypatch.setattr(settings, "autopilot_execution_enabled", False)
+
+        def _no_session(*args, **kwargs):
+            raise AssertionError(
+                "apply_actions_queue opened a database session while execution "
+                "was disabled; it must return before querying the batch"
+            )
+
+        monkeypatch.setattr(task_module, "async_session_factory", _no_session)
+
+        result = task_module.apply_actions_queue(None)
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "execution_disabled"
+        assert result["processed"] == 0
+        assert result["failed"] == 0
+
     async def test_a_scheduled_run_writes_nothing_while_execution_is_disabled(
         self, monkeypatch
     ):

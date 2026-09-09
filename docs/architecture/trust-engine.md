@@ -583,11 +583,19 @@ Merging this cannot start spending money. Three independent things must all be t
    messages piled up unread, so a test asserts the queue is in `CELERY_QUEUES`).
 
    Scheduling it does **not** start writes, and that is the point of wiring it separately from
-   turning execution on. The master switch is checked before the row's token is decrypted and
-   before the trust gate is consulted, so with the shipped defaults every run refuses each approved
-   row with `EXECUTION_DISABLED` and issues no Meta request at all — asserted by
-   `test_a_scheduled_run_writes_nothing_while_execution_is_disabled`, which checks that *no* HTTP
-   request is made, not merely no `POST`.
+   turning execution on. The master switch is checked twice, in two places, for two reasons:
+
+   * `tasks.apply_actions_queue` returns before it queries the batch. That is what makes a
+     scheduled-but-disabled deployment quiet: it reads no approved rows, evaluates no trust gate and
+     writes no audit entries. Without it the task would re-read the same approved rows every five
+     minutes and record one refusal per action per tick — a refusal is correct, but repeating it 288
+     times a day describes a decision that has not changed since the row was queued.
+   * `action_executor.execute_action` refuses on the same flag before it decrypts a token, so any
+     other caller — `apply_single_action`, a manual run — is refused too.
+
+   Asserted by `test_a_scheduled_run_writes_nothing_while_execution_is_disabled`, which checks that
+   *no* HTTP request is made rather than merely no `POST`, and by
+   `test_a_disabled_run_reads_no_rows_and_writes_no_audit`.
 
    Only the fan-out wrapper is left off the schedule: `tasks.schedule_apply_actions_queue` exists
    solely to re-enqueue `tasks.apply_actions_queue`, so scheduling both would run the batch twice

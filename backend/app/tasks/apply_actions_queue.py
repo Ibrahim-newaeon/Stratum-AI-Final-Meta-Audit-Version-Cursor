@@ -931,6 +931,31 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
     import asyncio
 
     async def run_apply():
+        # Master switch, checked before the batch is even queried.
+        #
+        # `execute_action` refuses on this same flag, and `record_outcome`
+        # deliberately leaves a refused row APPROVED so an operator's approval
+        # survives. Together those two correct behaviours mean that without
+        # this early return, a disabled deployment on the five-minute beat
+        # re-reads the same approved rows forever and writes one refusal audit
+        # row per action per tick - 288 ticks a day, growing without bound,
+        # describing a decision that has not changed since the row was queued.
+        #
+        # Returning here also skips `check_signal_health`, which the loop below
+        # consults before it reaches the executor: with execution off there is
+        # nothing for a gate decision to gate.
+        if not settings.autopilot_execution_enabled:
+            logger.info(
+                "apply_actions_queue_skipped",
+                extra={"reason": "execution_disabled", "tenant_id": tenant_id},
+            )
+            return {
+                "status": "skipped",
+                "reason": "execution_disabled",
+                "processed": 0,
+                "failed": 0,
+            }
+
         async with async_session_factory() as db:
             try:
                 logger.info(f"Starting action queue processing for tenant_id={tenant_id}")
