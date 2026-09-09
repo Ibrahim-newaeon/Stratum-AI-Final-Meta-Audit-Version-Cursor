@@ -1855,6 +1855,29 @@ class TestOffByDefault:
         assert defaults["autopilot_execution_enabled"].default is False
         assert defaults["autopilot_execution_dry_run"].default is True
 
+    def test_the_task_starts_its_own_event_loop(self):
+        """
+        The task must not call ``asyncio.get_event_loop()``.
+
+        On Python 3.12 - the version in `.github/workflows/ci.yml` and in
+        `python:3.12-slim-bookworm` - that raises
+        ``RuntimeError('There is no current event loop in thread ...')`` in a
+        thread that has none, which is precisely a Celery prefork worker. On
+        3.11 it still auto-creates a loop, so a developer running the suite
+        locally on 3.11 would not see it.
+
+        This mattered only once the task was scheduled: until then nothing ever
+        called it, so the fault was unreachable. A beat entry firing every five
+        minutes would have raised on every tick.
+        """
+        import inspect
+
+        from app.tasks import apply_actions_queue as task_module
+
+        source = inspect.getsource(task_module)
+        assert "asyncio.get_event_loop()" not in source
+        assert "asyncio.run(" in source
+
     def test_a_disabled_run_reads_no_rows_and_writes_no_audit(self, monkeypatch):
         """
         The batch returns before it queries, so a quiet deployment stays quiet.
@@ -1868,9 +1891,8 @@ class TestOffByDefault:
         Asserting on the session factory rather than on a row count is the
         point: with execution off the task must not open a transaction at all.
 
-        Synchronous on purpose: the task ends in
-        ``asyncio.get_event_loop().run_until_complete(...)``, which cannot run
-        inside pytest-asyncio's already-running loop.
+        Synchronous on purpose: the task drives its own event loop, which
+        cannot be done from inside pytest-asyncio's already-running one.
         """
         from app.tasks import apply_actions_queue as task_module
 
