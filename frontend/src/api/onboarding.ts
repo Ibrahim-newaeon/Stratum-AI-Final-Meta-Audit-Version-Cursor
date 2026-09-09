@@ -191,9 +191,13 @@ function useOnboardingStepMutation<T>(step: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: T) => onboardingApi.submitStep<T>(step, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: onboardingQueryKeys.all });
-    },
+    // Returned, not fired and forgotten: React Query awaits a promise from
+    // onSuccess before mutateAsync resolves. Without the return, a caller that
+    // navigates straight after awaiting the mutation races the refetch, and
+    // OnboardingGuard reads the *old* cached check - which still says
+    // `required: true` - and bounces the person back to the wizard.
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: onboardingQueryKeys.all }),
   });
 }
 
@@ -222,9 +226,13 @@ export function useSkipOnboarding() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => onboardingApi.skip(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: onboardingQueryKeys.all });
-    },
+    // Returned, not fired and forgotten: React Query awaits a promise from
+    // onSuccess before mutateAsync resolves. Without the return, a caller that
+    // navigates straight after awaiting the mutation races the refetch, and
+    // OnboardingGuard reads the *old* cached check - which still says
+    // `required: true` - and bounces the person back to the wizard.
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: onboardingQueryKeys.all }),
   });
 }
 
@@ -233,8 +241,12 @@ export function useResetOnboarding() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => onboardingApi.reset(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: onboardingQueryKeys.all });
-    },
+    // Returned, not fired and forgotten: React Query awaits a promise from
+    // onSuccess before mutateAsync resolves. Without the return, a caller that
+    // navigates straight after awaiting the mutation races the refetch, and
+    // OnboardingGuard reads the *old* cached check - which still says
+    // `required: true` - and bounces the person back to the wizard.
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: onboardingQueryKeys.all }),
   });
 }
