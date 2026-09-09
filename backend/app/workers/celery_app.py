@@ -153,6 +153,11 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     # Trust Layer rollups
     "tasks.signal_health_rollup": {"queue": "sync"},
     "tasks.attribution_variance_rollup": {"queue": "sync"},
+    # Autopilot execution. Routed to an already-consumed queue on purpose: the
+    # worker -Q list in docker-compose*.yml is written out by hand, so a new
+    # queue name would be consumed by the container entrypoint (which derives
+    # it from CELERY_QUEUES) and silently not by the compose stacks.
+    "tasks.apply_actions_queue": {"queue": "sync"},
     # Rules tasks
     "app.workers.tasks.rules.evaluate_rules": {"queue": "rules"},
     "app.workers.tasks.rules.evaluate_all_rules": {"queue": "rules"},
@@ -227,6 +232,7 @@ celery_app = Celery(
         "app.workers.tasks.measurement",
         "app.tasks.attribution_variance_rollup",
         "app.tasks.signal_health_rollup",
+        "app.tasks.apply_actions_queue",
     ],
 )
 
@@ -300,6 +306,26 @@ BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
     "trust-attribution-variance-rollup": {
         "task": "tasks.attribution_variance_rollup",
         "schedule": crontab(minute=0, hour=3),
+        "options": {"queue": "sync"},
+    },
+    # Autopilot execution. Picks up actions an operator has already APPROVED;
+    # it never approves anything itself.
+    #
+    # Being scheduled is NOT what turns writes on. The executor checks
+    # autopilot_execution_enabled (default false) before it decrypts a token or
+    # consults the trust gate, so on a default deployment every run refuses each
+    # row with EXECUTION_DISABLED and issues no Meta request. Turning writes on
+    # is still the two flags, deliberately, in that order:
+    # AUTOPILOT_EXECUTION_ENABLED=true, then AUTOPILOT_EXECUTION_DRY_RUN=false.
+    #
+    # Five minutes matches the cadence tasks.schedule_apply_actions_queue was
+    # written for. A shorter interval buys nothing: the trust gate reads the
+    # daily signal-health snapshot, so only the approval backlog is fresher.
+    # Overlap is harmless - a row moves to `applying` and commits before the
+    # write, and the batch query does not select rows in that state.
+    "autopilot-apply-actions-queue": {
+        "task": "tasks.apply_actions_queue",
+        "schedule": crontab(minute="*/5"),
         "options": {"queue": "sync"},
     },
     # ==========================================================================

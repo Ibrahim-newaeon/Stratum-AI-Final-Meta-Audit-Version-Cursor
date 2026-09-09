@@ -930,6 +930,32 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
     """
     import asyncio
 
+    # Master switch, checked before the batch is queried - and before an event
+    # loop is even started, so a disabled deployment costs nothing per tick.
+    #
+    # `execute_action` refuses on this same flag, and `record_outcome`
+    # deliberately leaves a refused row APPROVED so an operator's approval
+    # survives. Together those two correct behaviours mean that without this
+    # early return, a disabled deployment on the five-minute beat re-reads the
+    # same approved rows forever and writes one refusal audit row per action per
+    # tick - 288 ticks a day, growing without bound, describing a decision that
+    # has not changed since the row was queued.
+    #
+    # Returning here also skips `check_signal_health`, which the loop below
+    # consults before it reaches the executor: with execution off there is
+    # nothing for a gate decision to gate.
+    if not settings.autopilot_execution_enabled:
+        logger.info(
+            "apply_actions_queue_skipped",
+            extra={"reason": "execution_disabled", "tenant_id": tenant_id},
+        )
+        return {
+            "status": "skipped",
+            "reason": "execution_disabled",
+            "processed": 0,
+            "failed": 0,
+        }
+
     async def run_apply():
         async with async_session_factory() as db:
             try:
@@ -1132,7 +1158,12 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
                 await db.rollback()
                 raise self.retry(exc=e)
 
-    return asyncio.get_event_loop().run_until_complete(run_apply())
+    # asyncio.run, not get_event_loop().run_until_complete: on Python 3.12
+    # - what the CI matrix and python:3.12-slim-bookworm both use - the
+    # latter raises RuntimeError('There is no current event loop') in a
+    # thread that has none, which is exactly a Celery prefork worker. The
+    # task was unreachable before this PR, so nothing caught it.
+    return asyncio.run(run_apply())
 
 
 async def log_gate_decision_audit(
@@ -1374,4 +1405,6 @@ def apply_single_action(self, action_id: str, user_id: Optional[int] = None):
                 await db.rollback()
                 raise self.retry(exc=e)
 
-    return asyncio.get_event_loop().run_until_complete(run_single())
+    # See the note in apply_actions_queue: get_event_loop() raises on 3.12
+    # in a worker thread. This path is reachable from the API today.
+    return asyncio.run(run_single())

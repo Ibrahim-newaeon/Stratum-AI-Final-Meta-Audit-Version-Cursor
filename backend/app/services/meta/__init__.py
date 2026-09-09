@@ -27,7 +27,9 @@ acquire a write by accident.
 
 Nothing on the write path runs unless ``autopilot_execution_enabled`` is true,
 and nothing is written unless ``autopilot_execution_dry_run`` is also false.
-The Celery task that would drive it remains unscheduled. See
+The Celery task that drives it is scheduled every 5 minutes, which is not the
+same as enabled: with the shipped defaults each run refuses every row with
+``EXECUTION_DISABLED`` before a token is decrypted. See
 docs/architecture/trust-engine.md.
 """
 

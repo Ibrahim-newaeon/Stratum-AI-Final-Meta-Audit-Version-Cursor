@@ -1813,14 +1813,129 @@ class TestOffByDefault:
         assert action.status == ActionStatus.APPROVED.value
         assert action.applied_at is None
 
-    def test_the_task_module_is_still_unscheduled(self):
-        """Nothing schedules the write path; an operator must wire it up."""
-        from app.workers.celery_app import BEAT_SCHEDULE, celery_app
+    def test_the_task_is_scheduled_and_its_queue_is_consumed(self):
+        """
+        The write path is wired into beat, and onto a queue a worker drains.
 
-        assert "app.tasks.apply_actions_queue" not in celery_app.conf.include
-        tasks = {entry.get("task") for entry in BEAT_SCHEDULE.values()}
-        assert "tasks.apply_actions_queue" not in tasks
-        assert "tasks.schedule_apply_actions_queue" not in tasks
+        A beat entry whose queue no worker consumes is worse than no entry at
+        all: the run looks scheduled and the messages pile up unread.
+        """
+        from app.workers.celery_app import BEAT_SCHEDULE, CELERY_QUEUES, celery_app
+
+        assert "app.tasks.apply_actions_queue" in celery_app.conf.include
+
+        entry = BEAT_SCHEDULE["autopilot-apply-actions-queue"]
+        assert entry["task"] == "tasks.apply_actions_queue"
+        assert entry["options"]["queue"] in CELERY_QUEUES
+
+    def test_the_fan_out_wrapper_is_not_also_scheduled(self):
+        """
+        Only one of the two entry points may be on the schedule.
+
+        ``tasks.schedule_apply_actions_queue`` exists only to re-enqueue
+        ``tasks.apply_actions_queue``. Scheduling both would run the batch twice
+        per tick against the same day-scoped guard rails.
+        """
+        from app.workers.celery_app import BEAT_SCHEDULE
+
+        scheduled = {entry.get("task") for entry in BEAT_SCHEDULE.values()}
+        assert "tasks.apply_actions_queue" in scheduled
+        assert "tasks.schedule_apply_actions_queue" not in scheduled
+
+    def test_being_scheduled_does_not_enable_writes(self):
+        """
+        Scheduling is not the switch. The defaults still refuse every write.
+
+        This is the whole safety argument for wiring beat up separately from
+        turning execution on, so it is asserted rather than assumed.
+        """
+        from app.core.config import Settings
+
+        defaults = Settings.model_fields
+        assert defaults["autopilot_execution_enabled"].default is False
+        assert defaults["autopilot_execution_dry_run"].default is True
+
+    def test_the_task_starts_its_own_event_loop(self):
+        """
+        The task must not call ``asyncio.get_event_loop()``.
+
+        On Python 3.12 - the version in `.github/workflows/ci.yml` and in
+        `python:3.12-slim-bookworm` - that raises
+        ``RuntimeError('There is no current event loop in thread ...')`` in a
+        thread that has none, which is precisely a Celery prefork worker. On
+        3.11 it still auto-creates a loop, so a developer running the suite
+        locally on 3.11 would not see it.
+
+        This mattered only once the task was scheduled: until then nothing ever
+        called it, so the fault was unreachable. A beat entry firing every five
+        minutes would have raised on every tick.
+        """
+        import inspect
+
+        from app.tasks import apply_actions_queue as task_module
+
+        source = inspect.getsource(task_module)
+        assert "asyncio.get_event_loop()" not in source
+        assert "asyncio.run(" in source
+
+    def test_a_disabled_run_reads_no_rows_and_writes_no_audit(self, monkeypatch):
+        """
+        The batch returns before it queries, so a quiet deployment stays quiet.
+
+        `execute_action` refusing is correct but not sufficient on its own: a
+        refused row deliberately keeps its APPROVED status, so on the
+        five-minute beat the same rows would be re-read and one refusal audit
+        row written per action per tick - 288 a day, describing a decision that
+        has not changed since the row was queued.
+
+        Asserting on the session factory rather than on a row count is the
+        point: with execution off the task must not open a transaction at all.
+
+        Synchronous on purpose: the task drives its own event loop, which
+        cannot be done from inside pytest-asyncio's already-running one.
+        """
+        from app.tasks import apply_actions_queue as task_module
+
+        monkeypatch.setattr(settings, "autopilot_execution_enabled", False)
+
+        def _no_session(*args, **kwargs):
+            raise AssertionError(
+                "apply_actions_queue opened a database session while execution "
+                "was disabled; it must return before querying the batch"
+            )
+
+        monkeypatch.setattr(task_module, "async_session_factory", _no_session)
+
+        result = task_module.apply_actions_queue(None)
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "execution_disabled"
+        assert result["processed"] == 0
+        assert result["failed"] == 0
+
+    async def test_a_scheduled_run_writes_nothing_while_execution_is_disabled(
+        self, monkeypatch
+    ):
+        """
+        With the master switch off, an approved row is refused, not written.
+
+        The executor checks the switch before it decrypts a token or consults
+        the trust gate, so a default deployment running this on a five-minute
+        beat issues no Meta request at all.
+        """
+        monkeypatch.setattr(settings, "autopilot_execution_enabled", False)
+        recorder = Recorder({})
+        action = make_action()
+
+        outcome = await run(action, recorder)
+
+        assert outcome.status is ExecutionStatus.REFUSED
+        assert outcome.code is RefusalCode.EXECUTION_DISABLED
+        # Not just no POST: no request of any kind, because the switch is
+        # checked before the entity is even read.
+        assert recorder.requests == []
+        assert action.status == ActionStatus.APPROVED.value
+        assert action.applied_at is None
 
 
 # =============================================================================
