@@ -32,6 +32,37 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.post("/discover")
+async def trigger_campaign_discovery(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Queue a Meta campaign discovery sync for the current tenant.
+
+    Lists campaigns from every enabled Meta ad account
+    (``GET /act_<id>/campaigns``, ``ads_read`` only) and upserts local
+    ``Campaign`` rows by ``(tenant_id, platform, external_id)``. Does not
+    write anything on Meta.
+    """
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tenant context required",
+        )
+
+    from app.workers.tasks import discover_tenant_campaigns_task
+
+    task = discover_tenant_campaigns_task.delay(tenant_id)
+
+    return APIResponse(
+        success=True,
+        data={"task_id": task.id, "tenant_id": tenant_id},
+        message="Campaign discovery queued successfully",
+    )
+
+
 @router.get("", response_model=APIResponse[PaginatedResponse[CampaignListResponse]])
 async def list_campaigns(
     request: Request,
