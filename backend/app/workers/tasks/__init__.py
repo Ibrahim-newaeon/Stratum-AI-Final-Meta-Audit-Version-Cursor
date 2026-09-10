@@ -77,6 +77,8 @@ from app.workers.tasks.scores import (
     calculate_daily_scores,
 )
 from app.workers.tasks.sync import (
+    discover_all_campaigns,
+    discover_tenant_campaigns_task,
     sync_all_campaigns,
     sync_campaign_data,
 )
@@ -90,6 +92,8 @@ __all__ = [
     # Sync tasks
     "sync_campaign_data",
     "sync_all_campaigns",
+    "discover_tenant_campaigns_task",
+    "discover_all_campaigns",
     # Rules tasks
     "evaluate_rules",
     "evaluate_all_rules",

@@ -148,6 +148,8 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     # Sync tasks
     "app.workers.tasks.sync.sync_campaign_data": {"queue": "sync"},
     "app.workers.tasks.sync.sync_all_campaigns": {"queue": "sync"},
+    "app.workers.tasks.sync.discover_tenant_campaigns_task": {"queue": "sync"},
+    "app.workers.tasks.sync.discover_all_campaigns": {"queue": "sync"},
     # Measurement & Verification (GA4 read-only baseline pull)
     "app.workers.tasks.measurement.*": {"queue": "sync"},
     # Trust Layer rollups
@@ -283,6 +285,14 @@ BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
     # ==========================================================================
     # Data Sync Tasks
     # ==========================================================================
+    # Catalogue discovery runs shortly before the hourly insights pull so newly
+    # listed Meta campaigns exist as local Campaign rows (with external_id)
+    # before sync_campaign_data tries to attach metrics.
+    "discover-all-campaigns": {
+        "task": "app.workers.tasks.sync.discover_all_campaigns",
+        "schedule": crontab(minute=50),
+        "options": {"queue": "sync"},
+    },
     "sync-all-campaigns": {
         "task": "app.workers.tasks.sync.sync_all_campaigns",
         "schedule": crontab(minute=0),
