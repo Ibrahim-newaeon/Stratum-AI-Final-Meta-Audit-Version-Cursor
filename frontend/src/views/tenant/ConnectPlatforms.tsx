@@ -1,8 +1,8 @@
 /**
  * Stratum AI - Connect Platforms Page
  *
- * OAuth connection management for advertising platforms.
- * Supports Meta channels: Facebook, Instagram, and WhatsApp.
+ * OAuth connection management for Meta Ads (Facebook / Instagram / WhatsApp
+ * placements share one Marketing API connection — AdPlatform is Meta-only).
  */
 
 import { useMemo, useState } from 'react';
@@ -25,54 +25,21 @@ import {
 } from '@/api/campaignBuilder';
 
 interface PlatformConnection {
-  id: string;
+  id: Platform;
   name: string;
-  logo: string;
   status: 'connected' | 'disconnected' | 'expired' | 'error';
   connectedAt?: string;
   expiresAt?: string;
   accountCount?: number;
+  lastError?: string | null;
 }
 
-const platforms: PlatformConnection[] = [
-  {
-    id: 'meta',
-    name: 'Meta Ads',
-    logo: '/platforms/meta.svg',
-    status: 'connected',
-    connectedAt: '2024-01-15',
-    expiresAt: '2025-01-15',
-    accountCount: 3,
-  },
-  {
-    id: 'facebook',
-    name: 'Facebook',
-    logo: '/platforms/facebook.svg',
-    status: 'connected',
-    connectedAt: '2024-02-10',
-    expiresAt: '2025-02-10',
-    accountCount: 2,
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    logo: '/platforms/instagram.svg',
-    status: 'disconnected',
-  },
-  {
-    id: 'whatsapp',
-    name: 'WhatsApp Business',
-    logo: '/platforms/whatsapp.svg',
-    status: 'disconnected',
-  },
-];
-
-// Connection health used to be a per-platform mock here - meta "healthy" with
-// "EMQ 92%", a "2 min ago" last sync and "12.4k events/day" - shown for any
-// connected platform regardless of what that account had actually done. Signal
-// health is measured per tenant by the trust engine and surfaced on the
-// dashboard; this view reports connection state only, and does not restate a
-// health it has not measured.
+/** Single Meta Ads card — FB/IG/WA are channels on this connection, not separate OAuth products. */
+const META_PLATFORM: PlatformConnection = {
+  id: 'meta',
+  name: 'Meta Ads',
+  status: 'disconnected',
+};
 
 const statusConfig = {
   connected: {
@@ -104,115 +71,91 @@ const statusConfig = {
 export default function ConnectPlatforms() {
   const { tenantId } = useParams<{ tenantId: string }>();
   const tid = parseInt(tenantId || '1', 10);
-  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // API hooks for connector status
-  const { data: metaStatus } = useConnectorStatus(tid, 'meta');
-  const { data: facebookStatus } = useConnectorStatus(tid, 'facebook');
-  const { data: instagramStatus } = useConnectorStatus(tid, 'instagram');
-  const { data: whatsappStatus } = useConnectorStatus(tid, 'whatsapp');
-
-  // API hooks for ad account counts
+  const { data: metaStatus, isLoading: statusLoading } = useConnectorStatus(tid, 'meta');
   const { data: metaAccounts } = useAdAccounts(tid, 'meta');
-  const { data: facebookAccounts } = useAdAccounts(tid, 'facebook');
-  const { data: instagramAccounts } = useAdAccounts(tid, 'instagram');
-  const { data: whatsappAccounts } = useAdAccounts(tid, 'whatsapp');
 
-  // Mutation hooks
   const startConnection = useStartConnection(tid);
   const refreshToken = useRefreshToken(tid);
   const disconnectPlatform = useDisconnectPlatform(tid);
 
-  // Build platforms with API data or fallback to mock
-  const platformsWithStatus: PlatformConnection[] = useMemo(() => {
-    const statusMap: Record<string, typeof metaStatus> = {
-      meta: metaStatus,
-      facebook: facebookStatus,
-      instagram: instagramStatus,
-      whatsapp: whatsappStatus,
+  const platform: PlatformConnection = useMemo(() => {
+    if (!metaStatus) {
+      return META_PLATFORM;
+    }
+    return {
+      ...META_PLATFORM,
+      status: (metaStatus.status as PlatformConnection['status']) || 'disconnected',
+      connectedAt: metaStatus.connected_at?.split('T')[0],
+      accountCount: metaAccounts?.length ?? 0,
+      lastError: metaStatus.last_error,
     };
-    const accountsMap: Record<string, typeof metaAccounts> = {
-      meta: metaAccounts,
-      facebook: facebookAccounts,
-      instagram: instagramAccounts,
-      whatsapp: whatsappAccounts,
-    };
+  }, [metaStatus, metaAccounts]);
 
-    return platforms.map((p) => {
-      const apiStatus = statusMap[p.id];
-      const accounts = accountsMap[p.id];
-
-      if (apiStatus) {
-        return {
-          ...p,
-          status: apiStatus.status as PlatformConnection['status'],
-          connectedAt: apiStatus.connected_at?.split('T')[0],
-          accountCount: accounts?.length ?? 0,
-        };
-      }
-      return p;
-    });
-  }, [
-    metaStatus,
-    facebookStatus,
-    instagramStatus,
-    whatsappStatus,
-    metaAccounts,
-    facebookAccounts,
-    instagramAccounts,
-    whatsappAccounts,
-  ]);
-
-  const handleConnect = async (platformId: string) => {
-    setConnecting(platformId);
+  const handleConnect = async () => {
+    setConnecting(true);
+    setActionError(null);
     try {
-      const result = await startConnection.mutateAsync(platformId as Platform);
-      // Redirect to OAuth URL
+      const result = await startConnection.mutateAsync('meta');
       if (result.oauth_url) {
         window.location.href = result.oauth_url;
+        return;
       }
+      setActionError('OAuth URL missing from server response. Check META_APP_ID configuration.');
     } catch (error) {
       console.error('Failed to start connection:', error);
-      // Fallback for demo mode
-      alert(`OAuth flow would start for ${platformId}`);
+      const detail =
+        (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Failed to start Meta OAuth. Ensure META_APP_ID and META_APP_SECRET are configured.';
+      setActionError(detail);
     } finally {
-      setConnecting(null);
+      setConnecting(false);
     }
   };
 
-  const handleDisconnect = async (platformId: string) => {
-    if (confirm('Are you sure you want to disconnect this platform?')) {
-      try {
-        await disconnectPlatform.mutateAsync(platformId as Platform);
-      } catch (error) {
-        console.error('Failed to disconnect:', error);
-        alert(`Disconnected ${platformId} (demo mode)`);
-      }
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect Meta Ads? Campaign sync and autopilot writes will stop until reconnected.')) {
+      return;
     }
-  };
-
-  const handleRefresh = async (platformId: string) => {
+    setActionError(null);
     try {
-      await refreshToken.mutateAsync(platformId as Platform);
-      alert('Token refreshed successfully');
+      await disconnectPlatform.mutateAsync('meta');
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
+      setActionError('Failed to disconnect Meta. Try again or contact support.');
+    }
+  };
+
+  const handleRefresh = async () => {
+    setActionError(null);
+    try {
+      await refreshToken.mutateAsync('meta');
     } catch (error) {
       console.error('Failed to refresh token:', error);
-      alert(`Refreshing token for ${platformId} (demo mode)`);
+      const detail =
+        (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        'Token refresh failed. You may need to reconnect.';
+      setActionError(detail);
     }
   };
+
+  const status = statusConfig[platform.status];
+  const StatusIcon = status.icon;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Connect Platforms</h1>
         <p className="text-muted-foreground">
-          Connect your advertising accounts via OAuth to manage campaigns and access ad accounts
+          Connect Meta Ads via OAuth to sync campaigns and manage ad accounts. Facebook, Instagram,
+          and WhatsApp placements use this same Marketing API connection.
         </p>
         <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
           <ExclamationTriangleIcon className="w-3 h-3" />
           <span>
-            This grants access to <strong>ad accounts & campaigns</strong>. For server-side
+            This grants access to <strong>ad accounts &amp; campaigns</strong>. For server-side
             conversion tracking (CAPI), go to{' '}
             <a href="/dashboard/capi-setup" className="text-primary hover:underline">
               CAPI Setup
@@ -226,102 +169,99 @@ export default function ConnectPlatforms() {
         </p>
       </div>
 
-      {/* Platform Cards */}
+      {actionError && (
+        <div
+          className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+          role="alert"
+        >
+          {actionError}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {platformsWithStatus.map((platform) => {
-          const status = statusConfig[platform.status];
-          const StatusIcon = status.icon;
-
-          return (
-            <div
-              key={platform.id}
-              className={cn(
-                'rounded-xl border p-6 transition-all',
-                platform.status === 'connected' ? 'bg-card shadow-card' : 'bg-muted/30'
-              )}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  {/* Platform logo placeholder */}
-                  <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
-                    <span className="text-lg font-bold text-gray-600 dark:text-gray-300">
-                      {platform.name.charAt(0)}
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">{platform.name}</h3>
-                    <div className={cn('flex items-center gap-1 text-sm', status.color)}>
-                      <StatusIcon className="h-4 w-4" />
-                      <span>{status.label}</span>
-                    </div>
-                  </div>
-                </div>
+        <div
+          className={cn(
+            'rounded-xl border p-6 transition-all',
+            platform.status === 'connected' ? 'bg-card shadow-card' : 'bg-muted/30'
+          )}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
+                <span className="text-lg font-bold text-gray-600 dark:text-gray-300">M</span>
               </div>
-
-              {/* Connection details */}
-              {platform.status === 'connected' && (
-                <div className="mt-4 pt-4 border-t space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Connected Accounts</span>
-                    <span className="font-medium">{platform.accountCount}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Connected On</span>
-                    <span className="font-medium">{platform.connectedAt}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Token Expires</span>
-                    <span className="font-medium">{platform.expiresAt}</span>
-                  </div>
+              <div>
+                <h3 className="font-semibold">{platform.name}</h3>
+                <div className={cn('flex items-center gap-1 text-sm', status.color)}>
+                  <StatusIcon className="h-4 w-4" />
+                  <span>{statusLoading ? 'Checking…' : status.label}</span>
                 </div>
-              )}
-
-              {/* Actions */}
-              <div className="mt-4 flex gap-2">
-                {platform.status === 'connected' ? (
-                  <>
-                    <button
-                      onClick={() => handleRefresh(platform.id)}
-                      className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
-                    >
-                      <ArrowPathIcon className="h-4 w-4" />
-                      Refresh Token
-                    </button>
-                    <button
-                      onClick={() => handleDisconnect(platform.id)}
-                      className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                    >
-                      Disconnect
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => handleConnect(platform.id)}
-                    disabled={connecting === platform.id}
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    {connecting === platform.id ? (
-                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <LinkIcon className="h-4 w-4" />
-                    )}
-                    Connect {platform.name}
-                  </button>
-                )}
               </div>
             </div>
-          );
-        })}
+          </div>
+
+          {platform.status === 'connected' && (
+            <div className="mt-4 pt-4 border-t space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Connected Accounts</span>
+                <span className="font-medium">{platform.accountCount ?? 0}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Connected On</span>
+                <span className="font-medium">{platform.connectedAt || '—'}</span>
+              </div>
+            </div>
+          )}
+
+          {platform.status === 'error' && platform.lastError && (
+            <p className="mt-3 text-sm text-red-600 dark:text-red-400">{platform.lastError}</p>
+          )}
+
+          <div className="mt-4 flex gap-2">
+            {platform.status === 'connected' || platform.status === 'expired' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+                >
+                  <ArrowPathIcon className="h-4 w-4" />
+                  Refresh Token
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnect}
+                disabled={connecting}
+                className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {connecting ? (
+                  <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LinkIcon className="h-4 w-4" />
+                )}
+                Connect Meta Ads
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* OAuth Information */}
       <div className="rounded-xl border bg-muted/30 p-6">
         <h3 className="font-semibold mb-2">About Platform Connections</h3>
         <ul className="space-y-2 text-sm text-muted-foreground">
-          <li>- OAuth tokens are securely stored and automatically refreshed</li>
-          <li>- Connections grant access to view and manage ad accounts</li>
-          <li>- You can disconnect at any time from platform settings</li>
-          <li>- Campaign Builder requires at least one connected platform</li>
+          <li>- One Meta OAuth connection covers Facebook, Instagram, and WhatsApp ad placements</li>
+          <li>- OAuth tokens are encrypted at rest and can be refreshed from this page</li>
+          <li>- Requires a configured Meta App (`META_APP_ID` / `META_APP_SECRET`) and App Review for `ads_read`</li>
+          <li>- You can disconnect at any time; reconnect to refresh scopes after App Review</li>
         </ul>
       </div>
     </div>
