@@ -46,6 +46,7 @@ const StatusBadge: React.FC<{ status: ActionStatus }> = ({ status }) => {
   const colorClasses: Record<ActionStatus, string> = {
     queued: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
     approved: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
+    applying: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-400',
     applied: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
     failed: 'bg-red-500/15 text-red-700 dark:text-red-400',
     dismissed: 'bg-muted text-muted-foreground',
@@ -314,7 +315,9 @@ export const AutopilotPanel: React.FC<AutopilotPanelProps> = ({
         {/* Filters */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Filter:</span>
-          {(['', 'queued', 'approved', 'applied', 'failed', 'dismissed'] as const).map((filter) => (
+          {(
+            ['', 'queued', 'approved', 'applying', 'applied', 'failed', 'dismissed'] as const
+          ).map((filter) => (
             <button
               key={filter}
               onClick={() => setStatusFilter(filter)}
