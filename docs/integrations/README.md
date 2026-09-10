@@ -131,6 +131,18 @@ inserted campaigns are queued for an insights sync immediately.
 `backend/app/services/meta/campaign_discovery.py`, `backend/app/workers/tasks/sync.py`
 (`discover_tenant_campaigns_task`, `discover_all_campaigns`).
 
+### Meta Custom Audience auto-sync (CDP → Meta)
+
+Platform audiences created with `auto_sync=true` store a `next_sync_at`. Celery beat runs
+`sync_due_audience_syncs` every 15 minutes on the `cdp` queue, lists rows where
+`auto_sync` is true and `next_sync_at <= now`, and enqueues `sync_platform_audience_task`
+per row. A successful sync advances `next_sync_at` by `sync_interval_hours` (default 24).
+Credentials stay encrypted via `AudienceSyncCredential.resolved_access_token()`.
+
+**Key files**: `backend/app/services/cdp/audience_sync/service.py`
+(`list_due_auto_sync_audiences`), `backend/app/workers/tasks/cdp.py`,
+migration `0011_aud_sync_sched`.
+
 ### Meta insights ingestion (read-only)
 
 Campaign performance comes from the Meta Marketing API **Ads Insights** endpoint. This is the only real

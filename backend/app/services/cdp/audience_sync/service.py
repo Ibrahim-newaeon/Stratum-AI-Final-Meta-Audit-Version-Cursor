@@ -204,8 +204,9 @@ class AudienceSyncService:
             platform_audience.last_sync_status = sync_job.status
 
             if platform_audience.auto_sync:
+                interval = platform_audience.sync_interval_hours or 24
                 platform_audience.next_sync_at = datetime.now(UTC) + timedelta(
-                    hours=platform_audience.sync_interval_hours
+                    hours=interval
                 )
 
             await self.db.flush()
@@ -628,3 +629,37 @@ class AudienceSyncService:
         row.access_token = None
         await self.db.flush()
         return True
+
+
+async def list_due_auto_sync_audiences(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 200,
+) -> list[PlatformAudience]:
+    """
+    Return platform audiences whose auto-sync window is due.
+
+    Cross-tenant scan used by the Celery beat dispatcher. An audience is due
+    when ``auto_sync`` is true and ``next_sync_at`` is set and ``<= now``.
+    Results are ordered oldest-due first and capped so a backlog cannot
+    enqueue an unbounded fan-out in one beat tick.
+    """
+    moment = now or datetime.now(UTC)
+    # Compare naively if the column is timezone-naive (DateTime without tz).
+    if moment.tzinfo is not None:
+        moment_naive = moment.astimezone(UTC).replace(tzinfo=None)
+    else:
+        moment_naive = moment
+
+    result = await db.execute(
+        select(PlatformAudience)
+        .where(
+            PlatformAudience.auto_sync.is_(True),
+            PlatformAudience.next_sync_at.is_not(None),
+            PlatformAudience.next_sync_at <= moment_naive,
+        )
+        .order_by(PlatformAudience.next_sync_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())

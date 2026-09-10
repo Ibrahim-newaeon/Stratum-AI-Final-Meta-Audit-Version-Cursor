@@ -419,6 +419,15 @@ BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
         "schedule": crontab(minute=0, hour="*/2"),
         "options": {"queue": "cdp"},
     },
+    # Auto-push due CDP → Meta Custom Audiences. PlatformAudience.next_sync_at
+    # is set on create/manual sync; without this beat the column is advisory
+    # only. Fifteen minutes matches the rules cadence and keeps Meta rate
+    # limits calm when many tenants share one worker.
+    "sync-due-audience-syncs": {
+        "task": "app.workers.tasks.cdp.sync_due_audience_syncs",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "cdp"},
+    },
     # ==========================================================================
     # CMS (Content Management System) Tasks
     # ==========================================================================

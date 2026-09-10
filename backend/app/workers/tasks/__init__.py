@@ -38,6 +38,8 @@ from app.workers.tasks.cdp import (
     compute_cdp_rfm,
     compute_cdp_segment,
     compute_cdp_traits,
+    sync_due_audience_syncs,
+    sync_platform_audience_task,
 )
 from app.workers.tasks.cms import (
     create_cms_post_version,
@@ -129,6 +131,8 @@ __all__ = [
     "compute_cdp_traits",
     "compute_cdp_funnel",
     "compute_all_cdp_funnels",
+    "sync_platform_audience_task",
+    "sync_due_audience_syncs",
     # CMS tasks
     "publish_scheduled_cms_posts",
     "publish_cms_post",

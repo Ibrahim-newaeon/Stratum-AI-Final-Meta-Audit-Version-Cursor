@@ -149,6 +149,11 @@ class PlatformAudience(Base, TimestampMixin):
 
     __table_args__ = (
         Index("ix_platform_audiences_tenant_platform", "tenant_id", "platform"),
+        Index(
+            "ix_platform_audiences_auto_sync_due",
+            "auto_sync",
+            "next_sync_at",
+        ),
     )
 
 
@@ -163,6 +168,10 @@ class AudienceSyncJob(Base, TimestampMixin):
     platform_audience_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     operation: Mapped[str] = mapped_column(String(20), nullable=False, default=SyncOperation.UPDATE.value)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SyncStatus.PENDING.value)
+
+    # Who kicked off the job (``manual``, ``schedule``, ``api``, …).
+    triggered_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    triggered_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
