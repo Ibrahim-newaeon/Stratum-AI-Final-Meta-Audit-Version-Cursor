@@ -7,19 +7,27 @@ Provides no-code platform connection, event streaming, and data quality analysis
 """
 
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.db.session import get_async_session
 from app.schemas import APIResponse
 from app.services.capi import CAPIService
+from app.services.capi.credentials_store import (
+    deactivate_credentials,
+    public_connected_platforms,
+    upsert_connected_credentials,
+)
+from app.services.capi.platform_connectors import ConnectionStatus
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-# Global CAPI service instance (per-tenant in production)
+# Process-local cache only. Durable source of truth is tenant_capi_credentials.
 _capi_services: dict[int, CAPIService] = {}
 
 
@@ -41,6 +49,17 @@ def get_capi_service(tenant_id: int) -> CAPIService:
     return _capi_services[tenant_id]
 
 
+def _require_tenant_id(request: Request) -> int:
+    """Resolve tenant from auth middleware; never default to tenant 1."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return int(tenant_id)
+
+
 # =============================================================================
 # Request/Response Models
 # =============================================================================
@@ -58,26 +77,26 @@ class ConversionEvent(BaseModel):
 
     event_name: str = Field(..., description="Event name (e.g., Purchase, Lead)")
     user_data: dict[str, Any] = Field(..., description="User identification data")
-    parameters: Optional[dict[str, Any]] = Field(
+    parameters: dict[str, Any] | None = Field(
         default={}, description="Event parameters (value, currency, etc.)"
     )
-    event_time: Optional[int] = Field(default=None, description="Unix timestamp")
-    event_source_url: Optional[str] = Field(default=None, description="URL where event occurred")
-    event_id: Optional[str] = Field(default=None, description="Unique event ID for deduplication")
+    event_time: int | None = Field(default=None, description="Unix timestamp")
+    event_source_url: str | None = Field(default=None, description="URL where event occurred")
+    event_id: str | None = Field(default=None, description="Unique event ID for deduplication")
 
 
 class BatchEventsRequest(BaseModel):
     """Request for streaming batch events."""
 
     events: list[ConversionEvent]
-    platforms: Optional[list[str]] = Field(default=None, description="Platforms to send to")
+    platforms: list[str] | None = Field(default=None, description="Platforms to send to")
 
 
 class DataQualityRequest(BaseModel):
     """Request for data quality analysis."""
 
     user_data: dict[str, Any]
-    platform: Optional[str] = Field(default=None)
+    platform: str | None = Field(default=None)
 
 
 # =============================================================================
@@ -87,18 +106,44 @@ class DataQualityRequest(BaseModel):
 async def connect_platform(
     data: PlatformCredentials,
     request: Request,
+    db: AsyncSession = Depends(get_async_session),
 ):
     """
     Connect to an ad platform's Conversion API.
 
-    Supports:
-    - Meta (Facebook) - Requires pixel_id, access_token
-    - LinkedIn - Requires conversion_id, access_token
+    Validates credentials against Meta/WhatsApp, then stores tokens
+    Fernet-encrypted in ``tenant_capi_credentials``. Secrets are never
+    echoed in the response.
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     result = await service.connect_platform(data.platform, data.credentials)
+
+    if result.status == ConnectionStatus.CONNECTED:
+        try:
+            await upsert_connected_credentials(
+                db,
+                tenant_id=tenant_id,
+                platform=data.platform,
+                credentials=data.credentials,
+                verify_message=result.message,
+            )
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            # Roll back the warm cache so status matches durable state.
+            await service.disconnect_platform(data.platform)
+            logger.error(
+                "capi_credentials_persist_failed",
+                tenant_id=tenant_id,
+                platform=data.platform,
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Connected to the platform but failed to persist credentials",
+            ) from exc
 
     return APIResponse(
         success=result.status.value == "connected",
@@ -107,6 +152,7 @@ async def connect_platform(
             "platform": result.platform,
             "message": result.message,
             "details": result.details,
+            "has_credentials": result.status == ConnectionStatus.CONNECTED,
         },
     )
 
@@ -115,27 +161,40 @@ async def connect_platform(
 async def disconnect_platform(
     platform: str,
     request: Request,
+    db: AsyncSession = Depends(get_async_session),
 ):
-    """Disconnect from a platform."""
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    """Disconnect from a platform and clear stored encrypted credentials."""
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
-    success = await service.disconnect_platform(platform)
+    await service.disconnect_platform(platform)
+    cleared = await deactivate_credentials(db, tenant_id=tenant_id, platform=platform)
+    await db.commit()
 
     return APIResponse(
-        success=success,
-        data={"platform": platform, "disconnected": success},
+        success=True,
+        data={"platform": platform, "disconnected": True, "credentials_cleared": cleared},
     )
 
 
 @router.get("/platforms/status", response_model=APIResponse)
-async def get_platforms_status(request: Request):
-    """Get connection status for all platforms."""
-    tenant_id = getattr(request.state, "tenant_id", 1)
+async def get_platforms_status(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Get connection status for all platforms (hydrates from DB after restart)."""
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
+    await service.ensure_loaded_from_db(db)
 
-    connected = service.get_connected_platforms()
+    connected = await public_connected_platforms(db, tenant_id)
+    # Merge memory-only keys without inventing secrets.
+    for platform, info in service.get_connected_platforms().items():
+        connected.setdefault(platform, info)
+
     setup_status = service.get_setup_status()
+    setup_status["connected_platforms"] = list(connected.keys())
+    setup_status["setup_complete"] = len(connected) > 0
 
     return APIResponse(
         success=True,
@@ -147,10 +206,14 @@ async def get_platforms_status(request: Request):
 
 
 @router.post("/platforms/test", response_model=APIResponse)
-async def test_connections(request: Request):
-    """Test all platform connections."""
-    tenant_id = getattr(request.state, "tenant_id", 1)
+async def test_connections(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Test all platform connections (loads durable credentials first)."""
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
+    await service.ensure_loaded_from_db(db)
 
     results = await service.test_all_connections()
 
@@ -169,7 +232,7 @@ async def test_connections(request: Request):
 @router.get("/platforms/{platform}/requirements", response_model=APIResponse)
 async def get_platform_requirements(platform: str, request: Request):
     """Get setup requirements for a platform."""
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     requirements = await service.get_platform_requirements(platform)
@@ -187,7 +250,8 @@ async def get_platform_requirements(platform: str, request: Request):
 async def stream_event(
     event: ConversionEvent,
     request: Request,
-    platforms: Optional[str] = None,
+    platforms: str | None = None,
+    db: AsyncSession = Depends(get_async_session),
 ):
     """
     Stream a single conversion event to connected platforms.
@@ -197,8 +261,9 @@ async def stream_event(
     2. Event mapped to platform-specific format
     3. Sent to all connected platforms (or specified ones)
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
+    await service.ensure_loaded_from_db(db)
 
     platform_list = platforms.split(",") if platforms else None
 
@@ -231,6 +296,7 @@ async def stream_event(
 async def stream_batch_events(
     data: BatchEventsRequest,
     request: Request,
+    db: AsyncSession = Depends(get_async_session),
 ):
     """
     Stream multiple conversion events to platforms.
@@ -240,8 +306,9 @@ async def stream_batch_events(
     - Aggregated data quality analysis
     - Detailed per-platform results
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
+    await service.ensure_loaded_from_db(db)
 
     events = [
         {
@@ -292,7 +359,7 @@ async def analyze_data_quality(
     - Missing fields that impact match quality
     - Recommendations to improve ROAS
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     analysis = service.analyze_data_quality(data.user_data, data.platform)
@@ -306,7 +373,7 @@ async def analyze_data_quality(
 @router.get("/quality/report", response_model=APIResponse)
 async def get_quality_report(
     request: Request,
-    platforms: Optional[str] = None,
+    platforms: str | None = None,
 ):
     """
     Get comprehensive data quality report from recent events.
@@ -317,7 +384,7 @@ async def get_quality_report(
     - Top recommendations to fix
     - Estimated ROAS improvement potential
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     platform_list = platforms.split(",") if platforms else None
@@ -379,7 +446,7 @@ async def get_live_insights(
     - Top gaps to fix immediately
     - ROAS lift potential
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     insights = service.get_live_insights(platform)
@@ -397,14 +464,14 @@ async def get_live_insights(
 async def map_event(
     request: Request,
     event_name: str,
-    parameters: Optional[dict[str, Any]] = None,
+    parameters: dict[str, Any] | None = None,
 ):
     """
     Map a custom event to standard platform events.
 
     Shows how your event will be translated for each platform.
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     mapping = service.map_event(event_name, parameters or {})
@@ -425,7 +492,7 @@ async def detect_pii(
 
     Identifies what data will be hashed and how.
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     detections = service.detect_pii_fields(data)
@@ -450,7 +517,7 @@ async def hash_user_data(
 
     Automatically detects and hashes PII fields using SHA256.
     """
-    tenant_id = getattr(request.state, "tenant_id", 1)
+    tenant_id = _require_tenant_id(request)
     service = get_capi_service(tenant_id)
 
     hashed = service.hash_user_data(user_data)
