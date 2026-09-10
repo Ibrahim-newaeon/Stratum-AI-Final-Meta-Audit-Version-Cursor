@@ -502,3 +502,123 @@ def compute_all_cdp_funnels(tenant_id: Optional[int] = None):
 
     logger.info(f"Queued {task_count} funnel computation tasks")
     return {"tasks_queued": task_count}
+
+
+# =============================================================================
+# Audience sync (Meta Custom Audiences) - scheduled auto-sync
+# =============================================================================
+
+
+def _run_async(coro: Any) -> Any:
+    """Run a coroutine on a fresh event loop (Celery workers are sync)."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+async def _dispose_async_engine() -> None:
+    """Drop pooled asyncpg connections so the next event loop starts clean."""
+    try:
+        from app.db.session import async_engine
+
+        await async_engine.dispose()
+    except Exception as exc:  # noqa: BLE001 - best effort
+        logger.debug("async engine dispose skipped: %s", exc)
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    max_retries=3,
+    name="app.workers.tasks.cdp.sync_platform_audience_task",
+)
+def sync_platform_audience_task(self, tenant_id: int, platform_audience_id: str):
+    """
+    Push one platform audience's CDP segment members to Meta (Custom Audience).
+
+    Invoked by the due-queue dispatcher or by an operator-triggered API path
+    that prefers async execution. ``triggered_by`` is ``schedule`` so job
+    history distinguishes beat runs from manual syncs.
+    """
+    from uuid import UUID
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.audience_sync import SyncOperation
+    from app.services.cdp.audience_sync.service import AudienceSyncService
+
+    audience_uuid = UUID(str(platform_audience_id))
+    logger.info(
+        "Scheduled audience sync for tenant %s audience %s",
+        tenant_id,
+        platform_audience_id,
+    )
+
+    async def _run() -> dict[str, Any]:
+        try:
+            async with AsyncSessionLocal() as db:
+                service = AudienceSyncService(db, tenant_id)
+                job = await service.sync_platform_audience(
+                    audience_uuid,
+                    operation=SyncOperation.UPDATE,
+                    triggered_by="schedule",
+                )
+                await db.commit()
+                return {
+                    "status": "success",
+                    "tenant_id": tenant_id,
+                    "platform_audience_id": str(platform_audience_id),
+                    "job_id": str(job.id),
+                    "job_status": job.status,
+                }
+        finally:
+            await _dispose_async_engine()
+
+    try:
+        return _run_async(_run())
+    except Exception as exc:
+        logger.exception(
+            "Scheduled audience sync failed for tenant %s audience %s: %s",
+            tenant_id,
+            platform_audience_id,
+            exc,
+        )
+        raise
+
+
+@shared_task(name="app.workers.tasks.cdp.sync_due_audience_syncs")
+@with_distributed_lock(timeout=900)
+def sync_due_audience_syncs(limit: int = 200):
+    """
+    Enqueue Meta audience syncs whose ``next_sync_at`` is due.
+
+    Beat runs this every 15 minutes on the ``cdp`` queue. It only lists and
+    fans out - the per-audience task owns credentials, Meta calls, and
+    advancing ``next_sync_at`` on success.
+    """
+    from app.db.session import AsyncSessionLocal
+    from app.services.cdp.audience_sync.service import list_due_auto_sync_audiences
+
+    logger.info("Scanning for due audience auto-syncs (limit=%s)", limit)
+
+    async def _scan() -> list[tuple[int, str]]:
+        try:
+            async with AsyncSessionLocal() as db:
+                due = await list_due_auto_sync_audiences(db, limit=limit)
+                return [(row.tenant_id, str(row.id)) for row in due]
+        finally:
+            await _dispose_async_engine()
+
+    due_rows = _run_async(_scan())
+    for tenant_id, audience_id in due_rows:
+        sync_platform_audience_task.delay(tenant_id, audience_id)
+
+    logger.info("Queued %s due audience sync tasks", len(due_rows))
+    return {"tasks_queued": len(due_rows)}
+
