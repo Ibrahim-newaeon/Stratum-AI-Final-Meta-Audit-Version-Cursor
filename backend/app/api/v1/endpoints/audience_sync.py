@@ -12,7 +12,6 @@ Provides endpoints for:
 """
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -41,7 +40,7 @@ class PlatformAudienceCreate(BaseModel):
     platform: str = Field(..., description="Platform: meta")
     ad_account_id: str = Field(..., description="Platform ad account ID")
     audience_name: str = Field(..., description="Name for the audience on the platform")
-    description: Optional[str] = Field(None, description="Audience description")
+    description: str | None = Field(None, description="Audience description")
     auto_sync: bool = Field(True, description="Enable automatic sync")
     sync_interval_hours: int = Field(24, ge=1, le=168, description="Auto-sync interval in hours")
 
@@ -52,18 +51,18 @@ class PlatformAudienceResponse(BaseModel):
     id: UUID
     segment_id: UUID
     platform: str
-    platform_audience_id: Optional[str]
+    platform_audience_id: str | None
     platform_audience_name: str
     ad_account_id: str
-    description: Optional[str]
+    description: str | None
     auto_sync: bool
-    sync_interval_hours: Optional[int] = None
+    sync_interval_hours: int | None = None
     is_active: bool = True  # PlatformAudience has no is_active column; audiences are live
-    last_sync_at: Optional[datetime]
-    last_sync_status: Optional[str]
-    platform_size: Optional[int]
-    matched_size: Optional[int]
-    match_rate: Optional[float]
+    last_sync_at: datetime | None
+    last_sync_status: str | None
+    platform_size: int | None
+    matched_size: int | None
+    match_rate: float | None
     created_at: datetime
     updated_at: datetime
 
@@ -78,16 +77,16 @@ class SyncJobResponse(BaseModel):
     platform_audience_id: UUID
     operation: str
     status: str
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
-    duration_ms: Optional[int]
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration_ms: int | None
     profiles_total: int = 0
     profiles_sent: int = 0
     profiles_added: int = 0
     profiles_removed: int = 0
     profiles_failed: int = 0
-    error_message: Optional[str] = None
-    triggered_by: Optional[str] = None  # not persisted on AudienceSyncJob
+    error_message: str | None = None
+    triggered_by: str | None = None  # not persisted on AudienceSyncJob
     created_at: datetime
 
     @field_validator(
@@ -99,7 +98,7 @@ class SyncJobResponse(BaseModel):
         mode="before",
     )
     @classmethod
-    def _none_to_zero(cls, value: Optional[int]) -> int:
+    def _none_to_zero(cls, value: int | None) -> int:
         return 0 if value is None else value
 
     class Config:
@@ -117,6 +116,29 @@ class ConnectedPlatformResponse(BaseModel):
 
     platform: str
     ad_accounts: list[dict[str, str]]
+
+
+class AudienceCredentialUpsert(BaseModel):
+    """Create or update Meta audience-sync credentials (token never returned)."""
+
+    platform: str = Field("meta", description="Platform: meta")
+    ad_account_id: str = Field(..., min_length=1, description="Meta ad account ID (act_… or digits)")
+    access_token: str = Field(..., min_length=1, description="System User / Marketing API token")
+    ad_account_name: str | None = Field(None, description="Optional display name")
+    business_id: str | None = Field(None, description="Optional Meta Business Manager ID")
+    app_secret: str | None = Field(
+        None, description="Optional app secret for signed requests"
+    )
+
+
+class AudienceCredentialResponse(BaseModel):
+    """Public credential status — never includes tokens or ciphertext."""
+
+    platform: str
+    ad_account_id: str
+    ad_account_name: str | None = None
+    has_credentials: bool
+    is_active: bool
 
 
 class PlatformAudienceListResponse(BaseModel):
@@ -153,6 +175,76 @@ async def get_connected_platforms(
     return [ConnectedPlatformResponse(**p) for p in platforms]
 
 
+@router.put(
+    "/credentials",
+    response_model=AudienceCredentialResponse,
+    summary="Upsert audience-sync credentials",
+    description=(
+        "Store Meta Marketing API credentials for Custom Audience sync. "
+        "The access token is Fernet-encrypted at rest and never returned."
+    ),
+)
+async def upsert_audience_credentials(
+    request: AudienceCredentialUpsert,
+    db: AsyncSession = Depends(get_async_session),
+    tenant_id: int = Depends(get_tenant_id),
+) -> AudienceCredentialResponse:
+    """Create or update encrypted audience-sync credentials."""
+    service = AudienceSyncService(db, tenant_id)
+    config: dict = {}
+    if request.ad_account_name:
+        config["ad_account_name"] = request.ad_account_name
+    if request.business_id:
+        config["business_id"] = request.business_id
+    if request.app_secret:
+        config["app_secret"] = request.app_secret
+
+    try:
+        row = await service.upsert_credentials(
+            platform=request.platform,
+            ad_account_id=request.ad_account_id,
+            access_token=request.access_token,
+            config=config or None,
+        )
+        await db.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return AudienceCredentialResponse(
+        platform=row.platform,
+        ad_account_id=row.ad_account_id,
+        ad_account_name=(row.config or {}).get("ad_account_name"),
+        has_credentials=row.has_credentials,
+        is_active=row.is_active,
+    )
+
+
+@router.delete(
+    "/credentials/{platform}/{ad_account_id}",
+    response_model=dict,
+    summary="Deactivate audience-sync credentials",
+    description="Clear the stored token and deactivate the credential row.",
+)
+async def deactivate_audience_credentials(
+    platform: str,
+    ad_account_id: str,
+    db: AsyncSession = Depends(get_async_session),
+    tenant_id: int = Depends(get_tenant_id),
+) -> dict:
+    """Deactivate and clear credentials for one ad account."""
+    service = AudienceSyncService(db, tenant_id)
+    cleared = await service.deactivate_credentials(
+        platform=platform, ad_account_id=ad_account_id
+    )
+    if not cleared:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Credentials not found",
+        )
+    await db.commit()
+    return {"platform": platform, "ad_account_id": ad_account_id, "deactivated": True}
+
+
 @router.get(
     "/audiences",
     response_model=PlatformAudienceListResponse,
@@ -160,8 +252,8 @@ async def get_connected_platforms(
     description="List all platform audiences with optional filtering.",
 )
 async def list_platform_audiences(
-    segment_id: Optional[UUID] = Query(None, description="Filter by segment ID"),
-    platform: Optional[str] = Query(None, description="Filter by platform"),
+    segment_id: UUID | None = Query(None, description="Filter by segment ID"),
+    platform: str | None = Query(None, description="Filter by platform"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_async_session),

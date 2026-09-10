@@ -3518,13 +3518,16 @@ async def seed_audience_sync(
     if not await count(
         db, AudienceSyncCredential, AudienceSyncCredential.tenant_id == tenant_id
     ):
+        from app.services.encryption import encrypt_token
+
         db.add(
             AudienceSyncCredential(
                 id=uid("audience_credential", "meta"),
                 tenant_id=tenant_id,
                 platform="meta",
                 ad_account_id=AD_ACCOUNT_ID,
-                access_token="demo-system-user-token-redacted",
+                access_token=None,
+                access_token_encrypted=encrypt_token("demo-system-user-token-redacted"),
                 config={
                     "ad_account_name": AD_ACCOUNT_NAME,
                     "business_id": "1023456789012",

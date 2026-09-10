@@ -28,6 +28,7 @@ import {
 } from '@/api/hooks';
 import { useTenantOverview, useTenantRecommendations } from '@/api/hooks';
 import { useApproveAction, useDismissAction, useQueueAction } from '@/api/autopilot';
+import AutopilotPanel from '@/components/AutopilotPanel';
 import { useToast } from '@/components/ui/use-toast';
 import {
   CalendarIcon,
@@ -464,9 +465,14 @@ export default function TenantOverview() {
           </div>
         </div>
 
-        {/* Right column - Actions & Timeline */}
+        {/* Right column - Autopilot queue & Timeline */}
         <div className="space-y-6">
-          {/* Actions Panel */}
+          {/* Live fact_actions_queue */}
+          <div data-tour="autopilot-queue">
+            <AutopilotPanel tenantId={tid} />
+          </div>
+
+          {/* Recommendations / EMQ actions */}
           <ActionsPanel
             actions={actions}
             autopilotMode={autopilotMode}
