@@ -137,6 +137,7 @@ Frontend lint, type checking, unit tests, and builds are blocking in GitHub Acti
 - Do not hardcode production API or WebSocket hosts; use the existing same-origin defaults and environment configuration.
 - Keep routes, navigation, API types, loading/error states, and English/Arabic copy aligned when a feature changes.
 - Reuse the existing component, theme, and state-management patterns before introducing new abstractions.
+- **Full website (landing) + dashboard redesign is an important product goal but must not be started ASAP.** Prefer Meta activation and backend/product work first; keep current-FE changes minimal (thin API adapters) until that redesign begins. When it does start, use **[Radix Themes](https://www.radix-ui.com/themes)** (`@radix-ui/themes`) as the primary component + theme layer — not ad-hoc restyling of the current stack. Do not install Themes early just to polish throwaway screens. See `docs/feature-audit.md`.
 
 ## Database and configuration
 
@@ -160,6 +161,7 @@ Frontend lint, type checking, unit tests, and builds are blocking in GitHub Acti
 - Keep integration credentials encrypted at rest and never return, log, or store secrets in public configuration objects.
 - Preserve signed-webhook verification, replay/idempotency protection, transaction rollback, and retry-safe error behavior.
 - Meta insights ingestion is strictly read-only: `backend/app/services/meta/insights_client.py` issues `GET` and nothing else, and needs only `ads_read`.
+- Automation Rules are **LOCAL_ONLY**: they may mutate local `Campaign` rows and send alerts after the trust gate, but must never import or call `write_client` / `action_executor`. Meta Ads writes stay on Autopilot only. Keep `RULES_META_WRITES_ENABLED=false` (future queue bridge only) and `RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false` unless operators deliberately enable local pause/budget. See `docs/architecture/trust-engine.md` and `app/services/rules_meta_policy.py`.
 - The autopilot write path is real but **disabled by default**. `backend/app/services/meta/write_client.py` is the only module that may issue a non-`GET` request to Meta; `backend/app/services/meta/action_executor.py` drives it, measuring the before- and after-values by reading the entity rather than assuming them. It requires the **`ads_management`** permission (subject to Meta App Review), and it writes nothing unless `autopilot_execution_enabled` is true **and** `autopilot_execution_dry_run` is false - both default to no write. `tasks.apply_actions_queue` **is** scheduled (beat key `autopilot-apply-actions-queue`, every 5 minutes, queue `sync`), which is deliberately not the same thing as being enabled: `tasks.apply_actions_queue` returns before it queries the batch when `autopilot_execution_enabled` is false, and `action_executor.execute_action` refuses on the same flag before it decrypts a token, so on a default deployment a scheduled run reads no approved rows, evaluates no trust gate and issues no Meta request. Do not widen `autopilot_executable_action_types` past `SAFE_ACTIONS`, change that beat entry's queue to one no worker consumes, or relax a guard rail without tracing every consumer, test and document together - see docs/architecture/trust-engine.md.
 - The executor commits twice per executed action and both commits are load-bearing. It moves the row to `applying` with the **resolved absolute target** and commits that before the write, so a crash cannot leave an `approved` row whose next run re-derives a relative change against the value the last write set; and `apply_actions_queue` commits each outcome before the next action, so the day-scoped guard rails - which read committed state under `autoflush=False` - can see this run's own writes. A row in `applying` is reconciled by re-reading, never re-written, and the batch query does not select it.
 - Both day-scoped guard rails count by `fact_actions_queue.applied_at`, never by `date`. `date` records when an action was **queued** and is never updated, so a rail keyed on it silently stops counting for anything approved on an earlier day.
@@ -176,6 +178,7 @@ Frontend lint, type checking, unit tests, and builds are blocking in GitHub Acti
 ## Detailed documentation
 
 - [Trust engine](docs/architecture/trust-engine.md)
+- [Feature audit / redesign priority](docs/feature-audit.md)
 - [Integration boundaries](docs/integrations/README.md)
 - [Paddle Billing](docs/integrations/billing-paddle.md)
 - [Operations runbooks](docs/05-operations/runbooks.md)
