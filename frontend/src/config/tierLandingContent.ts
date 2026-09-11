@@ -527,7 +527,7 @@ const enterprise: TierContent = {
     {
       question: 'Can we enforce our own automation guardrails?',
       answer:
-        'Yes. Trust Gate thresholds, Autopilot execution flags (writes off by default), and Automation Rules that stay local-only until you enable them. Custom Autopilot Rules are not included in this portal release.',
+        'Yes. Trust Gate thresholds, Autopilot execution flags (writes off by default), and Automation Rules that stay local-only until you enable them. Custom Autopilot Rules enqueue SAFE Autopilot queue actions (budget/bid decrease, pause ad set) through the Trust Gate; Meta writes stay off until Autopilot execution is enabled.',
     },
     {
       question: 'Do you support SSO and granular permissions?',

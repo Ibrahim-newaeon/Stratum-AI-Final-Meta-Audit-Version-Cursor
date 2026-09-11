@@ -68,6 +68,7 @@ const CDPAudienceSync = lazy(() => import('./views/cdp/CDPAudienceSync'));
 const CDPRfm = lazy(() => import('./views/cdp/CDPRfm'));
 const CDPFunnels = lazy(() => import('./views/cdp/CDPFunnels'));
 const CDPComputedTraits = lazy(() => import('./views/cdp/CDPComputedTraits'));
+const CustomAutopilotRules = lazy(() => import('./views/CustomAutopilotRules'));
 const LaunchUnavailable = lazy(() => import('./views/LaunchUnavailable'));
 
 // Knowledge Graph views
@@ -961,10 +962,7 @@ function App() {
                         path="custom-autopilot-rules"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Custom Autopilot"
-                              reason="Custom Autopilot rules are not included in this portal release. Saves stayed in the browser and never reached the API."
-                            />
+                            <CustomAutopilotRules />
                           </Suspense>
                         }
                       />

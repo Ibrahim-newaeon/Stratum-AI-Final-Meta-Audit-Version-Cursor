@@ -7,7 +7,6 @@
  */
 
 export const PORTAL_LAUNCH_HIDDEN_HREFS = [
-  '/dashboard/custom-autopilot-rules',
   '/dashboard/custom-reports',
   '/dashboard/cdp/consent',
   '/dashboard/cdp/predictive-churn',

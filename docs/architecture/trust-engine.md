@@ -639,6 +639,29 @@ ad set (those plus `bid_amount`), ad (`status` only — an ad has no budget, and
 A rule with an empty `conditions` list matches nothing. It previously matched *every* campaign of the
 tenant, because the evaluator started from `all_match = True` and returned it unchanged.
 
+### Custom Autopilot → Autopilot queue (SAFE only)
+
+**Decision (encoded in code):** Custom Autopilot is a **queue bridge**, not a Meta write path.
+
+| Path | May change live Meta ads? | Mechanism |
+|------|---------------------------|-----------|
+| Custom Autopilot | **No (directly)** | Evaluate tenant rules → Trust Gate → enqueue SAFE rows on `fact_actions_queue` |
+| Autopilot executor | **Yes (when deliberately enabled)** | `fact_actions_queue` → trust gate again → `action_executor` → `write_client` |
+
+MVP-allowed Custom Autopilot action types (subset of Autopilot `SAFE_ACTIONS`):
+
+- `budget_decrease`
+- `bid_decrease`
+- `pause_adset` (requires `config.adset_id`)
+
+Guarantees:
+
+- Custom Autopilot **never imports** Meta write clients.
+- Trust Gate **BLOCK** skips enqueue; **HOLD** records a match but does not enqueue; **PASS** may enqueue.
+- `require_approval=true` leaves queue rows in `queued`; `false` marks them `approved` for the existing Autopilot apply path.
+- Autopilot Meta writes remain disabled by default (`autopilot_execution_enabled=false` / dry-run defaults).
+- Beat entry `evaluate-custom-autopilot-rules` runs every 15 minutes on the `rules` queue.
+
 ### Rules → Meta policy (LOCAL_ONLY)
 
 **Decision (encoded in code):** Automation Rules are **local-only**. They must not POST to the Meta Marketing API.

@@ -123,6 +123,7 @@ const navigation = [
   },
   { name: 'nav.assets', href: '/dashboard/assets', icon: PhotoIcon, tourId: 'nav-assets' },
   { name: 'nav.rules', href: '/dashboard/rules', icon: BoltIcon, tourId: 'nav-rules' },
+  { name: 'nav.customAutopilot', href: '/dashboard/custom-autopilot-rules', icon: BoltIcon, tourId: 'nav-custom-autopilot' },
   {
     name: 'nav.whatsapp',
     href: '/dashboard/whatsapp',

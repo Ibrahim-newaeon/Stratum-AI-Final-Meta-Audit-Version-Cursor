@@ -163,6 +163,9 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     # Rules tasks
     "app.workers.tasks.rules.evaluate_rules": {"queue": "rules"},
     "app.workers.tasks.rules.evaluate_all_rules": {"queue": "rules"},
+    # Custom Autopilot tasks
+    "app.workers.tasks.custom_autopilot.evaluate_tenant_custom_autopilot": {"queue": "rules"},
+    "app.workers.tasks.custom_autopilot.evaluate_all_custom_autopilot": {"queue": "rules"},
     # Competitor tasks
     "app.workers.tasks.competitors.fetch_competitor_data": {"queue": "intel"},
     "app.workers.tasks.competitors.refresh_all_competitors": {"queue": "intel"},
@@ -279,6 +282,11 @@ BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
     # ==========================================================================
     "evaluate-active-rules": {
         "task": "app.workers.tasks.rules.evaluate_all_rules",
+        "schedule": crontab(minute="*/15"),
+        "options": {"queue": "rules"},
+    },
+    "evaluate-custom-autopilot-rules": {
+        "task": "app.workers.tasks.custom_autopilot.evaluate_all_custom_autopilot",
         "schedule": crontab(minute="*/15"),
         "options": {"queue": "rules"},
     },

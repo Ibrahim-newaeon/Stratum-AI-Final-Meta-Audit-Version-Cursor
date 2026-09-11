@@ -113,6 +113,7 @@ from app.models.campaign_builder import (
 )
 from app.models.capi_credentials import TenantCAPICredential
 from app.models.whatsapp_credentials import TenantWhatsAppCredential
+from app.models.custom_autopilot import CustomAutopilotRule, CustomAutopilotRuleExecution, CustomAutopilotRuleStatus
 
 # CAPI delivery telemetry. Registered here so Alembic sees the metadata:
 # these tables were declared but never imported, so the baseline's create_all
@@ -466,6 +467,9 @@ __all__ = [
     "CAPIDeliveryDailyStats",
     "TenantCAPICredential",
     "TenantWhatsAppCredential",
+    "CustomAutopilotRule",
+    "CustomAutopilotRuleExecution",
+    "CustomAutopilotRuleStatus",
     # Audit-recommended service models
     "AudienceOverlapRecord",
     "AudienceRecord",

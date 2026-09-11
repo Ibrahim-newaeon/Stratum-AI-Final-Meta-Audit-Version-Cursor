@@ -8,21 +8,16 @@
 
 import { useState } from 'react';
 import {
-  Bell,
   ChevronDown,
   ChevronRight,
   Clock,
-  DollarSign,
   Info,
   Loader2,
-  MessageCircle,
   Pause,
-  Play,
   Plus,
   Save,
   Settings,
   Shield,
-  Tag,
   Target,
   Trash2,
   TrendingUp,
@@ -153,24 +148,12 @@ const OPERATORS = [
   { value: 'change_lt', label: 'Changed by <', description: 'Changed by less than' },
 ];
 
+// Custom Autopilot may only enqueue SAFE Autopilot actions.
+// Meta writes still require Autopilot execution flags (off by default).
 const ACTION_TYPES = [
-  { value: 'adjust_budget', label: 'Adjust Budget', icon: DollarSign, category: 'Budget' },
-  { value: 'scale_budget', label: 'Scale Budget %', icon: TrendingUp, category: 'Budget' },
-  { value: 'set_budget', label: 'Set Budget To', icon: Target, category: 'Budget' },
-  { value: 'adjust_bid', label: 'Adjust Bid', icon: TrendingUp, category: 'Bidding' },
-  { value: 'pause_campaign', label: 'Pause Campaign', icon: Pause, category: 'Status' },
+  { value: 'budget_decrease', label: 'Decrease Budget %', icon: TrendingUp, category: 'Budget' },
+  { value: 'bid_decrease', label: 'Decrease Bid %', icon: TrendingUp, category: 'Bidding' },
   { value: 'pause_adset', label: 'Pause Ad Set', icon: Pause, category: 'Status' },
-  { value: 'pause_ad', label: 'Pause Ad', icon: Pause, category: 'Status' },
-  { value: 'enable_campaign', label: 'Enable Campaign', icon: Play, category: 'Status' },
-  { value: 'apply_label', label: 'Apply Label', icon: Tag, category: 'Organization' },
-  { value: 'send_alert', label: 'Send Alert', icon: Bell, category: 'Notification' },
-  { value: 'notify_slack', label: 'Notify Slack', icon: MessageCircle, category: 'Notification' },
-  {
-    value: 'notify_whatsapp',
-    label: 'Notify WhatsApp',
-    icon: MessageCircle,
-    category: 'Notification',
-  },
 ];
 
 const PLATFORMS = [
@@ -216,7 +199,7 @@ export function CustomAutopilotRulesBuilder({ rule, onSave, onCancel, isLoading 
         },
       ],
       conditionLogic: 'AND',
-      actions: [{ id: crypto.randomUUID(), type: 'pause_campaign', config: {}, priority: 1 }],
+      actions: [{ id: crypto.randomUUID(), type: 'budget_decrease', config: { percentage: '10' }, priority: 1 }],
       targeting: {
         platforms: [],
         campaignTypes: [],
@@ -698,7 +681,7 @@ export function CustomAutopilotRulesBuilder({ rule, onSave, onCancel, isLoading 
                       </select>
 
                       {/* Action Config */}
-                      {(action.type === 'adjust_budget' || action.type === 'scale_budget') && (
+                      {(action.type === 'budget_decrease' || action.type === 'bid_decrease') && (
                         <div className="flex items-center gap-2">
                           <label className="text-sm text-muted-foreground">Adjustment:</label>
                           <select
