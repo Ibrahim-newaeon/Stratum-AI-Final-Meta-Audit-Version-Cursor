@@ -138,8 +138,10 @@ class FakeSession:
 class FakeClient:
     """Stand-in for the synchronous Graph API client."""
 
-    def __init__(self, tenant_id=None):
+    def __init__(self, tenant_id=None, phone_number_id=None, access_token=None, **kwargs):
         self.tenant_id = tenant_id
+        self.phone_number_id = phone_number_id
+        self.access_token = access_token
         FakeClient.calls = getattr(FakeClient, "calls", [])
 
     def send_template_message(self, **kwargs):
@@ -156,9 +158,21 @@ class FakeClient:
 @pytest.fixture
 def client_calls(monkeypatch):
     """Capture what the task sends to Meta, sending nothing."""
+    from app.services.whatsapp.credentials_store import ResolvedWhatsAppCredentials
+
     FakeClient.calls = []
     monkeypatch.setattr(
         "app.services.whatsapp.client.WhatsAppClient", FakeClient, raising=True
+    )
+    monkeypatch.setattr(
+        "app.services.whatsapp.credentials_store.resolve_credentials_sync",
+        lambda db, tenant_id: ResolvedWhatsAppCredentials(
+            phone_number_id="pn-test",
+            access_token="tok-test",
+            business_account_id="ba-test",
+            source="tenant",
+        ),
+        raising=True,
     )
     return FakeClient.calls
 

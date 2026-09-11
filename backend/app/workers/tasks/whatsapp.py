@@ -109,8 +109,21 @@ def send_whatsapp_message(self, message_id: int, tenant_id: int) -> dict[str, An
             )
 
         from app.services.whatsapp.client import WhatsAppClient
+        from app.services.whatsapp.credentials_store import (
+            WhatsAppNotConfiguredError,
+            resolve_credentials_sync,
+        )
 
-        client = WhatsAppClient(tenant_id)
+        try:
+            creds = resolve_credentials_sync(db, tenant_id)
+        except WhatsAppNotConfiguredError as exc:
+            return _refuse(db, message, str(exc))
+
+        client = WhatsAppClient(
+            tenant_id=tenant_id,
+            phone_number_id=creds.phone_number_id,
+            access_token=creds.access_token,
+        )
         try:
             if template is not None:
                 result = client.send_template_message(

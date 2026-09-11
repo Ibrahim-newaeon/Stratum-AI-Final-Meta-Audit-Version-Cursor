@@ -870,9 +870,9 @@ class AlertNotificationService:
             return False
 
         try:
-            from app.services.whatsapp_client import get_whatsapp_client
+            from app.services.whatsapp_client import get_whatsapp_client_for_tenant
 
-            whatsapp = get_whatsapp_client()
+            whatsapp = await get_whatsapp_client_for_tenant(self.db, self.tenant_id)
 
             # Format message for WhatsApp
             message = (

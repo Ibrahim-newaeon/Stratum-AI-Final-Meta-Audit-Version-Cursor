@@ -441,5 +441,25 @@ class WhatsAppClient:
 
 # Singleton instance for convenience
 def get_whatsapp_client() -> WhatsAppClient:
-    """Get a configured WhatsApp client instance."""
+    """Get a WhatsApp client from global ``WHATSAPP_*`` settings.
+
+    Use this for platform-level flows only (e.g. auth OTP). Module G
+    tenant messaging must use :func:`get_whatsapp_client_for_tenant`.
+    """
     return WhatsAppClient()
+
+
+async def get_whatsapp_client_for_tenant(db, tenant_id: int) -> WhatsAppClient:
+    """Build a WhatsApp client from the tenant's encrypted Module G credentials.
+
+    Falls back to global env only when ``dev_defaults_allowed()`` is true;
+    otherwise raises ``WhatsAppNotConfiguredError``.
+    """
+    from app.services.whatsapp.credentials_store import resolve_credentials
+
+    creds = await resolve_credentials(db, tenant_id)
+    return WhatsAppClient(
+        phone_number_id=creds.phone_number_id,
+        access_token=creds.access_token,
+        business_account_id=creds.business_account_id,
+    )
