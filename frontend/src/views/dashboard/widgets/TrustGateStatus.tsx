@@ -40,9 +40,11 @@ import type { SignalHealthSummary } from '@/api/dashboard';
 import { missingInputLabels } from './missingInputs';
 
 // Band markers for the progress bar only - the gate decision itself comes from
-// the API, which reads the thresholds from configuration.
-const HEALTHY_BAND = 70;
-const DEGRADED_BAND = 40;
+// the API, which reads the thresholds from configuration. Prefer the tenant's
+// reported thresholds so a tuned deployment does not draw 70/40 while the gate
+// enforces something else.
+const DEFAULT_HEALTHY_BAND = 70;
+const DEFAULT_DEGRADED_BAND = 40;
 
 type GateStatus = 'PASS' | 'HOLD' | 'BLOCK' | 'UNKNOWN';
 
@@ -53,6 +55,8 @@ interface TrustGateStatusProps {
 
 export function TrustGateStatus({ signalHealth, loading = false }: TrustGateStatusProps) {
   const { t } = useTranslation();
+  const healthyBand = signalHealth?.healthy_threshold ?? DEFAULT_HEALTHY_BAND;
+  const degradedBand = signalHealth?.degraded_threshold ?? DEFAULT_DEGRADED_BAND;
 
   if (loading) {
     return (
@@ -242,17 +246,17 @@ export function TrustGateStatus({ signalHealth, loading = false }: TrustGateStat
             <div className="h-full flex">
               <div
                 className="bg-[#ff6b6b] transition-all duration-500"
-                style={{ width: `${Math.min(DEGRADED_BAND, score ?? 0)}%` }}
+                style={{ width: `${Math.min(degradedBand, score ?? 0)}%` }}
               />
               <div
                 className="bg-yellow-500 transition-all duration-500"
                 style={{
-                  width: `${Math.max(0, Math.min(HEALTHY_BAND - DEGRADED_BAND, (score ?? 0) - DEGRADED_BAND))}%`,
+                  width: `${Math.max(0, Math.min(healthyBand - degradedBand, (score ?? 0) - degradedBand))}%`,
                 }}
               />
               <div
                 className="bg-[#00c7be] transition-all duration-500"
-                style={{ width: `${Math.max(0, (score ?? 0) - HEALTHY_BAND)}%` }}
+                style={{ width: `${Math.max(0, (score ?? 0) - healthyBand)}%` }}
               />
             </div>
           </div>
@@ -261,13 +265,13 @@ export function TrustGateStatus({ signalHealth, loading = false }: TrustGateStat
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>0</span>
             <span className="text-[#ff6b6b]">
-              {t('signalHealth.gate.block')} (&lt;{DEGRADED_BAND})
+              {t('signalHealth.gate.block')} (&lt;{degradedBand})
             </span>
             <span className="text-yellow-500">
-              {t('signalHealth.gate.hold')} ({DEGRADED_BAND}-{HEALTHY_BAND - 1})
+              {t('signalHealth.gate.hold')} ({degradedBand}-{healthyBand - 1})
             </span>
             <span className="text-[#00c7be]">
-              {t('signalHealth.gate.pass')} (&gt;={HEALTHY_BAND})
+              {t('signalHealth.gate.pass')} (&gt;={healthyBand})
             </span>
           </div>
         </div>

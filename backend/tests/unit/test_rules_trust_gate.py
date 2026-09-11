@@ -39,7 +39,15 @@ RULE_ID = 7
 class FakeRule:
     """Minimal active rule."""
 
-    def __init__(self, action_type="pause_campaign", conditions=None):
+    def __init__(
+        self,
+        action_type="pause_campaign",
+        conditions=None,
+        *,
+        cooldown_hours=24,
+        last_triggered_at=None,
+        trigger_count=0,
+    ):
         self.id = RULE_ID
         self.tenant_id = TENANT_ID
         self.name = "Pause the losers"
@@ -50,6 +58,10 @@ class FakeRule:
             if conditions is not None
             else [{"metric": "spend_cents", "operator": "greater_than", "value": "100"}]
         )
+        self.cooldown_hours = cooldown_hours
+        self.last_triggered_at = last_triggered_at
+        self.trigger_count = trigger_count
+        self.last_evaluated_at = None
 
 
 class FakeCampaign:
@@ -142,8 +154,20 @@ def gate_result(decision: GateDecision, score=None) -> SignalHealthGateResult:
 def wire(monkeypatch):
     """Patch the rules module's session, gate and event publisher."""
 
-    def _wire(decision, *, action_type="pause_campaign", conditions=None):
-        rule = FakeRule(action_type=action_type, conditions=conditions)
+    def _wire(
+        decision,
+        *,
+        action_type="pause_campaign",
+        conditions=None,
+        cooldown_hours=24,
+        last_triggered_at=None,
+    ):
+        rule = FakeRule(
+            action_type=action_type,
+            conditions=conditions,
+            cooldown_hours=cooldown_hours,
+            last_triggered_at=last_triggered_at,
+        )
         campaign = FakeCampaign()
         session = FakeSession(rule, [campaign])
 
@@ -172,11 +196,16 @@ class TestRulesRespectTheTrustGate:
         assert result["executions"] == 0
         assert campaign.status == "active"
         assert campaign.daily_budget_cents == 10000
-        assert session.added == []
+        assert len(session.added) == 1
+        blocked = session.added[0]
+        assert isinstance(blocked, RuleExecution)
+        assert blocked.triggered is False
+        assert blocked.action_result["blocked"] is True
+        assert session.commits == 1
 
     def test_block_records_the_reason_for_audit(self, wire):
         """The decision and its inputs must be reportable."""
-        wire(GateDecision.BLOCK)
+        session, _, _ = wire(GateDecision.BLOCK)
 
         result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
 
@@ -185,6 +214,8 @@ class TestRulesRespectTheTrustGate:
         assert audit["reason"]
         assert "healthy_threshold" in audit
         assert "channels" in audit
+        assert session.added[0].action_result["trust_gate"]["decision"] == "block"
+        assert session.added[0].error
 
     def test_hold_does_not_mutate_the_campaign(self, wire):
         """40-69 is alert-only: a pause must not reach the platform."""
@@ -312,3 +343,60 @@ class TestRuleExecutionUsesRealColumns:
         row = session.added[0]
         assert isinstance(row, RuleExecution)
         assert row.action_result["held"] is True
+
+
+class TestRulesHonorCooldown:
+    """``cooldown_hours`` must suppress beat re-evaluation."""
+
+    def test_cooldown_skips_before_any_campaign_work(self, wire):
+        """A rule still inside its cooldown window must not mutate or audit-run."""
+        recent = datetime.now(UTC)
+        session, campaign, rule = wire(
+            GateDecision.PASS,
+            cooldown_hours=24,
+            last_triggered_at=recent,
+        )
+
+        result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
+
+        assert result["status"] == "cooldown"
+        assert result["executions"] == 0
+        assert campaign.status == "active"
+        assert session.added == []
+        assert session.commits == 0
+        assert rule.trigger_count == 0
+
+    def test_expired_cooldown_allows_evaluation(self, wire):
+        """Once the window elapses, the rule evaluates again."""
+        from datetime import timedelta
+
+        stale = datetime.now(UTC) - timedelta(hours=25)
+        session, _, rule = wire(
+            GateDecision.PASS,
+            cooldown_hours=24,
+            last_triggered_at=stale,
+        )
+
+        result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
+
+        assert result.get("status") != "cooldown"
+        assert result["skipped"] == 1
+        assert rule.last_triggered_at is not None
+        assert rule.last_triggered_at > stale
+        assert rule.trigger_count == 1
+        assert session.commits == 1
+
+    def test_zero_cooldown_never_skips(self, wire):
+        """cooldown_hours=0 disables the window even with a recent trigger."""
+        session, _, rule = wire(
+            GateDecision.PASS,
+            cooldown_hours=0,
+            last_triggered_at=datetime.now(UTC),
+        )
+
+        result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
+
+        assert result.get("status") != "cooldown"
+        assert result["skipped"] == 1
+        assert rule.trigger_count == 1
+        assert session.commits == 1

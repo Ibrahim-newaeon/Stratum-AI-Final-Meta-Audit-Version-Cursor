@@ -13,7 +13,7 @@ alerts. Meta Ads writes go only through Autopilot
 ``app.services.rules_meta_policy`` and ``docs/architecture/trust-engine.md``.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery import shared_task
@@ -61,6 +61,25 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
             logger.warning(f"Rule {rule_id} not found or inactive")
             return {"status": "not_found"}
 
+        # Cooldown: prevent rapid-fire re-triggers of the same rule. The
+        # RulesEngine service path already honors this; the beat worker must
+        # too or cooldown_hours is cosmetic only.
+        if rule.cooldown_hours and rule.last_triggered_at:
+            last = rule.last_triggered_at
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=UTC)
+            cooldown_end = last + timedelta(hours=int(rule.cooldown_hours))
+            if datetime.now(UTC) < cooldown_end:
+                logger.info(
+                    f"Rule {rule_id} skipped: still in cooldown until {cooldown_end.isoformat()}"
+                )
+                return {
+                    "status": "cooldown",
+                    "matches": 0,
+                    "executions": 0,
+                    "cooldown_ends": cooldown_end.isoformat(),
+                }
+
         # Get campaigns matching rule scope
         campaigns = (
             db.execute(
@@ -84,6 +103,27 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
             logger.warning(
                 f"Rule {rule_id} blocked by the trust gate: {gate.reason}"
             )
+            # Durable audit row: stdout alone is not enough for operators to
+            # explain why a beat cycle did nothing.
+            db.add(
+                RuleExecution(
+                    tenant_id=tenant_id,
+                    rule_id=rule.id,
+                    campaign_id=None,
+                    executed_at=datetime.now(UTC),
+                    triggered=False,
+                    condition_result={},
+                    action_result={
+                        "success": False,
+                        "blocked": True,
+                        "reason": gate.reason,
+                        "trust_gate": gate_audit,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                    error=gate.reason,
+                )
+            )
+            db.commit()
             return {
                 "status": "blocked",
                 "matches": 0,
@@ -152,6 +192,13 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
                     skipped += 1
                 else:
                     executions += 1
+
+        # A match counts as a trigger for cooldown purposes, including held
+        # and locally-skipped actions - same posture as RulesEngine.
+        if matches > 0:
+            rule.last_triggered_at = datetime.now(UTC)
+            rule.trigger_count = int(rule.trigger_count or 0) + 1
+            rule.last_evaluated_at = datetime.now(UTC)
 
         db.commit()
 

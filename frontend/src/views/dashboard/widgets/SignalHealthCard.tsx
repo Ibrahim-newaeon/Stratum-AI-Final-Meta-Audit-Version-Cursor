@@ -91,10 +91,12 @@ export function SignalHealthCard({ signalHealth, loading = false }: SignalHealth
 
   const statusConfig = getStatusConfig(signalHealth.status);
   const StatusIcon = statusConfig.icon;
+  const healthyBand = signalHealth.healthy_threshold ?? 70;
+  const degradedBand = signalHealth.degraded_threshold ?? 40;
 
   const getScoreColor = (score: number) => {
-    if (score >= 70) return 'text-[#00c7be]';
-    if (score >= 40) return 'text-yellow-500';
+    if (score >= healthyBand) return 'text-[#00c7be]';
+    if (score >= degradedBand) return 'text-yellow-500';
     return 'text-[#ff6b6b]';
   };
 
@@ -177,9 +179,9 @@ export function SignalHealthCard({ signalHealth, loading = false }: SignalHealth
             <div
               className={cn(
                 'h-full rounded-full transition-all duration-500',
-                (signalHealth.overall_score ?? 0) >= 70
+                (signalHealth.overall_score ?? 0) >= healthyBand
                   ? 'bg-gradient-to-r from-[#00c7be] to-[#34c759]'
-                  : (signalHealth.overall_score ?? 0) >= 40
+                  : (signalHealth.overall_score ?? 0) >= degradedBand
                     ? 'bg-gradient-to-r from-yellow-500 to-amber-400'
                     : 'bg-gradient-to-r from-[#ff6b6b] to-[#ff8a8a]'
               )}
