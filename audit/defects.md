@@ -46,13 +46,13 @@ Passwords and tokens are not recorded here.
 ### DEF-004 — Insights helper can report autopilot unblocked with no data
 
 - **Severity:** High
+- **Status:** Fixed — `check_signal_health_for_autopilot` fails closed on
+  `no_data` / `insufficient_data` and honors `automation_blocked`
+  (`test_insights_autopilot_signal_health.py`).
 - **Affected feature:** Insights autopilot status
-- **Reproduction (static):** `insights.check_signal_health_for_autopilot` treats `blocked = status in ["degraded","critical"]`. Empty response uses `status: "no_data"` and `automation_blocked: True`, but the helper ignores `automation_blocked`.
+- **Reproduction (static):** previously `blocked = status in ["degraded","critical"]` only.
 - **Expected:** Unknown health fail-closed.
-- **Actual:** `no_data` → `blocked=False` on that path.
-- **Impact:** UI can claim automation is running while the worker BLOCKs (or the reverse on this helper).
-- **Evidence:** Trust-gate review of `backend/app/api/v1/endpoints/insights.py` (helper)
-- **Regression:** Unit test `no_data` ⇒ automation blocked.
+- **Actual (before fix):** `no_data` → `blocked=False` on that path.
 
 ### DEF-005 — UI color bands ignore tenant threshold overrides
 

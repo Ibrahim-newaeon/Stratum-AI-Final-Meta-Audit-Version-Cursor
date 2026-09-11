@@ -38,11 +38,11 @@ const modeConfig: Record<
     color: 'text-success',
     bgColor: 'bg-success/5',
     borderColor: 'border-success/20',
-    description: 'Full automation enabled',
+    description: 'Enforcement allows full action types — Meta writes still need execution flags',
     allowedActions: [
-      'Scale budgets up/down',
-      'Pause/activate campaigns',
-      'Apply all recommendations',
+      'Queue budget/bid changes (subject to Trust Gate)',
+      'Pause/activate suggestions',
+      'Meta Ads writes only when AUTOPILOT_EXECUTION_ENABLED and dry-run off',
     ],
   },
   limited: {

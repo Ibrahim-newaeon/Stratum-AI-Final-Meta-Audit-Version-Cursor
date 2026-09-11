@@ -125,9 +125,14 @@ async def get_autopilot_status(
     service = AutopilotService(db)
     summary = await service.get_action_summary(tenant_id, days=1)
 
+    from app.core.config import settings
     from app.features.flags import get_autopilot_caps
 
     caps = get_autopilot_caps()
+    execution_enabled = bool(settings.autopilot_execution_enabled)
+    execution_dry_run = bool(settings.autopilot_execution_dry_run)
+    # Plan "level" is not the Meta write switch. Writes require both flags.
+    meta_writes_enabled = execution_enabled and not execution_dry_run
 
     return APIResponse(
         success=True,
@@ -141,6 +146,9 @@ async def get_autopilot_status(
             "pending_actions": summary["pending_approval"],
             "caps": caps,
             "enabled": features.get("autopilot_level", 0) > 0,
+            "execution_enabled": execution_enabled,
+            "execution_dry_run": execution_dry_run,
+            "meta_writes_enabled": meta_writes_enabled,
         },
     )
 

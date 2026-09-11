@@ -61,7 +61,12 @@ export interface AutopilotStatus {
     max_budget_pct_change: number;
     max_actions_per_day: number;
   };
+  /** Plan feature level > 0 — not the Meta write switch */
   enabled: boolean;
+  execution_enabled?: boolean;
+  execution_dry_run?: boolean;
+  /** True only when execution is on and dry-run is off */
+  meta_writes_enabled?: boolean;
 }
 
 export interface ActionsSummary {
