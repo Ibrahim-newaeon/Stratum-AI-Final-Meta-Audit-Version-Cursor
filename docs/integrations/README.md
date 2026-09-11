@@ -20,7 +20,7 @@ in their own tables (`tenant_ga4_integrations`, `tenant_gtm_integrations`) behin
 - Connect the Meta ad account (read-only token is enough for insights; a system-user token with
   `ads_management` is needed for autopilot actions).
 - Meta Pixel + Conversions API for event delivery (see `backend/app/services/capi/`).
-- WhatsApp Cloud API for messaging and conversation attribution.
+- WhatsApp Cloud API for messaging and conversation attribution. Module G outbound messaging uses per-tenant encrypted rows in ``tenant_whatsapp_credentials`` (``PUT /api/v1/whatsapp/credentials``); global ``WHATSAPP_*`` env is for webhook verify/signature, platform OTP, and development fallback only. Do not reuse ``tenant_capi_credentials`` for messaging — that table is Conversions API only.
 - CDP Audience Sync pushes segments to Meta Custom Audiences (Facebook, Instagram, WhatsApp).
 
 ### Meta App Review callbacks (required for `ads_read` / `ads_management`)
@@ -95,6 +95,53 @@ Meta retries any non-2xx, so an unknown Meta user is answered 200 - nothing is h
 could never change that - while genuine database failures answer 5xx so Meta does retry. A deletion whose
 erasure fails is recorded as `failed` and surfaces on the status page rather than being reported as
 success.
+
+### Meta campaign discovery (read-only)
+
+Insights sync only attaches metrics to **local** `Campaign` rows that already carry a Meta
+`external_id`. Campaign discovery fills that catalogue from Meta before the hourly insights pull.
+
+**What is pulled.** One request per enabled ad account:
+
+```
+GET https://graph.facebook.com/<version>/act_<ad account id>/campaigns
+    fields=id,name,status,effective_status,objective,start_time,stop_time,
+           updated_time,daily_budget,lifetime_budget
+```
+
+Pagination matches insights (`paging.next` / `paging.cursors.after`). Hitting `META_INSIGHTS_MAX_PAGES`
+while Meta still has pages fails that account's discovery without upserting a truncated catalogue for
+it; other enabled accounts on the same tenant still proceed.
+
+**Where it lands.** Each node upserts one `campaigns` row by `(tenant_id, platform=meta, external_id)`:
+name, status (from `effective_status` when present), objective, schedule dates, `account_id` (the
+`act_…` id), currency from `tenant_ad_account`, and the Meta payload in `raw_data`. Soft-deleted local
+rows are revived when Meta still lists them.
+
+**What it deliberately does not do.** It does not advance `campaigns.last_synced_at` (freshness remains
+insights-only). It does not copy Meta `daily_budget` / `lifetime_budget` into `*_cents` columns - Meta
+API units are not this schema's hundredths-of-major, and a wrong conversion would lie to every
+dashboard. Budgets stay in `raw_data` only. It never calls the autopilot write client.
+
+**When it runs.** Celery beat schedules `discover_all_campaigns` at minute 50 of every hour, shortly
+before `sync_all_campaigns` at minute 0. Operators can also `POST /api/v1/campaigns/discover`. Newly
+inserted campaigns are queued for an insights sync immediately.
+
+**Key files**: `backend/app/services/meta/campaign_discovery_client.py`,
+`backend/app/services/meta/campaign_discovery.py`, `backend/app/workers/tasks/sync.py`
+(`discover_tenant_campaigns_task`, `discover_all_campaigns`).
+
+### Meta Custom Audience auto-sync (CDP → Meta)
+
+Platform audiences created with `auto_sync=true` store a `next_sync_at`. Celery beat runs
+`sync_due_audience_syncs` every 15 minutes on the `cdp` queue, lists rows where
+`auto_sync` is true and `next_sync_at <= now`, and enqueues `sync_platform_audience_task`
+per row. A successful sync advances `next_sync_at` by `sync_interval_hours` (default 24).
+Credentials stay encrypted via `AudienceSyncCredential.resolved_access_token()`.
+
+**Key files**: `backend/app/services/cdp/audience_sync/service.py`
+(`list_due_auto_sync_audiences`), `backend/app/workers/tasks/cdp.py`,
+migration `0011_aud_sync_sched`.
 
 ### Meta insights ingestion (read-only)
 

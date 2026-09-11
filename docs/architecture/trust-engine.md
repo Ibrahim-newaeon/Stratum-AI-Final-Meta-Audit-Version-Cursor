@@ -628,20 +628,33 @@ ad set (those plus `bid_amount`), ad (`status` only — an ad has no budget, and
 
 ### The rules engine is gated too
 
-`app.workers.tasks.rules.evaluate_all_rules` (beat key `evaluate-active-rules`, every 15 minutes,
-queue `rules`) is the *second* path that acts on a tenant's campaigns: `_execute_action` pauses
-campaigns, adjusts `daily_budget_cents` and sends WhatsApp alerts. It calls the same gate through
-`check_signal_health_sync`, which loads the same rows and runs the same
-`evaluate_signal_health`, so the thresholds cannot drift between the sync and async callers.
+`app.workers.tasks.rules.evaluate_rules` (beat every ~15 minutes, queue `rules`) is the *second* path that acts on a tenant's campaigns: `_execute_action` can pause campaigns and adjust `daily_budget_cents` **in Stratum's local DB**, and send alerts. It calls the trust gate through `check_signal_health_sync`, which loads the same signal-health rows as Autopilot, so thresholds cannot drift between the two paths.
 
 | Decision | Rules engine behaviour |
 |----------|------------------------|
-| PASS | The action executes; the gate payload is stored on the `RuleExecution` row |
-| HOLD | Alert-only: `apply_label` and `send_alert` still run, `pause_campaign` and `adjust_budget` are held and recorded with the reason |
+| PASS | The **local** action executes; the gate payload is stored on the `RuleExecution` row |
+| HOLD | Alert-only: `apply_label` and `send_alert` still run; `pause_campaign` and `adjust_budget` are held and recorded with the reason |
 | BLOCK | The run stops before any campaign is touched |
 
 A rule with an empty `conditions` list matches nothing. It previously matched *every* campaign of the
 tenant, because the evaluator started from `all_match = True` and returned it unchanged.
+
+### Rules → Meta policy (LOCAL_ONLY)
+
+**Decision (encoded in code):** Automation Rules are **local-only**. They must not POST to the Meta Marketing API.
+
+| Path | May change live Meta ads? | Mechanism |
+|------|---------------------------|-----------|
+| Automation Rules | **No** | Mutate local `Campaign` rows + alerts. Stamp `execution_scope=local_db_only`. |
+| Autopilot | **Yes** (when deliberately enabled) | `fact_actions_queue` → trust gate → `action_executor` → `write_client` |
+
+Consequences operators should know:
+
+- A rule that "pauses" a campaign pauses Stratum's copy. Meta Ads Manager may still be delivering until Autopilot (or a human) pauses it on Meta.
+- Hourly/discovery sync can **overwrite** local `status` from Meta, clearing a local-only pause.
+- Local budget changes do not move Meta budgets.
+
+Config: `RULES_META_WRITES_ENABLED=false` (default). The flag only reserves a future **Rules → Autopilot queue** bridge; it never authorizes `write_client` from the rules modules. See `app/services/rules_meta_policy.py`. Direct Rules→Graph is forbidden (`refuse_direct_meta_write`).
 
 ### Prerequisite: the rollup has to run
 

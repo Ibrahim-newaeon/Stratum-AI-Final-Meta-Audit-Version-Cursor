@@ -593,6 +593,23 @@ export interface ConnectedPlatform {
   ad_accounts: Array<{ ad_account_id: string; ad_account_name: string | null }>;
 }
 
+export interface AudienceCredentialUpsert {
+  platform?: SyncPlatform;
+  ad_account_id: string;
+  access_token: string;
+  ad_account_name?: string;
+  business_id?: string;
+  app_secret?: string;
+}
+
+export interface AudienceCredentialStatus {
+  platform: SyncPlatform;
+  ad_account_id: string;
+  ad_account_name: string | null;
+  has_credentials: boolean;
+  is_active: boolean;
+}
+
 export interface PlatformAudience {
   id: string;
   platform: SyncPlatform;
@@ -842,6 +859,17 @@ export const cdpApi = {
 
   // Audience sync (Meta: Facebook, Instagram, WhatsApp)
   getConnectedPlatforms: () => get<ConnectedPlatform[]>('/cdp/audience-sync/platforms'),
+  upsertAudienceCredentials: (payload: AudienceCredentialUpsert) =>
+    // Backend returns the status body directly (not wrapped in APIResponse.data).
+    apiClient
+      .put<AudienceCredentialStatus>('/cdp/audience-sync/credentials', payload)
+      .then((r) => r.data),
+  deactivateAudienceCredentials: (platform: SyncPlatform, adAccountId: string) =>
+    apiClient
+      .delete<{ platform: string; ad_account_id: string; deactivated: boolean }>(
+        `/cdp/audience-sync/credentials/${platform}/${encodeURIComponent(adAccountId)}`
+      )
+      .then((r) => r.data),
   getPlatformAudiences: (params?: { platform?: SyncPlatform }) =>
     get<PlatformAudienceListResponse>('/cdp/audience-sync/audiences', params),
   createPlatformAudience: (audience: PlatformAudienceCreate) =>
@@ -1438,6 +1466,27 @@ export function useConnectedPlatforms() {
     queryKey: cdpQueryKeys.connectedPlatforms(),
     queryFn: cdpApi.getConnectedPlatforms,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useUpsertAudienceCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AudienceCredentialUpsert) => cdpApi.upsertAudienceCredentials(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cdpQueryKeys.connectedPlatforms() });
+    },
+  });
+}
+
+export function useDeactivateAudienceCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ platform, adAccountId }: { platform: SyncPlatform; adAccountId: string }) =>
+      cdpApi.deactivateAudienceCredentials(platform, adAccountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: cdpQueryKeys.connectedPlatforms() });
+    },
   });
 }
 

@@ -159,10 +159,20 @@ class EmqService:
             are None and ``drivers`` is empty for a tenant with no measured
             signal health - there is no fallback score.
         """
+        # Default to "today", but the nightly rollup writes *yesterday*.
+        # Prefer the latest day that actually has rows so Overview is not stuck
+        # on "Not measured" while yesterday's CAPI-backed score sits unused.
+        explicit_date = target_date is not None
         if target_date is None:
             target_date = datetime.now(UTC).date()
 
         current_records = await self._records_for(tenant_id, target_date)
+        if not current_records and not explicit_date:
+            fallback_date = await self._latest_measured_date(tenant_id)
+            if fallback_date is not None and fallback_date != target_date:
+                target_date = fallback_date
+                current_records = await self._records_for(tenant_id, target_date)
+
         previous_records = await self._records_for(tenant_id, target_date - timedelta(days=1))
 
         components = self._components(current_records)
@@ -182,6 +192,7 @@ class EmqService:
             "previousScore": previous_score,
             "confidenceBand": confidence_band(score),
             "drivers": self._drivers(components, previous_components),
+            "measuredDate": target_date.isoformat() if current_records else None,
             "lastUpdated": (
                 last_updated.isoformat() if last_updated else datetime.now(UTC).isoformat()
             ),
@@ -200,6 +211,15 @@ class EmqService:
             )
         )
         return list(result.scalars().all())
+
+    async def _latest_measured_date(self, tenant_id: int) -> date | None:
+        """Return the most recent date with signal-health rows, if any."""
+        result = await self.session.execute(
+            select(func.max(FactSignalHealthDaily.date)).where(
+                FactSignalHealthDaily.tenant_id == tenant_id
+            )
+        )
+        return result.scalar_one_or_none()
 
     @staticmethod
     def _components(

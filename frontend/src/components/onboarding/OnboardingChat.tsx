@@ -201,9 +201,33 @@ export default function OnboardingChat({
     }
   };
 
-  const handleOAuthRedirect = (_platform: string) => {
-    onClose();
-    navigate('/dashboard/campaigns/connect');
+  const handleOAuthRedirect = async (platform: string) => {
+    // POST /oauth/{platform}/authorize returns the Facebook dialog URL.
+    // Opening the authorize endpoint as a GET (window.open) cannot start OAuth.
+    try {
+      const response = await fetch(`${API_BASE}/oauth/${platform}/authorize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || `OAuth start failed (${response.status})`);
+      }
+      const payload = await response.json();
+      const authUrl =
+        payload?.data?.authorization_url || payload?.data?.oauth_url || payload?.authorization_url;
+      if (!authUrl) {
+        throw new Error('OAuth authorization URL missing from server response');
+      }
+      window.open(authUrl, '_blank', 'width=600,height=700');
+    } catch (err) {
+      console.error('OAuth redirect failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start platform OAuth');
+    }
   };
 
   const handleQuickReply = (reply: string) => {

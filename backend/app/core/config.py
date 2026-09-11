@@ -522,6 +522,19 @@ class Settings(BaseSettings):
             "intended change without calling any Meta write endpoint."
         ),
     )
+    # Automation Rules are LOCAL_ONLY by product policy: they mutate Stratum
+    # Campaign rows (and send alerts) but never POST to Meta. Autopilot is the
+    # sole Meta write path (write_client). This flag does NOT authorize
+    # write_client from Rules — it only reserves a future Autopilot-queue
+    # bridge. Keep false unless that bridge exists and is reviewed.
+    rules_meta_writes_enabled: bool = Field(
+        default=False,
+        description=(
+            "Reserved for a future Rules→Autopilot-queue bridge. Default false "
+            "(LOCAL_ONLY). Direct Meta writes from Rules remain forbidden even "
+            "when true — see app.services.rules_meta_policy."
+        ),
+    )
     rules_local_campaign_mutations_enabled: bool = Field(
         default=False,
         description=(

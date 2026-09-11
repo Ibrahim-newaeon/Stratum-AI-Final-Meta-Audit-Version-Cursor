@@ -30,7 +30,16 @@ from app.models import (
     WhatsAppTemplateStatus,
 )
 from app.schemas import APIResponse, PaginatedResponse
-from app.services.whatsapp_client import WhatsAppAPIError, get_whatsapp_client
+from app.services.whatsapp.credentials_store import (
+    WhatsAppNotConfiguredError,
+    deactivate_credentials,
+    public_status,
+    upsert_credentials,
+)
+from app.services.whatsapp_client import (
+    WhatsAppAPIError,
+    get_whatsapp_client_for_tenant,
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -58,6 +67,18 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
         signature = signature[7:]
 
     return hmac.compare_digest(expected_signature, signature)
+
+
+
+def _require_tenant_id(request: Request) -> int:
+    """Resolve tenant from auth middleware; never trust a client-supplied id."""
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    return int(tenant_id)
 
 
 # =============================================================================
@@ -167,6 +188,105 @@ class WhatsAppConversationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+
+# =============================================================================
+# Tenant WhatsApp Cloud API credentials (Module G)
+# =============================================================================
+class WhatsAppCredentialsUpsert(BaseModel):
+    """Connect / update Module G messaging credentials for the current tenant."""
+
+    phone_number_id: str = Field(..., min_length=1, description="WhatsApp Business Phone Number ID")
+    access_token: str = Field(..., min_length=1, description="Meta Graph API access token")
+    business_account_id: Optional[str] = Field(
+        default=None, description="WhatsApp Business Account ID (WABA)"
+    )
+    display_phone_number: Optional[str] = Field(
+        default=None, description="Human-readable phone number for status UI"
+    )
+
+
+@router.get("/credentials", response_model=APIResponse)
+async def get_whatsapp_credentials_status(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Return Module G credential status (never includes secrets)."""
+    tenant_id = _require_tenant_id(request)
+    status_payload = await public_status(db, tenant_id)
+    return APIResponse(success=True, data=status_payload)
+
+
+@router.put("/credentials", response_model=APIResponse)
+async def put_whatsapp_credentials(
+    request: Request,
+    body: WhatsAppCredentialsUpsert,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Encrypt and store per-tenant WhatsApp Cloud API messaging credentials.
+
+    Distinct from CAPI WhatsApp credentials under ``/capi``. Secrets are never
+    returned. Production sends fail closed until this row exists.
+    """
+    tenant_id = _require_tenant_id(request)
+
+    # Lightweight Graph verify: GET the phone number node with the supplied token.
+    verify_message = "Credentials stored"
+    try:
+        import httpx
+
+        version = settings.whatsapp_api_version or "v18.0"
+        url = f"https://graph.facebook.com/{version}/{body.phone_number_id}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                url,
+                params={"fields": "display_phone_number,verified_name"},
+                headers={"Authorization": f"Bearer {body.access_token}"},
+            )
+        if resp.status_code >= 400:
+            err = (resp.json() or {}).get("error", {})
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=err.get("message", f"WhatsApp credential verification failed (HTTP {resp.status_code})"),
+            )
+        data = resp.json() or {}
+        display = body.display_phone_number or data.get("display_phone_number")
+        verify_message = data.get("verified_name") or "Verified against Meta Graph API"
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("whatsapp_credential_verify_skipped", error=str(exc))
+        display = body.display_phone_number
+        verify_message = "Stored without live Graph verification"
+
+    row = await upsert_credentials(
+        db,
+        tenant_id=tenant_id,
+        phone_number_id=body.phone_number_id,
+        access_token=body.access_token,
+        business_account_id=body.business_account_id,
+        display_phone_number=display,
+        verify_message=verify_message,
+    )
+    await db.commit()
+    return APIResponse(success=True, data=await public_status(db, tenant_id), message="WhatsApp credentials connected")
+
+
+@router.delete("/credentials", response_model=APIResponse)
+async def delete_whatsapp_credentials(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Disconnect Module G messaging credentials for the current tenant."""
+    tenant_id = _require_tenant_id(request)
+    cleared = await deactivate_credentials(db, tenant_id=tenant_id)
+    await db.commit()
+    return APIResponse(
+        success=True,
+        data={"disconnected": True, "credentials_cleared": cleared},
+        message="WhatsApp credentials disconnected",
+    )
 
 
 # =============================================================================
@@ -471,7 +591,7 @@ async def verify_contact(
 
     # Send verification code via WhatsApp API
     try:
-        whatsapp_client = get_whatsapp_client()
+        whatsapp_client = await get_whatsapp_client_for_tenant(db, tenant_id)
 
         # Use authentication template for verification codes
         # The template must be pre-approved by Meta as an AUTHENTICATION category
@@ -645,7 +765,7 @@ async def create_template(
 
     # Submit to Meta Business Manager API for approval
     try:
-        whatsapp_client = get_whatsapp_client()
+        whatsapp_client = await get_whatsapp_client_for_tenant(db, tenant_id)
 
         # Build template components for Meta API
         components = []

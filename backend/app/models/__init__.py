@@ -111,6 +111,8 @@ from app.models.campaign_builder import (
     TenantAdAccount,
     TenantPlatformConnection,
 )
+from app.models.capi_credentials import TenantCAPICredential
+from app.models.whatsapp_credentials import TenantWhatsAppCredential
 
 # CAPI delivery telemetry. Registered here so Alembic sees the metadata:
 # these tables were declared but never imported, so the baseline's create_all
@@ -200,12 +202,6 @@ from app.models.meta_privacy import (
     MetaDataDeletionRequest,
 )
 
-# Social login identities (Facebook Login)
-from app.models.social_identity import (
-    SocialProvider,
-    UserSocialIdentity,
-)
-
 # Onboarding models
 from app.models.onboarding import (
     AutomationMode,
@@ -273,6 +269,12 @@ from app.models.settings import (
     WebhookDelivery,
     WebhookEventType,
     WebhookStatus,
+)
+
+# Social login identities (Facebook Login)
+from app.models.social_identity import (
+    SocialProvider,
+    UserSocialIdentity,
 )
 
 # Trust Layer models
@@ -462,6 +464,8 @@ __all__ = [
     "CAPIDeadLetterEntry",
     "CAPIEventDedupeRecord",
     "CAPIDeliveryDailyStats",
+    "TenantCAPICredential",
+    "TenantWhatsAppCredential",
     # Audit-recommended service models
     "AudienceOverlapRecord",
     "AudienceRecord",

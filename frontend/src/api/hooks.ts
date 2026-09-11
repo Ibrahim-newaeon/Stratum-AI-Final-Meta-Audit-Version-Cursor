@@ -120,6 +120,7 @@ export {
   useBulkUpdateCampaignStatus,
   usePauseCampaign,
   useActivateCampaign,
+  useDiscoverCampaigns,
 } from './campaigns';
 
 // Assets hooks

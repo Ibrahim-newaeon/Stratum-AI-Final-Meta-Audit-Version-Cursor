@@ -1,11 +1,11 @@
 /**
  * Competitor Intelligence Page
  *
- * Track competitors, share of voice, keyword overlap, and market trends
- * Integrates with Meta Ads Library
+ * API-backed CompetitorResponse fields only. No Math.random, mock rows,
+ * or invented keyword-overlap percentages.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -14,8 +14,8 @@ import {
   useDeleteCompetitor,
   useShareOfVoice,
 } from '@/api/hooks';
+import type { Competitor } from '@/api/competitors';
 import {
-  ArrowPathIcon,
   ArrowTopRightOnSquareIcon,
   ArrowTrendingDownIcon,
   ArrowTrendingUpIcon,
@@ -24,247 +24,128 @@ import {
   EyeIcon,
   GlobeAltIcon,
   MagnifyingGlassIcon,
+  MinusIcon,
   PlusIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import { AddCompetitorModal } from '@/components/competitors/AddCompetitorModal';
 
-interface Competitor {
-  id: string;
-  name: string;
-  domain: string;
-  logo: string | null;
-  adSpend: number;
-  adSpendTrend: number;
-  shareOfVoice: number;
-  keywordOverlap: number;
-  creativesTracked: number;
-  lastRefresh: Date;
-  status: 'active' | 'paused';
-  country?: string;
-  platforms?: string[];
+function TrendIcon({ trend }: { trend: string | null | undefined }) {
+  if (trend === 'up') return <ArrowTrendingUpIcon className="w-3 h-3 text-green-500" />;
+  if (trend === 'down') return <ArrowTrendingDownIcon className="w-3 h-3 text-red-500" />;
+  return <MinusIcon className="w-3 h-3 text-muted-foreground" />;
 }
 
-interface KeywordOverlap {
-  keyword: string;
-  yourPosition: number;
-  competitorPosition: number;
-  searchVolume: number;
-  cpc: number;
-  competitor: string;
+function keywordLabel(entry: { keyword?: string; query?: string } | string): string {
+  if (typeof entry === 'string') return entry;
+  return entry.keyword || entry.query || '—';
 }
 
+function formatCents(cents: number | null | undefined): string {
+  if (cents == null) return '—';
+  const value = cents / 100;
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
+  return `$${value.toFixed(0)}`;
+}
+
+function formatFetchedAt(iso: string | null | undefined): string {
+  if (!iso) return 'Never';
+  const hours = Math.floor((Date.now() - new Date(iso).getTime()) / (60 * 60 * 1000));
+  if (Number.isNaN(hours)) return 'Unknown';
+  if (hours < 1) return 'Just now';
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function metaAdsLibraryUrl(name: string): string {
+  return `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=ALL&q=${encodeURIComponent(name)}&search_type=keyword_unordered`;
+}
 
 export function Competitors() {
   const { t: _t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCompetitor, setSelectedCompetitor] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Auto-open modal if ?action=create is in URL
   useEffect(() => {
     if (searchParams.get('action') === 'create') {
       setIsModalOpen(true);
-      // Clear the URL parameter after opening
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
 
-  const { data: competitorsData, refetch: refetchCompetitors } = useCompetitors();
-  // Get last 30 days for share of voice
-  const endDate = new Date().toISOString().split('T')[0];
-  const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const { data: sovData } = useShareOfVoice(startDate, endDate);
+  const { data: competitorsData, isLoading, refetch } = useCompetitors();
+  const { data: sovData } = useShareOfVoice();
   const deleteCompetitor = useDeleteCompetitor();
 
-  // Generate Meta Ads Library URL - search by name (brand name works better)
-  const getMetaAdsLibraryUrl = (name: string, country: string) => {
-    return `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${country}&q=${encodeURIComponent(name)}&search_type=keyword_unordered`;
-  };
+  const competitors: Competitor[] = useMemo(() => {
+    if (!competitorsData) return [];
+    if (Array.isArray(competitorsData)) return competitorsData;
+    if (Array.isArray(competitorsData.items)) return competitorsData.items;
+    return [];
+  }, [competitorsData]);
 
-  // Handle delete competitor
-  const handleDeleteCompetitor = async (id: string) => {
+  const keywordRows = useMemo(() => {
+    const rows: { keyword: string; competitor: string; type?: string }[] = [];
+    for (const c of competitors) {
+      for (const kw of c.top_keywords || []) {
+        rows.push({
+          keyword: keywordLabel(kw),
+          competitor: c.name || c.domain,
+          type: typeof kw === 'object' ? kw.type : undefined,
+        });
+      }
+    }
+    return rows.slice(0, 25);
+  }, [competitors]);
+
+  const shareOfVoice = useMemo(() => {
+    if (sovData?.competitors?.length) {
+      return sovData.competitors.map((c) => ({
+        name: c.is_primary ? `You (${c.name || c.domain})` : c.name || c.domain,
+        share: c.share_of_voice ?? 0,
+        isPrimary: c.is_primary,
+      }));
+    }
+    return competitors
+      .filter((c) => c.share_of_voice != null)
+      .map((c) => ({
+        name: c.is_primary ? `You (${c.name || c.domain})` : c.name || c.domain,
+        share: c.share_of_voice ?? 0,
+        isPrimary: c.is_primary,
+      }));
+  }, [sovData, competitors]);
+
+  const filtered = competitors.filter(
+    (c) =>
+      (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.domain.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this competitor?')) return;
     try {
       await deleteCompetitor.mutateAsync(id);
-      refetchCompetitors();
+      refetch();
     } catch (error) {
       console.error('Failed to delete competitor:', error);
     }
   };
 
-  // Sample competitors - handle paginated response
-  const competitorsList = Array.isArray(competitorsData)
-    ? competitorsData
-    : (competitorsData as { data?: unknown[] } | undefined)?.data || [];
-  const competitors: Competitor[] = (
-    competitorsList as {
-      id: string;
-      name: string;
-      domain: string;
-      estimatedSpend?: number;
-      shareOfVoice?: number;
-      activeCreatives?: number;
-      lastUpdated?: string;
-      isActive?: boolean;
-    }[]
-  ).map((c) => ({
-    id: c.id,
-    name: c.name,
-    domain: c.domain,
-    logo: null,
-    adSpend: c.estimatedSpend ?? 0,
-    adSpendTrend: Math.random() * 40 - 20,
-    shareOfVoice: c.shareOfVoice ?? 0,
-    keywordOverlap: Math.floor(Math.random() * 50) + 10,
-    creativesTracked: c.activeCreatives ?? 0,
-    lastRefresh: new Date(c.lastUpdated ?? Date.now()),
-    status: c.isActive ? 'active' : 'paused',
-  })) ?? [
-    {
-      id: '1',
-      name: 'CompetitorOne',
-      domain: 'competitorone.com',
-      logo: null,
-      adSpend: 125000,
-      adSpendTrend: 15,
-      shareOfVoice: 24,
-      keywordOverlap: 45,
-      creativesTracked: 32,
-      lastRefresh: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      status: 'active' as const,
-    },
-    {
-      id: '2',
-      name: 'MarketLeader Inc',
-      domain: 'marketleader.com',
-      logo: null,
-      adSpend: 280000,
-      adSpendTrend: 8,
-      shareOfVoice: 35,
-      keywordOverlap: 62,
-      creativesTracked: 78,
-      lastRefresh: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      status: 'active' as const,
-    },
-    {
-      id: '3',
-      name: 'NewEntrant Co',
-      domain: 'newentrant.io',
-      logo: null,
-      adSpend: 45000,
-      adSpendTrend: 85,
-      shareOfVoice: 8,
-      keywordOverlap: 28,
-      creativesTracked: 15,
-      lastRefresh: new Date(Date.now() - 6 * 60 * 60 * 1000),
-      status: 'active' as const,
-    },
-    {
-      id: '4',
-      name: 'OldPlayer Ltd',
-      domain: 'oldplayer.com',
-      logo: null,
-      adSpend: 95000,
-      adSpendTrend: -12,
-      shareOfVoice: 18,
-      keywordOverlap: 55,
-      creativesTracked: 24,
-      lastRefresh: new Date(Date.now() - 12 * 60 * 60 * 1000),
-      status: 'paused' as const,
-    },
-  ];
-
-  const keywordOverlaps: KeywordOverlap[] = [
-    {
-      keyword: 'marketing automation',
-      yourPosition: 3,
-      competitorPosition: 1,
-      searchVolume: 12500,
-      cpc: 8.5,
-      competitor: 'MarketLeader Inc',
-    },
-    {
-      keyword: 'email campaigns',
-      yourPosition: 2,
-      competitorPosition: 4,
-      searchVolume: 8900,
-      cpc: 5.2,
-      competitor: 'CompetitorOne',
-    },
-    {
-      keyword: 'ad optimization',
-      yourPosition: 5,
-      competitorPosition: 2,
-      searchVolume: 6700,
-      cpc: 12.3,
-      competitor: 'MarketLeader Inc',
-    },
-    {
-      keyword: 'social media ads',
-      yourPosition: 1,
-      competitorPosition: 3,
-      searchVolume: 15200,
-      cpc: 4.8,
-      competitor: 'NewEntrant Co',
-    },
-    {
-      keyword: 'ppc management',
-      yourPosition: 4,
-      competitorPosition: 1,
-      searchVolume: 9800,
-      cpc: 15.6,
-      competitor: 'CompetitorOne',
-    },
-  ];
-
-  // Share of Voice data - handle API response shape
-  type ShareOfVoiceData = { you: number; competitors: { name: string; share: number }[] };
-  const shareOfVoice: ShareOfVoiceData = (sovData && !Array.isArray(sovData)
-    ? (sovData as ShareOfVoiceData)
-    : null) ?? {
-    you: 15,
-    competitors: [
-      { name: 'MarketLeader Inc', share: 35 },
-      { name: 'CompetitorOne', share: 24 },
-      { name: 'OldPlayer Ltd', share: 18 },
-      { name: 'NewEntrant Co', share: 8 },
-    ],
-  };
-
-  const filteredCompetitors = competitors.filter(
-    (c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.domain.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const formatCurrency = (value: number) => {
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
-    return `$${value}`;
-  };
-
-  const formatLastRefresh = (date: Date) => {
-    const hours = Math.floor((Date.now() - date.getTime()) / (60 * 60 * 1000));
-    if (hours < 1) return 'Just now';
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  };
-
-  // Stats
   const stats = {
-    totalCompetitors: competitors.length,
-    activeTracking: competitors.filter((c) => c.status === 'active').length,
-    avgKeywordOverlap: Math.round(
-      competitors.reduce((sum, c) => sum + c.keywordOverlap, 0) / competitors.length
+    total: competitors.length,
+    withSpend: competitors.filter((c) => (c.estimated_ad_spend_cents || 0) > 0).length,
+    keywords: competitors.reduce(
+      (sum, c) => sum + (c.paid_keywords_count || 0) + (c.organic_keywords_count || 0),
+      0
     ),
-    totalCreatives: competitors.reduce((sum, c) => sum + c.creativesTracked, 0),
+    creatives: competitors.reduce((sum, c) => sum + (c.ad_creatives_count || 0), 0),
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Competitor Intelligence</h1>
@@ -279,72 +160,74 @@ export function Competitors() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="metric-card premium p-4">
           <div className="text-sm text-muted-foreground mb-1">Tracked Competitors</div>
-          <div className="text-2xl font-bold">{stats.totalCompetitors}</div>
+          <div className="text-2xl font-bold">{stats.total}</div>
         </div>
         <div className="metric-card success p-4">
-          <div className="text-sm text-muted-foreground mb-1">Active Tracking</div>
-          <div className="text-2xl font-bold text-green-500">{stats.activeTracking}</div>
+          <div className="text-sm text-muted-foreground mb-1">With Est. Spend</div>
+          <div className="text-2xl font-bold text-green-500">{stats.withSpend}</div>
         </div>
         <div className="metric-card active p-4">
-          <div className="text-sm text-muted-foreground mb-1">Avg Keyword Overlap</div>
-          <div className="text-2xl font-bold">{stats.avgKeywordOverlap}%</div>
+          <div className="text-sm text-muted-foreground mb-1">Keywords Tracked</div>
+          <div className="text-2xl font-bold">{stats.keywords}</div>
         </div>
         <div className="metric-card warning p-4">
           <div className="text-sm text-muted-foreground mb-1">Creatives Tracked</div>
-          <div className="text-2xl font-bold">{stats.totalCreatives}</div>
+          <div className="text-2xl font-bold">{stats.creatives}</div>
         </div>
       </div>
 
-      {/* Share of Voice */}
       <div className="metric-card premium p-6">
         <div className="flex items-center gap-3 mb-4">
           <ChartBarIcon className="w-5 h-5 text-purple-500" />
           <h2 className="font-semibold">Share of Voice</h2>
         </div>
-        <div className="flex items-center gap-2 mb-4">
-          <div className="flex-1 h-8 rounded-full overflow-hidden flex bg-muted">
-            <div
-              className="h-full bg-primary"
-              style={{ width: `${shareOfVoice.you}%` }}
-              title={`You: ${shareOfVoice.you}%`}
-            />
-            {shareOfVoice.competitors.map((c, i) => (
-              <div
-                key={c.name}
-                className="h-full"
-                style={{
-                  width: `${c.share}%`,
-                  backgroundColor: ['#ef4444', '#f59e0b', '#10b981', '#6366f1'][i % 4],
-                }}
-                title={`${c.name}: ${c.share}%`}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-primary" />
-            <span>You ({shareOfVoice.you}%)</span>
-          </div>
-          {shareOfVoice.competitors.map((c, i) => (
-            <div key={c.name} className="flex items-center gap-2">
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: ['#ef4444', '#f59e0b', '#10b981', '#6366f1'][i % 4] }}
-              />
-              <span>
-                {c.name} ({c.share}%)
-              </span>
+        {shareOfVoice.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No share-of-voice data yet. Add competitors and refresh market intel.
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex-1 h-8 rounded-full overflow-hidden flex bg-muted">
+                {shareOfVoice.map((c, i) => (
+                  <div
+                    key={c.name}
+                    className="h-full"
+                    style={{
+                      width: `${Math.max(c.share, 0)}%`,
+                      backgroundColor: c.isPrimary
+                        ? 'hsl(var(--primary))'
+                        : ['#ef4444', '#f59e0b', '#10b981', '#6366f1'][i % 4],
+                    }}
+                    title={`${c.name}: ${c.share}%`}
+                  />
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
+            <div className="flex flex-wrap gap-4 text-sm">
+              {shareOfVoice.map((c, i) => (
+                <div key={c.name} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{
+                      backgroundColor: c.isPrimary
+                        ? 'hsl(var(--primary))'
+                        : ['#ef4444', '#f59e0b', '#10b981', '#6366f1'][i % 4],
+                    }}
+                  />
+                  <span>
+                    {c.name} ({c.share}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Search */}
       <div className="relative max-w-md">
         <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
         <input
@@ -356,191 +239,158 @@ export function Competitors() {
         />
       </div>
 
-      {/* Competitors Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredCompetitors.map((competitor) => (
-          <div
-            key={competitor.id}
-            className={cn(
-              'metric-card info p-4 cursor-pointer',
-              selectedCompetitor === competitor.id && 'ring-2 ring-primary'
-            )}
-            onClick={() =>
-              setSelectedCompetitor(selectedCompetitor === competitor.id ? null : competitor.id)
-            }
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                  <GlobeAltIcon className="w-5 h-5 text-muted-foreground" />
+      {isLoading ? (
+        <div className="text-center py-12 text-muted-foreground">Loading competitors…</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filtered.map((competitor) => (
+            <div
+              key={competitor.id}
+              className={cn(
+                'metric-card info p-4 cursor-pointer',
+                selectedId === competitor.id && 'ring-2 ring-primary'
+              )}
+              onClick={() =>
+                setSelectedId(selectedId === competitor.id ? null : competitor.id)
+              }
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                    <GlobeAltIcon className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{competitor.name || competitor.domain}</h3>
+                    <p className="text-sm text-muted-foreground">{competitor.domain}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold">{competitor.name}</h3>
-                  <p className="text-sm text-muted-foreground">{competitor.domain}</p>
+                <div className="flex items-center gap-2">
+                  {competitor.is_primary && (
+                    <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-primary">
+                      primary
+                    </span>
+                  )}
+                  <button className="p-1 rounded hover:bg-muted transition-colors">
+                    <EllipsisHorizontalIcon className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    'px-2 py-1 rounded-full text-xs',
-                    competitor.status === 'active'
-                      ? 'bg-green-500/10 text-green-500'
-                      : 'bg-muted text-muted-foreground'
-                  )}
-                >
-                  {competitor.status}
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <div className="text-sm text-muted-foreground">Est. Ad Spend</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">
+                      {formatCents(competitor.estimated_ad_spend_cents)}/mo
+                    </span>
+                    <span className="flex items-center text-xs gap-1">
+                      <TrendIcon trend={competitor.traffic_trend} />
+                      <span className="text-muted-foreground">
+                        {competitor.traffic_trend || 'n/a'}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Share of Voice</div>
+                  <div className="font-semibold">
+                    {competitor.share_of_voice != null ? `${competitor.share_of_voice}%` : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-4">
+                  <span className="text-muted-foreground">
+                    {(competitor.paid_keywords_count || 0) +
+                      (competitor.organic_keywords_count || 0)}{' '
+                    }
+                    keywords
+                  </span>
+                  <span className="text-muted-foreground">
+                    {competitor.ad_creatives_count ?? 0} creatives
+                  </span>
+                </div>
+                <span className="text-muted-foreground">
+                  Updated {formatFetchedAt(competitor.last_fetched_at)}
                 </span>
-                <button className="p-1 rounded hover:bg-muted transition-colors">
-                  <EllipsisHorizontalIcon className="w-5 h-5" />
+              </div>
+
+              {competitor.fetch_error && (
+                <p className="mt-2 text-xs text-red-500">Fetch error: {competitor.fetch_error}</p>
+              )}
+
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+                <a
+                  href={metaAdsLibraryUrl(competitor.name || competitor.domain)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
+                >
+                  <span className="font-bold">M</span>
+                  Meta Ads Library
+                  <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+                </a>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(competitor.id);
+                  }}
+                  className="ml-auto p-1.5 rounded-md text-red-500 hover:bg-red-500/10 transition-colors"
+                  title="Delete competitor"
+                >
+                  <TrashIcon className="w-4 h-4" />
                 </button>
               </div>
             </div>
+          ))}
+        </div>
+      )}
 
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <div className="text-sm text-muted-foreground">Est. Ad Spend</div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">{formatCurrency(competitor.adSpend)}/mo</span>
-                  <span
-                    className={cn(
-                      'flex items-center text-xs',
-                      competitor.adSpendTrend >= 0 ? 'text-green-500' : 'text-red-500'
-                    )}
-                  >
-                    {competitor.adSpendTrend >= 0 ? (
-                      <ArrowTrendingUpIcon className="w-3 h-3" />
-                    ) : (
-                      <ArrowTrendingDownIcon className="w-3 h-3" />
-                    )}
-                    {Math.abs(competitor.adSpendTrend)}%
-                  </span>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Share of Voice</div>
-                <div className="font-semibold">{competitor.shareOfVoice}%</div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-4">
-                <span className="text-muted-foreground">
-                  {competitor.keywordOverlap}% keyword overlap
-                </span>
-                <span className="text-muted-foreground">
-                  {competitor.creativesTracked} creatives
-                </span>
-              </div>
-              <span className="text-muted-foreground">
-                Updated {formatLastRefresh(competitor.lastRefresh)}
-              </span>
-            </div>
-
-            {/* Quick Links to Ad Libraries */}
-            {/* Quick Links - Search by competitor name */}
-            <div className="flex items-center gap-2 mt-3 pt-3 border-t">
-              <a
-                href={getMetaAdsLibraryUrl(competitor.name, competitor.country || 'SA')}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
-                title={`Search "${competitor.name}" in Meta Ads Library`}
-              >
-                <span className="font-bold">M</span>
-                Meta Ads Library
-                <ArrowTopRightOnSquareIcon className="w-3 h-3" />
-              </a>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteCompetitor(competitor.id);
-                }}
-                className="ml-auto p-1.5 rounded-md text-red-500 hover:bg-red-500/10 transition-colors"
-                title="Delete competitor"
-              >
-                <TrashIcon className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Keyword Overlap Table */}
       <div className="metric-card active overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-cyan-500/20">
-          <h2 className="font-semibold">Keyword Overlap</h2>
-          <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border hover:bg-muted transition-colors">
-            <ArrowPathIcon className="w-4 h-4" />
-            Refresh
-          </button>
+          <h2 className="font-semibold">Tracked Keywords</h2>
+          <span className="text-xs text-muted-foreground">From competitor refresh data</span>
         </div>
-        <table className="w-full">
-          <thead className="bg-cyan-500/10 border-b border-cyan-500/20">
-            <tr>
-              <th className="p-4 text-left text-sm font-medium">Keyword</th>
-              <th className="p-4 text-center text-sm font-medium">Your Position</th>
-              <th className="p-4 text-center text-sm font-medium">Competitor</th>
-              <th className="p-4 text-center text-sm font-medium">Their Position</th>
-              <th className="p-4 text-right text-sm font-medium">Search Volume</th>
-              <th className="p-4 text-right text-sm font-medium">CPC</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {keywordOverlaps.map((kw, i) => (
-              <tr key={i} className="hover:bg-muted/30 transition-colors">
-                <td className="p-4 font-medium">{kw.keyword}</td>
-                <td className="p-4 text-center">
-                  <span
-                    className={cn(
-                      'px-2 py-1 rounded text-sm font-medium',
-                      kw.yourPosition <= 3
-                        ? 'bg-green-500/10 text-green-500'
-                        : kw.yourPosition <= 5
-                          ? 'bg-amber-500/10 text-amber-500'
-                          : 'bg-muted text-muted-foreground'
-                    )}
-                  >
-                    #{kw.yourPosition}
-                  </span>
-                </td>
-                <td className="p-4 text-center text-sm text-muted-foreground">{kw.competitor}</td>
-                <td className="p-4 text-center">
-                  <span
-                    className={cn(
-                      'px-2 py-1 rounded text-sm font-medium',
-                      kw.competitorPosition <= 3
-                        ? 'bg-red-500/10 text-red-500'
-                        : kw.competitorPosition <= 5
-                          ? 'bg-amber-500/10 text-amber-500'
-                          : 'bg-muted text-muted-foreground'
-                    )}
-                  >
-                    #{kw.competitorPosition}
-                  </span>
-                </td>
-                <td className="p-4 text-right text-muted-foreground">
-                  {kw.searchVolume.toLocaleString()}
-                </td>
-                <td className="p-4 text-right font-medium">${kw.cpc.toFixed(2)}</td>
+        {keywordRows.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">
+            No keywords returned yet. Keyword overlap % is not shown because the API does not
+            compute it — this table lists competitor keywords only.
+          </p>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-cyan-500/10 border-b border-cyan-500/20">
+              <tr>
+                <th className="p-4 text-left text-sm font-medium">Keyword</th>
+                <th className="p-4 text-left text-sm font-medium">Competitor</th>
+                <th className="p-4 text-left text-sm font-medium">Type</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y">
+              {keywordRows.map((kw, i) => (
+                <tr key={`${kw.keyword}-${kw.competitor}-${i}`} className="hover:bg-muted/30">
+                  <td className="p-4 font-medium">{kw.keyword}</td>
+                  <td className="p-4 text-sm text-muted-foreground">{kw.competitor}</td>
+                  <td className="p-4 text-sm text-muted-foreground">{kw.type || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {filteredCompetitors.length === 0 && (
+      {!isLoading && filtered.length === 0 && (
         <div className="text-center py-12">
           <EyeIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <p className="text-muted-foreground">No competitors found</p>
         </div>
       )}
 
-      {/* Add Competitor Modal */}
       <AddCompetitorModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSuccess={() => refetchCompetitors()}
+        onSuccess={() => refetch()}
       />
     </div>
   );

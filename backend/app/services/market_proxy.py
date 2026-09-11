@@ -529,29 +529,25 @@ class MarketIntelligenceService:
 
         data = await provider.get_competitor_data(domain)
 
-        # If primary failed and it's not mock, try to enrich with scraper
+        # If primary failed and it's not mock, try scraper for public meta only.
+        # Do NOT invent traffic/keywords from mock when a paid provider was
+        # configured — fail closed so the UI can show the error honestly.
         if data.error and self.primary_provider != "mock":
             logger.warning("primary_provider_failed", domain=domain, error=data.error)
 
-            # Try scraper for metadata
             scraper = self.providers["scraper"]
             scraper_data = await scraper.get_competitor_data(domain)
 
             if not scraper_data.error:
-                # Merge scraper data
-                data.meta_title = scraper_data.meta_title
-                data.meta_description = scraper_data.meta_description
-                data.meta_keywords = scraper_data.meta_keywords
-                data.social_links = scraper_data.social_links
+                data.meta_title = data.meta_title or scraper_data.meta_title
+                data.meta_description = data.meta_description or scraper_data.meta_description
+                data.meta_keywords = data.meta_keywords or scraper_data.meta_keywords
+                data.social_links = data.social_links or scraper_data.social_links
+                if data.data_source in (None, "unknown", self.primary_provider):
+                    data.data_source = f"{self.primary_provider}+scraper"
 
-            # Use mock for traffic/keyword estimates if needed
-            if self.primary_provider not in ["mock", "scraper"]:
-                mock = self.providers["mock"]
-                mock_data = await mock.get_competitor_data(domain)
-                data.estimated_traffic = data.estimated_traffic or mock_data.estimated_traffic
-                data.top_keywords = data.top_keywords or mock_data.top_keywords
-
-            data.error = None  # Clear error since we have fallback data
+            # Keep data.error set so callers/UI know the paid fetch failed.
+            return data
 
         return data
 

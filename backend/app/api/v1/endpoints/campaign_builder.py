@@ -15,12 +15,14 @@ from datetime import UTC, datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import get_async_session
 from app.models.campaign_builder import (
     AdPlatform,
@@ -33,7 +35,9 @@ from app.models.campaign_builder import (
     TenantPlatformConnection,
 )
 from app.schemas.response import APIResponse
+from app.services.oauth import get_oauth_service
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/tenant/{tenant_id}", tags=["campaign-builder"])
 
 
@@ -185,24 +189,65 @@ async def start_platform_connection(
 ):
     """
     Start OAuth flow for a platform.
-    Returns the authorization URL to redirect the user.
+
+    Delegates to the canonical Meta OAuth service (same path as
+    ``POST /api/v1/oauth/{platform}/authorize``). Returns a real Facebook
+    dialog URL — never a placeholder.
     """
     if getattr(request.state, "tenant_id", None) != tenant_id:
         raise HTTPException(status_code=403, detail="Access denied to this tenant")
 
-    # In production, generate OAuth URL with proper state parameter
-    # state = generate_state_token(tenant_id, platform)
-    # oauth_url = get_oauth_url(platform, state)
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to start OAuth",
+        )
 
-    # Placeholder response
-    oauth_urls = {
-        AdPlatform.META: "https://www.facebook.com/v18.0/dialog/oauth?...",
-    }
+    try:
+        oauth_service = get_oauth_service(platform.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        state = await oauth_service.create_state(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            redirect_uri=settings.frontend_url,
+        )
+        auth_url = oauth_service.get_authorization_url(state=state, scopes=None)
+    except ValueError as exc:
+        # Misconfigured META_APP_ID / secrets — fail closed with a clear message.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.error(
+            "campaign_builder_oauth_start_failed",
+            platform=platform.value,
+            tenant_id=tenant_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initialize OAuth flow",
+        ) from exc
+
+    logger.info(
+        "campaign_builder_oauth_started",
+        platform=platform.value,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
 
     return APIResponse(
         success=True,
         data={
-            "oauth_url": oauth_urls.get(platform, ""),
+            "oauth_url": auth_url,
+            "authorization_url": auth_url,
+            "state": state.state_token,
+            "platform": platform.value,
             "message": f"Redirect user to OAuth URL for {platform.value}",
         },
     )
@@ -215,7 +260,7 @@ async def refresh_platform_token(
     platform: AdPlatform,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Refresh OAuth token for a platform."""
+    """Refresh OAuth token for a platform via the Meta OAuth service."""
     if getattr(request.state, "tenant_id", None) != tenant_id:
         raise HTTPException(status_code=403, detail="Access denied to this tenant")
 
@@ -232,17 +277,52 @@ async def refresh_platform_token(
     if not connection:
         raise HTTPException(status_code=404, detail="Platform not connected")
 
-    # In production, call platform API to refresh token
-    # new_token = await refresh_oauth_token(platform, connection.refresh_token_encrypted)
+    if not connection.refresh_token_encrypted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No refresh token available. Please reconnect.",
+        )
 
-    connection.last_refreshed_at = datetime.now(UTC)
-    connection.status = ConnectionStatus.CONNECTED
-    connection.last_error = None
-    await db.commit()
+    try:
+        oauth_service = get_oauth_service(platform.value)
+        refresh_token = oauth_service.decrypt_token(connection.refresh_token_encrypted)
+        new_tokens = await oauth_service.refresh_access_token(refresh_token)
+
+        connection.access_token_encrypted = oauth_service.encrypt_token(new_tokens.access_token)
+        if new_tokens.refresh_token:
+            connection.refresh_token_encrypted = oauth_service.encrypt_token(
+                new_tokens.refresh_token
+            )
+        connection.token_expires_at = new_tokens.expires_at
+        connection.last_refreshed_at = datetime.now(UTC)
+        connection.status = ConnectionStatus.CONNECTED
+        connection.last_error = None
+        connection.error_count = 0
+        await db.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "campaign_builder_token_refresh_failed",
+            platform=platform.value,
+            tenant_id=tenant_id,
+            error=str(exc),
+        )
+        connection.status = ConnectionStatus.ERROR
+        connection.last_error = str(exc)
+        connection.error_count = (connection.error_count or 0) + 1
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Token refresh failed: {exc!s}",
+        ) from exc
 
     return APIResponse(
         success=True,
-        data={"message": f"Token refreshed for {platform.value}"},
+        data={
+            "message": f"Token refreshed for {platform.value}",
+            "expires_at": connection.token_expires_at,
+        },
     )
 
 
@@ -253,7 +333,7 @@ async def disconnect_platform(
     platform: AdPlatform,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Disconnect a platform (revoke OAuth)."""
+    """Disconnect a platform (best-effort revoke, then clear stored tokens)."""
     if getattr(request.state, "tenant_id", None) != tenant_id:
         raise HTTPException(status_code=403, detail="Access denied to this tenant")
 
@@ -270,10 +350,23 @@ async def disconnect_platform(
     if not connection:
         raise HTTPException(status_code=404, detail="Platform not connected")
 
-    # Mark as disconnected (keep record for audit)
+    if connection.access_token_encrypted:
+        try:
+            oauth_service = get_oauth_service(platform.value)
+            access_token = oauth_service.decrypt_token(connection.access_token_encrypted)
+            await oauth_service.revoke_access(access_token)
+        except Exception as exc:
+            logger.warning(
+                "campaign_builder_revoke_failed",
+                platform=platform.value,
+                tenant_id=tenant_id,
+                error=str(exc),
+            )
+
     connection.status = ConnectionStatus.DISCONNECTED
     connection.access_token_encrypted = None
     connection.refresh_token_encrypted = None
+    connection.last_error = None
     await db.commit()
 
     return APIResponse(

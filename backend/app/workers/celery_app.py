@@ -148,6 +148,8 @@ TASK_ROUTES: dict[str, dict[str, str]] = {
     # Sync tasks
     "app.workers.tasks.sync.sync_campaign_data": {"queue": "sync"},
     "app.workers.tasks.sync.sync_all_campaigns": {"queue": "sync"},
+    "app.workers.tasks.sync.discover_tenant_campaigns_task": {"queue": "sync"},
+    "app.workers.tasks.sync.discover_all_campaigns": {"queue": "sync"},
     # Measurement & Verification (GA4 read-only baseline pull)
     "app.workers.tasks.measurement.*": {"queue": "sync"},
     # Trust Layer rollups
@@ -283,6 +285,14 @@ BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
     # ==========================================================================
     # Data Sync Tasks
     # ==========================================================================
+    # Catalogue discovery runs shortly before the hourly insights pull so newly
+    # listed Meta campaigns exist as local Campaign rows (with external_id)
+    # before sync_campaign_data tries to attach metrics.
+    "discover-all-campaigns": {
+        "task": "app.workers.tasks.sync.discover_all_campaigns",
+        "schedule": crontab(minute=50),
+        "options": {"queue": "sync"},
+    },
     "sync-all-campaigns": {
         "task": "app.workers.tasks.sync.sync_all_campaigns",
         "schedule": crontab(minute=0),
@@ -407,6 +417,15 @@ BEAT_SCHEDULE: dict[str, dict[str, Any]] = {
     "compute-cdp-funnels": {
         "task": "app.workers.tasks.cdp.compute_all_cdp_funnels",
         "schedule": crontab(minute=0, hour="*/2"),
+        "options": {"queue": "cdp"},
+    },
+    # Auto-push due CDP → Meta Custom Audiences. PlatformAudience.next_sync_at
+    # is set on create/manual sync; without this beat the column is advisory
+    # only. Fifteen minutes matches the rules cadence and keeps Meta rate
+    # limits calm when many tenants share one worker.
+    "sync-due-audience-syncs": {
+        "task": "app.workers.tasks.cdp.sync_due_audience_syncs",
+        "schedule": crontab(minute="*/15"),
         "options": {"queue": "cdp"},
     },
     # ==========================================================================

@@ -45,14 +45,14 @@ const mockRadarData = [
   { metric: 'Engagement', you: 90, industry: 72 },
 ];
 
-// Mock market share trend - exported for chart components
-export const mockMarketShareTrend = Array.from({ length: 12 }, (_, i) => ({
-  month: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i],
-  you: 15 + Math.random() * 5 + i * 0.3,
-  compA: 22 + Math.random() * 4 - i * 0.2,
-  compB: 20 + Math.random() * 3,
-  compC: 14 + Math.random() * 4 + i * 0.1,
-}));
+// Market-share trend requires historical snapshots we do not invent here.
+export const mockMarketShareTrend: {
+  month: string;
+  you: number;
+  compA: number;
+  compB: number;
+  compC: number;
+}[] = [];
 
 // Mock demographic data for heatmap
 const mockDemographics = [
@@ -87,30 +87,18 @@ export function Benchmarks() {
     return `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${country}&q=${encodeURIComponent(name)}&search_type=keyword_unordered`;
   };
 
-  // Build competitor data for charts - combine user's competitors with "Your Brand" and "Industry Avg"
-  const chartCompetitors = [
-    { name: 'Your Brand', roas: 3.5, ctr: 2.8, cpc: 1.2, share: 18, color: '#0ea5e9', isYou: true },
-    // Add real competitors from API
-    ...(competitorsData?.items || []).slice(0, 5).map((comp, index) => ({
-      name: comp.name,
-      domain: comp.domain,
-      country: comp.country || 'SA',
-      roas: 2.5 + Math.random() * 2, // Simulated data - would come from real metrics
-      ctr: 1.8 + Math.random() * 1.5,
-      cpc: 0.8 + Math.random() * 1,
-      share: 10 + Math.random() * 20,
-      color: COMPETITOR_COLORS[index % COMPETITOR_COLORS.length],
-    })),
-    {
-      name: 'Industry Avg',
-      roas: 3.0,
-      ctr: 2.4,
-      cpc: 1.3,
-      share: 22,
-      color: '#6b7280',
-      isAvg: true,
-    },
-  ];
+  // Share-of-voice chart from API rows only (no invented ROAS/CTR/CPC).
+  const chartCompetitors = (competitorsData?.items || []).slice(0, 8).map((comp, index) => ({
+    name: comp.is_primary ? `You (${comp.name || comp.domain})` : (comp.name || comp.domain),
+    domain: comp.domain,
+    share: comp.share_of_voice ?? 0,
+    traffic: comp.estimated_traffic ?? null,
+    trend: comp.traffic_trend ?? null,
+    color: comp.is_primary
+      ? '#0ea5e9'
+      : COMPETITOR_COLORS[index % COMPETITOR_COLORS.length],
+    isYou: !!comp.is_primary,
+  }));
 
   // Check if user has competitors
   const hasCompetitors = (competitorsData?.items?.length || 0) > 0;
@@ -310,13 +298,13 @@ export function Benchmarks() {
               >
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <p className="font-medium text-sm">{competitor.name}</p>
+                    <p className="font-medium text-sm">{competitor.name || competitor.domain}</p>
                     <p className="text-xs text-muted-foreground">{competitor.domain}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <a
-                    href={getMetaAdsLibraryUrl(competitor.name, competitor.country || 'SA')}
+                    href={getMetaAdsLibraryUrl(competitor.name || competitor.domain, 'SA')}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
@@ -350,7 +338,7 @@ export function Benchmarks() {
                     borderRadius: '0.5rem',
                   }}
                 />
-                <Bar dataKey="roas" name="ROAS" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="share" name="Share of Voice %" radius={[0, 4, 4, 0]}>
                   {chartCompetitors.map((entry: any, index: number) => (
                     <Cell
                       key={`cell-${index}`}

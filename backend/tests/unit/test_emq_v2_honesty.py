@@ -100,6 +100,10 @@ class _Result:
         """Return the single aggregate row, or None."""
         return self._rows[0] if self._rows else None
 
+    def scalar_one_or_none(self):
+        """Return the single scalar value, or None."""
+        return self._rows[0] if self._rows else None
+
 
 class FakeSession:
     """
@@ -121,6 +125,11 @@ class FakeSession:
         params = dict(statement.compile().params)
 
         if "fact_signal_health_daily" in sql and "date_trunc" not in sql:
+            # Latest-date probe used when today has no rows.
+            if "max(" in sql.lower():
+                if not self.rows_by_date:
+                    return _Result([None])
+                return _Result([max(self.rows_by_date.keys())])
             # "count(" rather than "count": the row query selects
             # fact_signal_health_daily.account_id, which contains it.
             if "count(" in sql or "percentile_cont" in sql:
@@ -444,3 +453,23 @@ def test_no_view_restores_the_score_the_api_refused_to_invent():
     panel = _tsx_dense("frontend/src/components/shared/ActionsPanel.tsx")
     assert "autopilotMode='normal'" not in panel
     assert "autopilotMode===null" in panel
+
+@pytest.mark.asyncio
+async def test_falls_back_to_latest_measured_day_when_today_empty():
+    """Default score reads yesterday when today has no rollup row yet."""
+    rows = [
+        health_row(
+            YESTERDAY,
+            emq_score=80.0,
+            event_loss_pct=10.0,
+            freshness_minutes=10.0,
+            api_error_rate=4.0,
+        )
+    ]
+    service = EmqService(FakeSession({YESTERDAY: rows}))
+
+    data = await service.get_emq_score(TENANT)  # no explicit date
+
+    assert data["score"] is not None
+    assert data["measuredDate"] == YESTERDAY.isoformat()
+

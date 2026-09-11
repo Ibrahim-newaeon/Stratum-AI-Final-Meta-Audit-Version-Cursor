@@ -46,6 +46,7 @@ const StatusBadge: React.FC<{ status: ActionStatus }> = ({ status }) => {
   const colorClasses: Record<ActionStatus, string> = {
     queued: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
     approved: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
+    applying: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-400',
     applied: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
     failed: 'bg-red-500/15 text-red-700 dark:text-red-400',
     dismissed: 'bg-muted text-muted-foreground',
@@ -235,23 +236,6 @@ export const AutopilotPanel: React.FC<AutopilotPanelProps> = ({
 
   const isProcessing = approveAction.isPending || dismissAction.isPending || approveAll.isPending;
 
-  if (autopilotLevel === 0) {
-    return (
-      <div className="bg-card rounded-lg border border-border p-6">
-        <div className="text-center">
-          <div className="text-4xl mb-3" aria-hidden="true">
-            💡
-          </div>
-          <h3 className="text-lg font-medium text-foreground mb-2">Autopilot: Suggest Only</h3>
-          <p className="text-muted-foreground">
-            Autopilot is in suggest-only mode. You'll see recommendations but no actions will be
-            queued for execution.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (statusLoading || actionsLoading) {
     return (
       <div className="bg-card rounded-lg border border-border p-6">
@@ -266,9 +250,17 @@ export const AutopilotPanel: React.FC<AutopilotPanelProps> = ({
 
   const actions = actionsData?.actions || [];
   const queuedActions = actions.filter((a) => a.status === 'queued');
+  const suggestOnly = autopilotLevel === 0;
 
   return (
     <div className="bg-card rounded-lg border border-border overflow-hidden">
+      {suggestOnly && (
+        <div className="px-6 py-3 bg-amber-500/10 border-b border-amber-500/30 text-sm text-amber-800 dark:text-amber-300">
+          Autopilot is in suggest-only mode. You can still review and approve queued actions; nothing
+          executes on Meta until Autopilot level and write flags allow it.
+        </div>
+      )}
+      {/* Header */}
       {/* Header */}
       <div className="px-6 py-4 border-b border-border">
         <div className="flex items-center justify-between">
@@ -314,7 +306,9 @@ export const AutopilotPanel: React.FC<AutopilotPanelProps> = ({
         {/* Filters */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Filter:</span>
-          {(['', 'queued', 'approved', 'applied', 'failed', 'dismissed'] as const).map((filter) => (
+          {(
+            ['', 'queued', 'approved', 'applying', 'applied', 'failed', 'dismissed'] as const
+          ).map((filter) => (
             <button
               key={filter}
               onClick={() => setStatusFilter(filter)}

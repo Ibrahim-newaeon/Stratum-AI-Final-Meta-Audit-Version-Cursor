@@ -9,7 +9,9 @@ event streaming, and data quality analysis.
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 
@@ -120,7 +122,7 @@ class CAPIService:
             )
 
     async def disconnect_platform(self, platform: str) -> bool:
-        """Disconnect from a platform."""
+        """Disconnect from a platform (memory cache only)."""
         platform = platform.lower()
         if platform in self.connectors:
             del self.connectors[platform]
@@ -128,8 +130,55 @@ class CAPIService:
             return True
         return False
 
+    async def ensure_loaded_from_db(self, db: AsyncSession) -> list[str]:
+        """Hydrate in-memory connectors from encrypted Postgres rows.
+
+        Safe to call repeatedly: platforms already warm in ``self.connectors``
+        are left alone. Failed decrypt/connect attempts are logged and skipped
+        so one bad row cannot block the others.
+
+        Args:
+            db: Async SQLAlchemy session.
+
+        Returns:
+            Platform names successfully loaded into the cache this call.
+        """
+        # Local import avoids a circular import at module load time.
+        from .credentials_store import (
+            credentials_dict_for_connector,
+            list_active_credentials,
+        )
+
+        loaded: list[str] = []
+        if self.tenant_id is None:
+            return loaded
+        rows = await list_active_credentials(db, self.tenant_id)
+        for row in rows:
+            if row.platform in self.connectors:
+                continue
+            try:
+                creds = credentials_dict_for_connector(row)
+                result = await self.connect_platform(row.platform, creds)
+                if result.status == ConnectionStatus.CONNECTED:
+                    loaded.append(row.platform)
+                else:
+                    logger.warning(
+                        "capi_hydrate_failed",
+                        tenant_id=self.tenant_id,
+                        platform=row.platform,
+                        message=result.message,
+                    )
+            except Exception as exc:
+                logger.error(
+                    "capi_hydrate_error",
+                    tenant_id=self.tenant_id,
+                    platform=row.platform,
+                    error=str(exc),
+                )
+        return loaded
+
     def get_connected_platforms(self) -> dict[str, dict[str, Any]]:
-        """Get status of all connected platforms."""
+        """Get status of all connected platforms (memory cache)."""
         return {
             platform: {
                 "connected": True,
@@ -299,7 +348,7 @@ class CAPIService:
 
         return analysis
 
-    def get_data_quality_report(self, platforms: list[str] = None) -> Optional[QualityReport]:
+    def get_data_quality_report(self, platforms: list[str] = None) -> QualityReport | None:
         """
         Get comprehensive data quality report from recent events.
 

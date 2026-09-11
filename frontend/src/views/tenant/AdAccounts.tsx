@@ -34,39 +34,6 @@ interface AdAccount {
   lastSyncAt: string;
 }
 
-const mockAccounts: AdAccount[] = [
-  {
-    id: '1',
-    platformAccountId: 'act_123456789',
-    name: 'Main Business Account',
-    platform: 'meta',
-    currency: 'SAR',
-    timezone: 'Asia/Riyadh',
-    enabled: true,
-    spendCap: 50000,
-    lastSyncAt: '2024-01-20T10:30:00Z',
-  },
-  {
-    id: '2',
-    platformAccountId: 'act_987654321',
-    name: 'E-commerce Store',
-    platform: 'meta',
-    currency: 'SAR',
-    timezone: 'Asia/Riyadh',
-    enabled: true,
-    lastSyncAt: '2024-01-20T10:30:00Z',
-  },
-  {
-    id: '3',
-    platformAccountId: '123-456-7890',
-    name: 'Instagram Business Account',
-    platform: 'instagram',
-    currency: 'SAR',
-    timezone: 'Asia/Riyadh',
-    enabled: false,
-    lastSyncAt: '2024-01-19T14:00:00Z',
-  },
-];
 
 const platformLabels = {
   meta: 'Meta Ads',
@@ -113,7 +80,7 @@ export default function AdAccounts() {
     }));
 
     // Return API data if available, otherwise fall back to mock
-    return apiAccounts.length > 0 ? apiAccounts : mockAccounts;
+    return apiAccounts;
   }, [metaAccounts, facebookAccounts, instagramAccounts, whatsappAccounts]);
 
   const handleToggleAccount = async (account: AdAccount) => {

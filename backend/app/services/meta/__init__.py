@@ -12,6 +12,12 @@ acquire a write by accident.
   module never creates, updates, pauses or otherwise mutates anything.
 - ``insights_ingestion``: maps insight rows onto ``CampaignMetric`` and
   upserts them by ``(campaign_id, date)``.
+- ``campaign_discovery_client``: thin ``httpx.AsyncClient`` over
+  ``GET /{version}/act_<id>/campaigns``. GET only - lists campaign
+  metadata so local ``Campaign`` rows can be upserted.
+- ``campaign_discovery``: maps discovered campaigns onto the unified
+  ``Campaign`` model by ``(tenant_id, platform, external_id)``. Does not
+  advance ``last_synced_at`` (insights owns freshness).
 
 **Write (``ads_management``, off by default)**
 
@@ -33,6 +39,18 @@ same as enabled: with the shipped defaults each run refuses every row with
 docs/architecture/trust-engine.md.
 """
 
+from app.services.meta.campaign_discovery import (
+    CampaignDiscoveryResult,
+    discover_tenant_campaigns,
+    map_meta_campaign_status,
+    resolve_meta_read_connection,
+)
+from app.services.meta.campaign_discovery_client import (
+    CAMPAIGN_DISCOVERY_FIELDS,
+    MetaCampaignDiscoveryClient,
+    MetaCampaignRow,
+    MetaCampaignsTruncatedError,
+)
 from app.services.meta.insights_client import (
     GRAPH_API_BASE_URL,
     INSIGHTS_FIELDS,
@@ -79,6 +97,7 @@ from app.services.meta.write_client import (
 )
 
 __all__ = [
+    "CAMPAIGN_DISCOVERY_FIELDS",
     "GRAPH_API_BASE_URL",
     "INSIGHTS_FIELDS",
     "META_CURRENCY_OFFSET",
@@ -89,7 +108,11 @@ __all__ = [
     "WRITABLE_FIELDS",
     "WRITABLE_STATUSES",
     "ZERO_DECIMAL_CURRENCIES",
+    "CampaignDiscoveryResult",
     "MetaAPIError",
+    "MetaCampaignDiscoveryClient",
+    "MetaCampaignRow",
+    "MetaCampaignsTruncatedError",
     "MetaCredentials",
     "MetaCredentialsError",
     "MetaEntityType",
@@ -103,16 +126,19 @@ __all__ = [
     "MetaWriteClient",
     "MetaWriteValidationError",
     "UnsupportedCurrencyError",
+    "discover_tenant_campaigns",
     "fetch_campaign_insight_rows",
     "first_present_action_type",
     "graph_api_version",
     "hundredths_to_meta_minor",
     "ingest_campaign_insights",
     "major_to_meta_minor",
+    "map_meta_campaign_status",
     "meta_currency_offset",
     "meta_minor_to_major",
     "metric_values_from_row",
     "resolve_meta_credentials",
+    "resolve_meta_read_connection",
     "sum_action_values",
     "sum_one_action_type",
     "to_hundredths",

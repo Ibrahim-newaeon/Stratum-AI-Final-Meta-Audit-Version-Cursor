@@ -13,7 +13,7 @@ All models are multi-tenant with tenant_id column.
 import enum
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text
@@ -76,14 +76,43 @@ class AudienceSyncCredential(Base, TimestampMixin):
 
     platform: Mapped[str] = mapped_column(String(20), nullable=False, default=SyncPlatform.META.value)
     ad_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    # Legacy plaintext column — nullable during cutover; new writes clear it.
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Fernet ciphertext via ``app.services.encryption.encrypt_token``.
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     __table_args__ = (
         Index("ix_audience_sync_credentials_tenant_platform", "tenant_id", "platform"),
+        Index(
+            "ix_audience_sync_credentials_tenant_platform_account",
+            "tenant_id",
+            "platform",
+            "ad_account_id",
+            unique=True,
+        ),
     )
+
+    def resolved_access_token(self) -> str:
+        """Return the plaintext token, preferring encrypted storage.
+
+        Raises:
+            ValueError: If neither encrypted nor legacy plaintext token exists.
+        """
+        from app.services.encryption import decrypt_token
+
+        if self.access_token_encrypted:
+            return decrypt_token(self.access_token_encrypted)
+        if self.access_token:
+            return self.access_token
+        raise ValueError("No audience-sync access token stored")
+
+    @property
+    def has_credentials(self) -> bool:
+        """Whether any usable token is stored."""
+        return bool(self.access_token_encrypted or self.access_token)
 
 
 class PlatformAudience(Base, TimestampMixin):
@@ -120,6 +149,11 @@ class PlatformAudience(Base, TimestampMixin):
 
     __table_args__ = (
         Index("ix_platform_audiences_tenant_platform", "tenant_id", "platform"),
+        Index(
+            "ix_platform_audiences_auto_sync_due",
+            "auto_sync",
+            "next_sync_at",
+        ),
     )
 
 
@@ -134,6 +168,10 @@ class AudienceSyncJob(Base, TimestampMixin):
     platform_audience_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     operation: Mapped[str] = mapped_column(String(20), nullable=False, default=SyncOperation.UPDATE.value)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SyncStatus.PENDING.value)
+
+    # Who kicked off the job (``manual``, ``schedule``, ``api``, …).
+    triggered_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    triggered_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -153,11 +191,11 @@ class AudienceSyncJob(Base, TimestampMixin):
 
 
 __all__ = [
+    "AudienceSyncCredential",
+    "AudienceSyncJob",
+    "AudienceType",
+    "PlatformAudience",
+    "SyncOperation",
     "SyncPlatform",
     "SyncStatus",
-    "SyncOperation",
-    "AudienceType",
-    "AudienceSyncCredential",
-    "PlatformAudience",
-    "AudienceSyncJob",
 ]

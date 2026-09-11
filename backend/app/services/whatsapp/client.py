@@ -6,7 +6,9 @@ Synchronous WhatsApp Business API client for Celery worker tasks.
 
 The async client in ``app.services.whatsapp_client`` serves the API layer;
 this thin synchronous variant is used from Celery tasks where an event loop
-is not available. Credentials come from tenant-agnostic app settings.
+is not available. Pass per-tenant ``phone_number_id`` / ``access_token`` from
+``credentials_store.resolve_credentials_sync``; global settings are only a
+dev fallback when those overrides are omitted.
 """
 
 from __future__ import annotations

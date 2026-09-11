@@ -23,6 +23,9 @@ interface DevDemoAccessProps {
 /**
  * Local-only demo buttons. This module is imported from Login only inside an
  * `import.meta.env.DEV` branch so production JS and source maps omit it.
+ *
+ * Passwords come from Vite env (frontend/.env), not source — must match the
+ * accounts created by backend/scripts_seed_demo.py.
  */
 export default function DevDemoAccess({
   login,
@@ -37,13 +40,19 @@ export default function DevDemoAccess({
   const navigate = useNavigate();
 
   const handleDemoLogin = async (role: 'superadmin' | 'admin' | 'user') => {
-    const credentials = {
-      superadmin: { email: 'superadmin@stratum.ai', password: 'Admin123!' },
-      admin: { email: 'demo@stratum.ai', password: 'demo1234' },
-      user: { email: 'demo@stratum.ai', password: 'demo1234' },
-    };
+    const email = role === 'superadmin' ? 'superadmin@stratum.ai' : 'demo@stratum.ai';
+    const password =
+      role === 'superadmin'
+        ? import.meta.env.VITE_DEV_SUPERADMIN_PASSWORD
+        : import.meta.env.VITE_DEV_DEMO_PASSWORD;
 
-    const { email, password } = credentials[role];
+    if (typeof password !== 'string' || !password) {
+      setError(
+        'Demo shortcuts need VITE_DEV_DEMO_PASSWORD and VITE_DEV_SUPERADMIN_PASSWORD in frontend/.env (same values as backend/scripts_seed_demo.py).',
+      );
+      return;
+    }
+
     setEmail(email);
     setPassword(password);
     setError('');

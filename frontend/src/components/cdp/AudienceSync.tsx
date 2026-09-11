@@ -42,6 +42,7 @@ import {
   useSegments,
   useSyncHistory,
   useTriggerSync,
+  useUpsertAudienceCredentials,
 } from '@/api/cdp';
 
 // Platform configurations
@@ -826,10 +827,39 @@ export function AudienceSync() {
   // Mutations
   const syncMutation = useTriggerSync();
   const deleteMutation = useDeletePlatformAudience();
+  const upsertCredentials = useUpsertAudienceCredentials();
+  const [credForm, setCredForm] = useState({
+    ad_account_id: '',
+    access_token: '',
+    ad_account_name: '',
+  });
+  const [credError, setCredError] = useState<string | null>(null);
+  const [credSuccess, setCredSuccess] = useState<string | null>(null);
 
   const connectedPlatforms = platformsData || [];
   const audiences = audiencesData?.audiences || [];
   const segments = segmentsData?.segments || [];
+
+  const handleConnectCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCredError(null);
+    setCredSuccess(null);
+    try {
+      const result = await upsertCredentials.mutateAsync({
+        platform: 'meta',
+        ad_account_id: credForm.ad_account_id.trim(),
+        access_token: credForm.access_token.trim(),
+        ad_account_name: credForm.ad_account_name.trim() || undefined,
+      });
+      setCredSuccess(
+        `Saved credentials for ${result.ad_account_name || result.ad_account_id} (token encrypted at rest)`
+      );
+      setCredForm({ ad_account_id: '', access_token: '', ad_account_name: '' });
+    } catch (error) {
+      console.error('Credential upsert failed:', error);
+      setCredError('Failed to save credentials. Check the ad account ID and token.');
+    }
+  };
 
   // Filter audiences by search
   const filteredAudiences = audiences.filter(
@@ -911,29 +941,66 @@ export function AudienceSync() {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm text-muted-foreground">Connected:</span>
         {connectedPlatforms.length === 0 ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-amber-500">No platforms connected</span>
-            <Link
-              to="/dashboard/settings"
-              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-            >
-              <Link2 className="w-3 h-3" />
-              Connect platforms
-            </Link>
-          </div>
+          <span className="text-sm text-amber-500">No platforms connected — add a Meta token below</span>
         ) : (
           connectedPlatforms.map((p) => (
-            <div
+            <span
               key={p.platform}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-muted text-sm"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
             >
               <PlatformIcon platform={p.platform} size="sm" />
-              <span>{PLATFORM_CONFIG[p.platform].name}</span>
+              {PLATFORM_CONFIG[p.platform].name}
               <span className="text-muted-foreground">({p.ad_accounts.length})</span>
-            </div>
+            </span>
           ))
         )}
       </div>
+
+      {connectedPlatforms.length === 0 && (
+        <form
+          onSubmit={handleConnectCredentials}
+          className="rounded-xl border bg-card p-5 space-y-3 max-w-xl"
+        >
+          <h3 className="font-semibold">Connect Meta for Audience Sync</h3>
+          <p className="text-sm text-muted-foreground">
+            Store a System User token with Custom Audience access. The token is encrypted at rest and
+            never shown again.
+          </p>
+          <input
+            type="text"
+            required
+            placeholder="Ad account ID (act_… or digits)"
+            value={credForm.ad_account_id}
+            onChange={(e) => setCredForm((f) => ({ ...f, ad_account_id: e.target.value }))}
+            className="w-full px-3 py-2 rounded-lg border bg-background"
+          />
+          <input
+            type="text"
+            placeholder="Ad account display name (optional)"
+            value={credForm.ad_account_name}
+            onChange={(e) => setCredForm((f) => ({ ...f, ad_account_name: e.target.value }))}
+            className="w-full px-3 py-2 rounded-lg border bg-background"
+          />
+          <input
+            type="password"
+            required
+            placeholder="Access token"
+            value={credForm.access_token}
+            onChange={(e) => setCredForm((f) => ({ ...f, access_token: e.target.value }))}
+            className="w-full px-3 py-2 rounded-lg border bg-background"
+            autoComplete="off"
+          />
+          {credError && <p className="text-sm text-red-500">{credError}</p>}
+          {credSuccess && <p className="text-sm text-emerald-600">{credSuccess}</p>}
+          <button
+            type="submit"
+            disabled={upsertCredentials.isPending}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+          >
+            {upsertCredentials.isPending ? 'Saving…' : 'Save credentials'}
+          </button>
+        </form>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">

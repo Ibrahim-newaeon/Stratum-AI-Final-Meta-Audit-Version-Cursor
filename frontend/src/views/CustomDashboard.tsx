@@ -19,7 +19,15 @@ import { PlatformBreakdownWidget } from '@/components/widgets/PlatformBreakdownW
 import { AlertsWidget } from '@/components/widgets/AlertsWidget';
 import { QuickActionsWidget } from '@/components/widgets/QuickActionsWidget';
 import { SimulatorWidget } from '@/components/widgets/SimulatorWidget';
+import { LivePredictionsWidget } from '@/components/widgets/LivePredictionsWidget';
+import { ROASAlertsWidget } from '@/components/widgets/ROASAlertsWidget';
+import { BudgetOptimizerWidget } from '@/components/widgets/BudgetOptimizerWidget';
 import { availableWidgets, defaultWidgets, WidgetConfig, WidgetType } from '@/components/widgets';
+import {
+  clearSavedWidgets,
+  loadSavedWidgets,
+  saveWidgets,
+} from '@/components/widgets/layoutStorage';
 
 import 'react-grid-layout/css/styles.css';
 
@@ -30,10 +38,7 @@ export function CustomDashboard() {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
-  const [widgets, setWidgets] = useState<WidgetConfig[]>(() => {
-    const saved = localStorage.getItem('stratum-dashboard-layout');
-    return saved ? JSON.parse(saved) : defaultWidgets;
-  });
+  const [widgets, setWidgets] = useState<WidgetConfig[]>(loadSavedWidgets);
   const [isEditing, setIsEditing] = useState(false);
   const [showAddWidget, setShowAddWidget] = useState(false);
 
@@ -73,13 +78,13 @@ export function CustomDashboard() {
   );
 
   const handleSave = () => {
-    localStorage.setItem('stratum-dashboard-layout', JSON.stringify(widgets));
+    saveWidgets(widgets);
     setIsEditing(false);
   };
 
   const handleReset = () => {
     setWidgets(defaultWidgets);
-    localStorage.removeItem('stratum-dashboard-layout');
+    clearSavedWidgets();
   };
 
   const handleAddWidget = (type: WidgetType) => {
@@ -135,6 +140,12 @@ export function CustomDashboard() {
         return <QuickActionsWidget />;
       case 'simulator':
         return <SimulatorWidget />;
+      case 'live-predictions':
+        return <LivePredictionsWidget />;
+      case 'roas-alerts':
+        return <ROASAlertsWidget />;
+      case 'budget-optimizer':
+        return <BudgetOptimizerWidget />;
       default:
         return <div className="p-4 text-muted-foreground">Unknown widget</div>;
     }

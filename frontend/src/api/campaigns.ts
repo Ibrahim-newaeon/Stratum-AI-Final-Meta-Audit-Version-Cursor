@@ -180,6 +180,18 @@ export const campaignsApi = {
     const response = await apiClient.post<ApiResponse<Campaign>>(`/campaigns/${id}/activate`);
     return response.data.data;
   },
+
+  /**
+   * Queue a read-only Meta campaign discovery sync for the current tenant.
+   * Lists campaigns from connected Meta ad accounts and upserts local rows.
+   * Does not write anything on Meta.
+   */
+  discoverCampaigns: async (): Promise<{ task_id: string; tenant_id: number }> => {
+    const response = await apiClient.post<
+      ApiResponse<{ task_id: string; tenant_id: number }>
+    >('/campaigns/discover');
+    return response.data.data;
+  },
 };
 
 // React Query Hooks
@@ -291,6 +303,21 @@ export function useActivateCampaign() {
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['campaigns', id] });
+    },
+  });
+}
+
+export function useDiscoverCampaigns() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: campaignsApi.discoverCampaigns,
+    onSuccess: () => {
+      // Discovery runs async on Celery; refresh the list shortly after queueing.
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      window.setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      }, 5000);
     },
   });
 }

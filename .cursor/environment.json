@@ -1,0 +1,24 @@
+{
+  "name": "Stratum AI",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "backend-api",
+      "command": "cd backend && . .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    },
+    {
+      "name": "celery-worker",
+      "command": "cd backend && . .venv/bin/activate && QUEUES=$(python scripts_print_celery_queues.py) && celery -A app.workers.celery_app worker --beat --queues \"${QUEUES:-cdp,celery,default,intel,ml,rules,sync}\" --schedule /tmp/celerybeat-schedule --loglevel info --concurrency 2"
+    },
+    {
+      "name": "frontend",
+      "command": "cd frontend && npm run dev -- --host 0.0.0.0"
+    }
+  ],
+  "ports": [
+    { "name": "Backend API", "port": 8000 },
+    { "name": "Frontend", "port": 5173 }
+  ]
+}

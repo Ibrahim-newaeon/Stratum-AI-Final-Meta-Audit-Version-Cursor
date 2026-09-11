@@ -10,11 +10,12 @@ Supported Platforms:
 
 from .base import AudienceSyncResult, BaseAudienceConnector
 from .meta_connector import MetaAudienceConnector
-from .service import AudienceSyncService
+from .service import AudienceSyncService, list_due_auto_sync_audiences
 
 __all__ = [
     "AudienceSyncService",
     "BaseAudienceConnector",
     "AudienceSyncResult",
     "MetaAudienceConnector",
+    "list_due_auto_sync_audiences",
 ]

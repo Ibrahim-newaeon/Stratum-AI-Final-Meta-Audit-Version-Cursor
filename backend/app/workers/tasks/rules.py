@@ -6,6 +6,11 @@ Background tasks for automation rules evaluation and execution.
 
 Security: Beat-scheduled tasks use distributed locks to prevent
 duplicate execution across multiple Celery workers.
+
+Policy: Rules are LOCAL_ONLY — they mutate local Campaign rows and send
+alerts. Meta Ads writes go only through Autopilot
+(``fact_actions_queue`` → ``write_client``). See
+``app.services.rules_meta_policy`` and ``docs/architecture/trust-engine.md``.
 """
 
 from datetime import UTC, datetime
@@ -99,7 +104,8 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
                 matches += 1
 
                 # HOLD is the documented "alert only" band: notifications and
-                # labels still go out, platform mutations wait for a PASS.
+                # labels still go out; local campaign mutations wait for PASS.
+                # (Rules never write Meta — see rules_meta_policy.)
                 if not gate.may_execute and rule.action_type not in ALERT_ONLY_ACTIONS:
                     held += 1
                     db.add(
@@ -278,18 +284,21 @@ def _parse_condition_value(value: str, target_type: type) -> Any:
 
 # Actions that only annotate or notify. The Trust Engine's DEGRADED band is
 # "alert only", so these stay available while the gate HOLDs; everything else
-# mutates the campaign on the platform and needs a PASS.
+# mutates the local Campaign row and needs a PASS.
 ALERT_ONLY_ACTIONS = frozenset({"apply_label", "send_alert"})
 LOCAL_CAMPAIGN_MUTATIONS = frozenset({"pause_campaign", "adjust_budget"})
 
 
 def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, Any]:
     """
-    Execute rule action on a campaign.
+    Execute a rule action against the **local** Campaign row only.
 
-    Returns:
-        Dict with action details and result
+    Does not call Meta. Pause/budget here update Stratum's DB copy; live Ads
+    Manager state is unchanged until Autopilot (or a human) writes via
+    ``write_client``. Discovery may later overwrite local status from Meta.
     """
+    from app.services.rules_meta_policy import stamp_local_only
+
     action_type = rule.action_type
     action_config = rule.action_config or {}
 
@@ -317,9 +326,11 @@ def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, An
                 result["label_added"] = new_label
 
         elif action_type == "pause_campaign":
+            # LOCAL_ONLY: pauses the Stratum row, not the Meta campaign.
             previous_status = campaign.status
             campaign.status = "paused"
             result["previous_status"] = previous_status
+            result["local_only"] = True
 
         elif action_type == "send_alert":
             # Queue alert notification
@@ -338,6 +349,7 @@ def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, An
             result["alert_sent"] = True
 
         elif action_type == "adjust_budget":
+            # LOCAL_ONLY: scales Stratum daily_budget_cents; Meta budget unchanged.
             adjustment = action_config.get("adjustment_percent", 0)
             if campaign.daily_budget_cents:
                 old_budget = campaign.daily_budget_cents
@@ -346,10 +358,11 @@ def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, An
                     "old": old_budget,
                     "new": campaign.daily_budget_cents,
                 }
+                result["local_only"] = True
 
     except Exception as e:
         result["success"] = False
         result["error"] = str(e)
         logger.error(f"Action execution failed: {e}")
 
-    return result
+    return stamp_local_only(result)

@@ -4,11 +4,16 @@
 """
 Background tasks for syncing campaign data from ad platforms.
 
-The real path is a READ-ONLY Meta Marketing API pull: ``GET
-/act_<id>/insights`` at campaign level with ``time_increment=1``, mapped onto
-``CampaignMetric`` rows (see ``app.services.meta``). Nothing in this module
-mutates anything on Meta - the autopilot write path is separate and
-deliberately unwired.
+The real path is a READ-ONLY Meta Marketing API pull:
+
+1. Campaign discovery: ``GET /act_<id>/campaigns`` upserts local ``Campaign``
+   catalogue rows (name/status/objective/external_id) so insights has
+   something to attach to.
+2. Insights sync: ``GET /act_<id>/insights`` at campaign level with
+   ``time_increment=1``, mapped onto ``CampaignMetric`` rows.
+
+Nothing in this module mutates anything on Meta - the autopilot write path is
+separate and deliberately gated off by default.
 
 ``USE_MOCK_AD_DATA`` still switches in the local mock generator; it is
 rejected outright when ``APP_ENV=production``.
@@ -32,6 +37,7 @@ from app.models import (
     Tenant,
     TenantPlatformConnection,
 )
+from app.services.meta.campaign_discovery import discover_tenant_campaigns
 from app.services.meta.insights_client import (
     MetaAPIError,
     MetaInsightsTruncatedError,
@@ -349,6 +355,150 @@ def sync_campaign_data(self, tenant_id: int, campaign_id: int):
             "since": since.isoformat(),
             "until": until.isoformat(),
         }
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def discover_tenant_campaigns_task(self, tenant_id: int):
+    """
+    Discover Meta campaigns for one tenant and upsert local ``Campaign`` rows.
+
+    Read-only toward Meta (``GET /act_<id>/campaigns``). Does not advance
+    ``last_synced_at`` on campaigns - that remains insights-only. Newly
+    inserted campaigns are queued for an insights sync so metrics follow.
+
+    Args:
+        tenant_id: Tenant whose enabled Meta ad accounts should be scanned.
+
+    Returns:
+        ``{"status": ...}`` describing the outcome.
+    """
+    logger.info("Discovering Meta campaigns for tenant %s", tenant_id)
+
+    if settings.use_mock_ad_data:
+        logger.info(
+            "Skipping Meta campaign discovery for tenant %s (USE_MOCK_AD_DATA)",
+            tenant_id,
+        )
+        return {"status": "skipped", "reason": "mock_ad_data", "tenant_id": tenant_id}
+
+    with SyncSessionLocal() as db:
+        try:
+            result = discover_tenant_campaigns(db, tenant_id)
+            db.commit()
+        except MetaCredentialsError as exc:
+            logger.warning(
+                "Cannot discover campaigns for tenant %s: %s",
+                tenant_id,
+                exc.message,
+            )
+            db.rollback()
+            return {
+                "status": "skipped",
+                "reason": exc.reason,
+                "tenant_id": tenant_id,
+            }
+        except MetaTokenError as exc:
+            message = f"Meta rejected the access token: {exc.message}"
+            logger.error(
+                "Meta token rejected during campaign discovery for tenant %s: %s",
+                tenant_id,
+                exc.message,
+            )
+            _mark_connection_disconnected(db, tenant_id, message)
+            db.commit()
+            return {
+                "status": "failed",
+                "reason": "token_rejected",
+                "tenant_id": tenant_id,
+            }
+        except MetaRateLimitError as exc:
+            logger.warning(
+                "Meta throttled tenant %s during campaign discovery, retrying in %ss",
+                tenant_id,
+                exc.retry_after_seconds,
+            )
+            db.commit()  # keep any earlier accounts that already upserted
+            raise self.retry(exc=exc, countdown=exc.retry_after_seconds)
+        except MetaAPIError as exc:
+            db.rollback()
+            raise
+
+        created_ids = list(result.created_campaign_ids)
+        for campaign_id in created_ids:
+            sync_campaign_data.delay(tenant_id, campaign_id)
+
+        publish_event(
+            tenant_id,
+            "campaign_discovery_complete",
+            {
+                "fetched": result.fetched,
+                "inserted": result.inserted,
+                "updated": result.updated,
+                "created_campaign_ids": created_ids,
+            },
+        )
+
+        logger.info(
+            "Discovered Meta campaigns for tenant %s "
+            "(fetched=%s inserted=%s updated=%s accounts=%s)",
+            tenant_id,
+            result.fetched,
+            result.inserted,
+            result.updated,
+            len(result.accounts),
+        )
+        return {
+            "status": "success",
+            "tenant_id": tenant_id,
+            "source": "meta_campaign_discovery",
+            "fetched": result.fetched,
+            "inserted": result.inserted,
+            "updated": result.updated,
+            "created_campaign_ids": created_ids,
+            "accounts": [
+                {
+                    "ad_account_id": account.ad_account_id,
+                    "status": account.status,
+                    "fetched": account.fetched,
+                    "inserted": account.inserted,
+                    "updated": account.updated,
+                    "revived": account.revived,
+                    "reason": account.reason,
+                }
+                for account in result.accounts
+            ],
+        }
+
+
+@shared_task
+@with_distributed_lock(timeout=3600)  # 1 hour lock timeout
+def discover_all_campaigns():
+    """
+    Queue Meta campaign discovery for every non-deleted tenant.
+
+    Scheduled shortly before ``sync_all_campaigns`` so newly listed campaigns
+    exist locally before the hourly insights pull.
+    """
+    logger.info("Starting Meta campaign discovery for all tenants")
+
+    with SyncSessionLocal() as db:
+        tenant_ids = db.execute(
+            select(Tenant.id).where(Tenant.is_deleted == False)
+        ).scalars().all()
+
+        task_count = 0
+        for tid in tenant_ids:
+            discover_tenant_campaigns_task.delay(tid)
+            task_count += 1
+
+    logger.info("Queued %s campaign discovery tasks", task_count)
+    return {"tasks_queued": task_count}
 
 
 @shared_task

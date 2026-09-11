@@ -14,7 +14,13 @@ import { apiClient } from './client';
 // Types
 // =============================================================================
 
-export type ActionStatus = 'queued' | 'approved' | 'applied' | 'failed' | 'dismissed';
+export type ActionStatus =
+  | 'queued'
+  | 'approved'
+  | 'applying'
+  | 'applied'
+  | 'failed'
+  | 'dismissed';
 
 export type ActionType =
   | 'budget_increase'
@@ -327,6 +333,7 @@ export function getActionStatusColor(status: ActionStatus): string {
   const colors: Record<ActionStatus, string> = {
     queued: 'yellow',
     approved: 'blue',
+    applying: 'indigo',
     applied: 'green',
     failed: 'red',
     dismissed: 'gray',
@@ -341,6 +348,7 @@ export function getActionStatusLabel(status: ActionStatus): string {
   const labels: Record<ActionStatus, string> = {
     queued: 'Pending Approval',
     approved: 'Approved',
+    applying: 'Applying',
     applied: 'Applied',
     failed: 'Failed',
     dismissed: 'Dismissed',

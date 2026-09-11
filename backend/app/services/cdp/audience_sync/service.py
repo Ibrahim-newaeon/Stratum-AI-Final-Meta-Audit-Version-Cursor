@@ -14,7 +14,7 @@ Features:
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -73,7 +73,7 @@ class AudienceSyncService:
         platform: str,
         ad_account_id: str,
         audience_name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         auto_sync: bool = True,
         sync_interval_hours: int = 24,
     ) -> tuple[PlatformAudience, AudienceSyncJob]:
@@ -154,7 +154,7 @@ class AudienceSyncService:
         platform_audience_id: UUID,
         operation: SyncOperation = SyncOperation.UPDATE,
         triggered_by: str = "manual",
-        triggered_by_user_id: Optional[int] = None,
+        triggered_by_user_id: int | None = None,
     ) -> AudienceSyncJob:
         """
         Sync a platform audience with current segment members.
@@ -204,8 +204,9 @@ class AudienceSyncService:
             platform_audience.last_sync_status = sync_job.status
 
             if platform_audience.auto_sync:
+                interval = platform_audience.sync_interval_hours or 24
                 platform_audience.next_sync_at = datetime.now(UTC) + timedelta(
-                    hours=platform_audience.sync_interval_hours
+                    hours=interval
                 )
 
             await self.db.flush()
@@ -352,8 +353,8 @@ class AudienceSyncService:
 
     async def list_platform_audiences(
         self,
-        segment_id: Optional[UUID] = None,
-        platform: Optional[str] = None,
+        segment_id: UUID | None = None,
+        platform: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[PlatformAudience], int]:
@@ -439,7 +440,7 @@ class AudienceSyncService:
     # Helper Methods
     # =========================================================================
 
-    async def _get_segment(self, segment_id: UUID) -> Optional[CDPSegment]:
+    async def _get_segment(self, segment_id: UUID) -> CDPSegment | None:
         """Get a CDP segment by ID."""
         result = await self.db.execute(
             select(CDPSegment).where(
@@ -449,7 +450,7 @@ class AudienceSyncService:
         )
         return result.scalar_one_or_none()
 
-    async def _get_platform_audience(self, audience_id: UUID) -> Optional[PlatformAudience]:
+    async def _get_platform_audience(self, audience_id: UUID) -> PlatformAudience | None:
         """Get a platform audience by ID."""
         result = await self.db.execute(
             select(PlatformAudience).where(
@@ -463,7 +464,7 @@ class AudienceSyncService:
         self,
         platform: str,
         ad_account_id: str,
-    ) -> Optional[AudienceSyncCredential]:
+    ) -> AudienceSyncCredential | None:
         """Get credentials for a platform/ad account."""
         result = await self.db.execute(
             select(AudienceSyncCredential).where(
@@ -524,7 +525,7 @@ class AudienceSyncService:
 
         return users
 
-    def _map_identifier_type(self, cdp_type: str) -> Optional[IdentifierType]:
+    def _map_identifier_type(self, cdp_type: str) -> IdentifierType | None:
         """Map CDP identifier type to audience sync identifier type."""
         mapping = {
             "email": IdentifierType.EMAIL,
@@ -548,5 +549,117 @@ class AudienceSyncService:
             kwargs["app_secret"] = credentials.config.get("app_secret")
 
         return connector_class(
-            access_token=credentials.access_token, ad_account_id=credentials.ad_account_id, **kwargs
+            access_token=credentials.resolved_access_token(),
+            ad_account_id=credentials.ad_account_id,
+            **kwargs,
         )
+
+    async def upsert_credentials(
+        self,
+        *,
+        platform: str,
+        ad_account_id: str,
+        access_token: str,
+        config: dict[str, Any] | None = None,
+    ) -> AudienceSyncCredential:
+        """Create or update encrypted credentials for a Meta ad account.
+
+        Never stores plaintext. Clears any legacy ``access_token`` column.
+        """
+        from app.services.encryption import encrypt_token
+
+        platform = platform.lower()
+        if platform not in self.CONNECTOR_CLASSES:
+            raise ValueError(f"Unsupported platform: {platform}")
+        if not access_token.strip():
+            raise ValueError("access_token is required")
+        if not ad_account_id.strip():
+            raise ValueError("ad_account_id is required")
+
+        existing = await self._get_credentials(platform, ad_account_id)
+        if existing is None:
+            # Also match inactive rows so reconnect reactivates the same unique key.
+            result = await self.db.execute(
+                select(AudienceSyncCredential).where(
+                    AudienceSyncCredential.tenant_id == self.tenant_id,
+                    AudienceSyncCredential.platform == platform,
+                    AudienceSyncCredential.ad_account_id == ad_account_id,
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+        if existing is None:
+            existing = AudienceSyncCredential(
+                tenant_id=self.tenant_id,
+                platform=platform,
+                ad_account_id=ad_account_id,
+                config=config or {},
+            )
+            self.db.add(existing)
+        elif config:
+            merged = dict(existing.config or {})
+            merged.update(config)
+            existing.config = merged
+
+        existing.access_token_encrypted = encrypt_token(access_token)
+        existing.access_token = None
+        existing.is_active = True
+        await self.db.flush()
+        return existing
+
+    async def deactivate_credentials(
+        self,
+        *,
+        platform: str,
+        ad_account_id: str,
+    ) -> bool:
+        """Clear ciphertext and deactivate. Returns False if the row is missing."""
+        result = await self.db.execute(
+            select(AudienceSyncCredential).where(
+                AudienceSyncCredential.tenant_id == self.tenant_id,
+                AudienceSyncCredential.platform == platform.lower(),
+                AudienceSyncCredential.ad_account_id == ad_account_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return False
+        row.is_active = False
+        row.access_token_encrypted = None
+        row.access_token = None
+        await self.db.flush()
+        return True
+
+
+async def list_due_auto_sync_audiences(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int = 200,
+) -> list[PlatformAudience]:
+    """
+    Return platform audiences whose auto-sync window is due.
+
+    Cross-tenant scan used by the Celery beat dispatcher. An audience is due
+    when ``auto_sync`` is true and ``next_sync_at`` is set and ``<= now``.
+    Results are ordered oldest-due first and capped so a backlog cannot
+    enqueue an unbounded fan-out in one beat tick.
+    """
+    moment = now or datetime.now(UTC)
+    # Compare naively if the column is timezone-naive (DateTime without tz).
+    if moment.tzinfo is not None:
+        moment_naive = moment.astimezone(UTC).replace(tzinfo=None)
+    else:
+        moment_naive = moment
+
+    result = await db.execute(
+        select(PlatformAudience)
+        .where(
+            PlatformAudience.auto_sync.is_(True),
+            PlatformAudience.next_sync_at.is_not(None),
+            PlatformAudience.next_sync_at <= moment_naive,
+        )
+        .order_by(PlatformAudience.next_sync_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())

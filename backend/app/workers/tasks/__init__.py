@@ -38,6 +38,8 @@ from app.workers.tasks.cdp import (
     compute_cdp_rfm,
     compute_cdp_segment,
     compute_cdp_traits,
+    sync_due_audience_syncs,
+    sync_platform_audience_task,
 )
 from app.workers.tasks.cms import (
     create_cms_post_version,
@@ -77,6 +79,8 @@ from app.workers.tasks.scores import (
     calculate_daily_scores,
 )
 from app.workers.tasks.sync import (
+    discover_all_campaigns,
+    discover_tenant_campaigns_task,
     sync_all_campaigns,
     sync_campaign_data,
 )
@@ -90,6 +94,8 @@ __all__ = [
     # Sync tasks
     "sync_campaign_data",
     "sync_all_campaigns",
+    "discover_tenant_campaigns_task",
+    "discover_all_campaigns",
     # Rules tasks
     "evaluate_rules",
     "evaluate_all_rules",
@@ -125,6 +131,8 @@ __all__ = [
     "compute_cdp_traits",
     "compute_cdp_funnel",
     "compute_all_cdp_funnels",
+    "sync_platform_audience_task",
+    "sync_due_audience_syncs",
     # CMS tasks
     "publish_scheduled_cms_posts",
     "publish_cms_post",
