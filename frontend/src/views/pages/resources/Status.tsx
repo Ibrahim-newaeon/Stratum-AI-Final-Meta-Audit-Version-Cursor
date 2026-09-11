@@ -163,6 +163,18 @@ export default function StatusPage() {
             <div
               className="inline-flex items-center gap-3 px-6 py-3 rounded-full mb-8"
               style={{
+                background: 'rgba(0, 212, 255, 0.1)',
+                border: '1px solid rgba(0, 212, 255, 0.3)',
+              }}
+            >
+              <span className="text-sm font-semibold tracking-wide text-[#00D4FF]">
+                Illustrative sample — not live probes
+              </span>
+            </div>
+
+            <div
+              className="inline-flex items-center gap-3 px-6 py-3 rounded-full mb-8"
+              style={{
                 background: allOperational ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 183, 0, 0.1)',
                 border: `1px solid ${allOperational ? 'rgba(0, 255, 136, 0.3)' : 'rgba(255, 183, 0, 0.3)'}`,
               }}
@@ -176,7 +188,7 @@ export default function StatusPage() {
                 className="text-lg font-semibold"
                 style={{ color: allOperational ? '#00FF88' : '#FFB800' }}
               >
-                {allOperational ? 'All Systems Operational' : 'Some Systems Degraded'}
+                {allOperational ? 'Sample: All Systems Operational' : 'Sample: Some Systems Degraded'}
               </span>
             </div>
 
@@ -189,14 +201,14 @@ export default function StatusPage() {
                   WebkitTextFillColor: 'transparent',
                 }}
               >
-                System Status
+                Status (illustrative)
               </span>
             </h1>
 
             <p className="text-gray-400">
-              Live process health: frontend <code className="text-gray-300">/health</code>, API{' '}
-              <code className="text-gray-300">/health/api</code>. The service cards below are
-              illustrative names, not a live probe of this deployment.
+              For this deployment, check frontend <code className="text-gray-300">/health</code> and
+              API <code className="text-gray-300">/health/api</code>. The uptime bars and service
+              cards below are sample marketing content, not a live probe.
             </p>
           </div>
         </section>
