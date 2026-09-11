@@ -10,7 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, ApiResponse } from './client';
+import { apiClient } from './client';
 
 // =============================================================================
 // Shared types
@@ -776,34 +776,44 @@ export const cdpQueryKeys = {
 // API client
 // =============================================================================
 
-async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  const response = await apiClient.get<ApiResponse<T>>(url, { params });
-  return response.data.data;
-}
-
-/** Unwrap either APIResponse envelope or raw FastAPI body. */
-async function getRaw<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  const response = await apiClient.get(url, { params });
-  const body = response.data;
-  if (body && typeof body === 'object' && 'data' in body && body.data !== undefined) {
-    return body.data as T;
+/**
+ * CDP endpoints return raw FastAPI bodies (e.g. SegmentListResponse), not the
+ * global APIResponse envelope. Some adjacent helpers still wrap `{ data }`.
+ * Accept either so create/list/update do not silently resolve to `undefined`.
+ */
+export function unwrapCdpBody<T>(body: unknown): T {
+  if (body && typeof body === 'object' && 'data' in body) {
+    const nested = (body as { data: unknown }).data;
+    if (nested !== undefined) {
+      return nested as T;
+    }
   }
   return body as T;
 }
 
+async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+  const response = await apiClient.get(url, { params });
+  return unwrapCdpBody<T>(response.data);
+}
+
+/** @deprecated Prefer get(); kept for call sites that already opted into raw unwrap. */
+async function getRaw<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+  return get<T>(url, params);
+}
+
 async function post<T>(url: string, body?: unknown): Promise<T> {
-  const response = await apiClient.post<ApiResponse<T>>(url, body);
-  return response.data.data;
+  const response = await apiClient.post(url, body);
+  return unwrapCdpBody<T>(response.data);
 }
 
 async function put<T>(url: string, body?: unknown): Promise<T> {
-  const response = await apiClient.put<ApiResponse<T>>(url, body);
-  return response.data.data;
+  const response = await apiClient.put(url, body);
+  return unwrapCdpBody<T>(response.data);
 }
 
 async function del<T>(url: string, params?: Record<string, unknown>): Promise<T> {
-  const response = await apiClient.delete<ApiResponse<T>>(url, { params });
-  return response.data.data;
+  const response = await apiClient.delete(url, { params });
+  return unwrapCdpBody<T>(response.data);
 }
 
 export const cdpApi = {
