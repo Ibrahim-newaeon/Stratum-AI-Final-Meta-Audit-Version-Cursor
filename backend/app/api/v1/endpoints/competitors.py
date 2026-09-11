@@ -28,6 +28,36 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.get("/status")
+async def get_competitor_intel_status(request: Request):
+    """
+    Provider configuration status for Module D (no secrets).
+
+    Reports whether the configured market-intel provider will return
+    synthetic (mock) data or live API data, and whether paid keys are set.
+    """
+    from app.core.config import settings
+
+    provider = settings.market_intel_provider
+    keys_configured = False
+    if provider == "serpapi":
+        keys_configured = bool(settings.serpapi_key)
+    elif provider == "dataforseo":
+        keys_configured = bool(settings.dataforseo_login and settings.dataforseo_password)
+    elif provider == "mock":
+        keys_configured = True  # mock needs no keys
+
+    return APIResponse(
+        success=True,
+        data={
+            "provider": provider,
+            "keys_configured": keys_configured,
+            "synthetic": provider == "mock" or not keys_configured,
+            "ready": provider == "mock" or keys_configured,
+        },
+    )
+
+
 @router.get("", response_model=APIResponse[list[CompetitorResponse]])
 async def list_competitors(
     request: Request,

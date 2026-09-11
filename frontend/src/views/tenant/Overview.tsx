@@ -83,64 +83,40 @@ export default function TenantOverview() {
     {
       id: 'spend',
       label: 'Spend',
-      value: overviewData?.kpis?.total_spend ?? 45000,
+      value: overviewData?.kpis?.total_spend ?? null,
       format: 'currency',
-      previousValue: 42000,
+      previousValue: null,
       confidence: emqScore,
     },
     {
       id: 'revenue',
       label: 'Revenue',
-      value: overviewData?.kpis?.total_revenue ?? 180000,
+      value: overviewData?.kpis?.total_revenue ?? null,
       format: 'currency',
-      previousValue: 165000,
+      previousValue: null,
       confidence: emqScore,
     },
     {
       id: 'roas',
       label: 'ROAS',
-      value: overviewData?.kpis.roas ?? 4.0,
+      value: overviewData?.kpis?.roas ?? null,
       format: 'multiplier',
-      previousValue: 3.9,
+      previousValue: null,
       confidence: emqScore,
     },
     {
       id: 'cpa',
       label: 'CPA',
-      value: overviewData?.kpis.cpa ?? 25,
+      value: overviewData?.kpis?.cpa ?? null,
       format: 'currency',
-      previousValue: 28,
+      previousValue: null,
       trendIsPositive: false,
       confidence: emqScore,
     },
-  ];
+  ].filter((k) => k.value !== null) as Kpi[];
 
-  const playbook: PlaybookItem[] = playbookData ?? [
-    {
-      id: '1',
-      title: 'Fix Meta pixel data loss',
-      description: 'Meta is reporting 15% lower conversions than GA4. Verify pixel implementation.',
-      priority: 'critical',
-      owner: null,
-      estimatedImpact: 8,
-      estimatedTime: '30 min',
-      platform: 'Meta',
-      status: 'pending',
-      actionUrl: null,
-    },
-    {
-      id: '2',
-      title: 'Resolve Meta Ads API timeout',
-      description: 'Intermittent connection issues causing data freshness delays.',
-      priority: 'high',
-      owner: 'Data Team',
-      estimatedImpact: 5,
-      estimatedTime: '1 hour',
-      platform: 'Facebook',
-      status: 'in_progress',
-      actionUrl: null,
-    },
-  ];
+  // Empty when unmeasured — never invent playbook / timeline / action items.
+  const playbook: PlaybookItem[] = playbookData ?? [];
 
   const timeline: TimelineEvent[] = incidentsData?.map((i) => ({
     id: i.id,
@@ -152,34 +128,13 @@ export default function TenantOverview() {
     severity: i.severity,
     recoveryHours: i.recoveryHours ?? undefined,
     emqImpact: i.emqImpact ?? undefined,
-  })) ?? [
-    {
-      id: '1',
-      type: 'incident_opened',
-      title: 'Meta conversion tracking degraded',
-      description: 'Conversion attribution showing 20% variance from GA4',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      platform: 'Meta',
-      severity: 'high',
-    },
-    {
-      id: '2',
-      type: 'recovery',
-      title: 'Meta Ads sync restored',
-      description: 'API connection stable after maintenance',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      platform: 'Facebook',
-      severity: 'medium',
-      recoveryHours: 3,
-      emqImpact: 5,
-    },
-  ];
+  })) ?? [];
 
   // Handle both array and object response shapes
   const recommendationsList = Array.isArray(recommendationsData)
     ? recommendationsData
     : (recommendationsData as { recommendations?: unknown[] } | undefined)?.recommendations || [];
-  const actions: Action[] = ((
+  const actions: Action[] = (
     recommendationsList as {
       id: string;
       priority: string;
@@ -196,7 +151,7 @@ export default function TenantOverview() {
     title: r.title,
     description: r.description,
     platform: r.platform ?? undefined,
-    confidence: 85,
+    confidence: emqScore,
     estimatedImpact: {
       metric: 'ROAS',
       value: r.expectedImpact,
@@ -205,32 +160,7 @@ export default function TenantOverview() {
     status: r.status === 'approved' ? 'applied' : 'pending',
     priority: r.priority === 'high' ? 1 : 2,
     createdAt: r.createdAt ? new Date(r.createdAt) : new Date(),
-  })) as Action[]) ?? [
-    {
-      id: '1',
-      type: 'opportunity',
-      title: 'Increase budget on high-performing campaign',
-      description: 'Campaign "Summer Sale" has 5.2x ROAS, recommend 20% budget increase.',
-      platform: 'Meta',
-      confidence: 92,
-      estimatedImpact: { metric: 'Revenue', value: 15, unit: '%' },
-      status: 'pending',
-      priority: 1,
-      createdAt: new Date(),
-    },
-    {
-      id: '2',
-      type: 'risk',
-      title: 'Pause underperforming ad set',
-      description: 'Ad set "Broad Targeting" has 0.8x ROAS over last 7 days.',
-      platform: 'Meta',
-      confidence: 88,
-      estimatedImpact: { metric: 'Waste', value: -2500, unit: '$' },
-      status: 'pending',
-      priority: 2,
-      createdAt: new Date(),
-    },
-  ];
+  })) as Action[];
 
   // Handler: View EMQ details in signal hub
   const handleViewDetails = () => {
