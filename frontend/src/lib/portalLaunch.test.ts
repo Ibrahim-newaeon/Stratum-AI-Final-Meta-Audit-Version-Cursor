@@ -14,6 +14,7 @@ describe('portal launch surface', () => {
         '/dashboard/custom-reports',
         '/dashboard/cdp/consent',
         '/dashboard/cdp/predictive-churn',
+        '/dashboard/knowledge-graph/insights',
         '/dashboard/knowledge-graph/journeys',
         '/test-page',
       ])

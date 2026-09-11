@@ -71,7 +71,6 @@ const CDPComputedTraits = lazy(() => import('./views/cdp/CDPComputedTraits'));
 const LaunchUnavailable = lazy(() => import('./views/LaunchUnavailable'));
 
 // Knowledge Graph views
-const KnowledgeGraphInsights = lazy(() => import('./views/KnowledgeGraphInsights'));
 const KGProblemDetection = lazy(() => import('./views/knowledge-graph/KGProblemDetection'));
 const KGRevenueAttribution = lazy(() => import('./views/knowledge-graph/KGRevenueAttribution'));
 
@@ -914,7 +913,7 @@ function App() {
                         path="knowledge-graph"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <KnowledgeGraphInsights />
+                            <Navigate to="/dashboard/knowledge-graph/problems" replace />
                           </Suspense>
                         }
                       />
@@ -922,7 +921,10 @@ function App() {
                         path="knowledge-graph/insights"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <KnowledgeGraphInsights />
+                            <LaunchUnavailable
+                              title="Knowledge Graph Insights"
+                              reason="This module was a placeholder under construction and is not included in this portal release."
+                            />
                           </Suspense>
                         }
                       />

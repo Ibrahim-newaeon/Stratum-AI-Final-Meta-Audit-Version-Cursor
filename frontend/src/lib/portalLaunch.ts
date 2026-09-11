@@ -11,6 +11,7 @@ export const PORTAL_LAUNCH_HIDDEN_HREFS = [
   '/dashboard/custom-reports',
   '/dashboard/cdp/consent',
   '/dashboard/cdp/predictive-churn',
+  '/dashboard/knowledge-graph/insights',
   '/dashboard/knowledge-graph/journeys',
   '/test-page',
 ] as const;
