@@ -46,77 +46,6 @@ export interface Notification {
   metadata?: Record<string, any>;
 }
 
-// Demo notifications
-const DEMO_NOTIFICATIONS: Notification[] = [
-  {
-    id: '1',
-    type: 'trust_gate_block',
-    title: 'Trust Gate Blocked',
-    message: 'Budget reallocation for "Summer Sale" blocked due to low signal health (42/100)',
-    timestamp: new Date(Date.now() - 5 * 60 * 1000),
-    read: false,
-    actionUrl: '/dashboard/rules',
-  },
-  {
-    id: '2',
-    type: 'anomaly',
-    title: 'Anomaly Detected',
-    message: 'CTR dropped 45% on Instagram campaign "Brand Awareness Q1"',
-    timestamp: new Date(Date.now() - 15 * 60 * 1000),
-    read: false,
-    actionUrl: '/dashboard/campaigns',
-  },
-  {
-    id: '3',
-    type: 'trust_gate_pass',
-    title: 'Automation Executed',
-    message: 'Creative rotation completed for "Retargeting" campaign',
-    timestamp: new Date(Date.now() - 30 * 60 * 1000),
-    read: false,
-  },
-  {
-    id: '4',
-    type: 'signal_health',
-    title: 'Signal Health Improved',
-    message: 'Overall signal health increased to 85/100 (+8 from yesterday)',
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    read: true,
-  },
-  {
-    id: '5',
-    type: 'segment',
-    title: 'Segment Updated',
-    message: '"Champions" segment now has 8,500 profiles (+340 this week)',
-    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
-    read: true,
-  },
-  {
-    id: '6',
-    type: 'trust_gate_hold',
-    title: 'Automation on Hold',
-    message: 'Bid adjustment paused - monitoring signal quality',
-    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000),
-    read: true,
-  },
-  {
-    id: '7',
-    type: 'campaign',
-    title: 'Campaign Milestone',
-    message: '"WhatsApp Product Launch" reached 1M impressions',
-    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000),
-    read: true,
-  },
-  {
-    id: '8',
-    type: 'system',
-    title: 'New Feature Available',
-    message: 'Audience Sync now supports WhatsApp! Connect your account.',
-    timestamp: new Date(Date.now() - 48 * 60 * 60 * 1000),
-    read: true,
-    actionUrl: '/dashboard/cdp/audience-sync',
-  },
-];
-
 const getNotificationIcon = (type: NotificationType) => {
   switch (type) {
     case 'trust_gate_pass':
@@ -160,7 +89,7 @@ interface NotificationCenterProps {
 }
 
 export function NotificationCenter({ isOpen, onClose }: NotificationCenterProps) {
-  const [notifications, setNotifications] = useState<Notification[]>(DEMO_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
   const unreadCount = notifications.filter((n) => !n.read).length;

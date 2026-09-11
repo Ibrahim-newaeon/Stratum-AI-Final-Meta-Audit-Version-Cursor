@@ -24,6 +24,7 @@ from app.auth.deps import (
 )
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.subscription import free_workspace_tenant_kwargs
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -743,8 +744,8 @@ async def signup(
 
     - Creates a new tenant (organization) with the company name
     - Creates the first user as tenant admin
-    - Sends email verification link
-    - User must verify email before full access
+    - Sends email verification link when SMTP is configured
+    - Email verification is required for Meta OAuth only when mail can be sent
 
     Args:
         signup_data: Email, password, name, company details
@@ -790,9 +791,9 @@ async def signup(
     tenant = Tenant(
         name=signup_data.company_name,
         slug=slug,
-        plan="free",
         settings={},
         feature_flags={},
+        **free_workspace_tenant_kwargs(),
     )
     db.add(tenant)
     await db.flush()  # Get tenant ID
@@ -807,38 +808,37 @@ async def signup(
         phone=encrypt_pii(signup_data.phone) if signup_data.phone else None,
         role=UserRole.ADMIN,  # First user is admin
         is_active=True,
-        is_verified=False,  # Requires email verification
+        is_verified=not settings.email_verification_enforced,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
-    # Generate verification token and store in Redis
-    verification_token = generate_verification_token()
-    try:
-        redis_client = await get_redis_client()
-        token_key = f"{EMAIL_VERIFY_PREFIX}{verification_token}"
-        token_data = f"{user.id}:{email_lower}"
-        expiry_seconds = settings.email_verification_expire_hours * 3600
-        await redis_client.setex(token_key, expiry_seconds, token_data)
-        await redis_client.close()
-    except Exception as e:
-        logger.error("Redis error storing verification token", error=str(e))
-        # Continue anyway - user can request resend
-
-    # Send verification email in background
-    async def send_verification():
+    verification_required = settings.email_verification_enforced
+    if verification_required:
+        verification_token = generate_verification_token()
         try:
-            email_service = get_email_service()
-            email_service.send_verification_email(
-                to_email=email_lower,
-                token=verification_token,
-                user_name=signup_data.full_name,
-            )
+            redis_client = await get_redis_client()
+            token_key = f"{EMAIL_VERIFY_PREFIX}{verification_token}"
+            token_data = f"{user.id}:{email_lower}"
+            expiry_seconds = settings.email_verification_expire_hours * 3600
+            await redis_client.setex(token_key, expiry_seconds, token_data)
+            await redis_client.close()
         except Exception as e:
-            logger.error("Error sending verification email", error=str(e))
+            logger.error("Redis error storing verification token", error=str(e))
 
-    background_tasks.add_task(send_verification)
+        async def send_verification():
+            try:
+                email_service = get_email_service()
+                email_service.send_verification_email(
+                    to_email=email_lower,
+                    token=verification_token,
+                    user_name=signup_data.full_name,
+                )
+            except Exception as e:
+                logger.error("Error sending verification email", error=str(e))
+
+        background_tasks.add_task(send_verification)
 
     logger.info(
         "user_signed_up",
@@ -851,8 +851,12 @@ async def signup(
         data=SignupResponse(
             user_id=user.id,
             email=email_lower,
-            message="Account created. Please check your email to verify your account.",
-            verification_required=True,
+            message=(
+                "Account created. Please check your email to verify your account."
+                if verification_required
+                else "Account created. You can sign in and connect Meta Ads."
+            ),
+            verification_required=verification_required,
         ),
         message="Signup successful",
     )

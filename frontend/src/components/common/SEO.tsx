@@ -155,7 +155,7 @@ export const pageSEO = {
   pricing: {
     title: 'Pricing',
     description:
-      'Simple, transparent pricing for Stratum AI. Start with a 14-day free trial. Plans from $499/month for growing teams.',
+      'This portal is free. Create an account with full workspace access — no credit card and no payment gateway.',
   },
   features: {
     title: 'Features',
@@ -176,7 +176,7 @@ export const pageSEO = {
   signup: {
     title: 'Sign Up',
     description:
-      'Create your Stratum AI account and start your 14-day free trial. No credit card required.',
+      'Create your Stratum AI account. This portal is free — no credit card required.',
   },
   contact: {
     title: 'Contact Us',

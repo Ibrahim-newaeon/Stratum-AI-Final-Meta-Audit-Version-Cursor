@@ -16,6 +16,7 @@ All endpoints are tenant-scoped and require authentication.
 
 from datetime import UTC, datetime
 from typing import Optional
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -41,6 +42,27 @@ from app.services.oauth import (
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/oauth", tags=["oauth"])
+
+# Browser return path after Meta OAuth. `/connect` is not a registered SPA route.
+FRONTEND_CONNECT_PATH = "/dashboard/campaigns/connect"
+
+
+def frontend_connect_url(
+    *,
+    platform: str,
+    status: Optional[str] = None,
+    error: Optional[str] = None,
+    message: Optional[str] = None,
+) -> str:
+    """Absolute URL of the Connect Platforms page, with OAuth result query params."""
+    params: dict[str, str] = {"platform": platform}
+    if status:
+        params["status"] = status
+    if error:
+        params["error"] = error
+    if message:
+        params["message"] = message
+    return f"{settings.frontend_url.rstrip('/')}{FRONTEND_CONNECT_PATH}?{urlencode(params)}"
 
 
 # =============================================================================
@@ -222,8 +244,6 @@ async def oauth_callback(
     On success, redirects to frontend with success status.
     On failure, redirects to frontend with error details.
     """
-    frontend_url = settings.frontend_url
-
     # Handle error from platform
     if error:
         logger.warning(
@@ -233,20 +253,28 @@ async def oauth_callback(
             description=error_description,
         )
         return RedirectResponse(
-            f"{frontend_url}/connect?platform={platform.value}&error={error}&message={error_description or 'Authorization denied'}"
+            frontend_connect_url(
+                platform=platform.value,
+                error=error,
+                message=error_description or "Authorization denied",
+            )
         )
 
     if not code or not state:
         logger.warning("oauth_missing_params", platform=platform.value)
         return RedirectResponse(
-            f"{frontend_url}/connect?platform={platform.value}&error=invalid_request&message=Missing code or state"
+            frontend_connect_url(
+                platform=platform.value,
+                error="invalid_request",
+                message="Missing code or state",
+            )
         )
 
     try:
         oauth_service = get_oauth_service(platform.value)
     except ValueError:
         return RedirectResponse(
-            f"{frontend_url}/connect?platform={platform.value}&error=invalid_platform"
+            frontend_connect_url(platform=platform.value, error="invalid_platform")
         )
 
     # Validate state token
@@ -254,7 +282,11 @@ async def oauth_callback(
     if not oauth_state:
         logger.warning("oauth_invalid_state", platform=platform.value)
         return RedirectResponse(
-            f"{frontend_url}/connect?platform={platform.value}&error=invalid_state&message=Session expired, please try again"
+            frontend_connect_url(
+                platform=platform.value,
+                error="invalid_state",
+                message="Session expired, please try again",
+            )
         )
 
     # Exchange code for tokens
@@ -268,7 +300,11 @@ async def oauth_callback(
             error=str(e),
         )
         return RedirectResponse(
-            f"{frontend_url}/connect?platform={platform.value}&error=token_exchange_failed&message=Failed to complete authorization"
+            frontend_connect_url(
+                platform=platform.value,
+                error="token_exchange_failed",
+                message="Failed to complete authorization",
+            )
         )
 
     # The platform's own id for the authorising person. Meta's Deauthorize and
@@ -356,12 +392,14 @@ async def oauth_callback(
             error=str(e),
         )
         return RedirectResponse(
-            f"{frontend_url}/connect?platform={platform.value}&error=storage_failed&message=Failed to save connection"
+            frontend_connect_url(
+                platform=platform.value,
+                error="storage_failed",
+                message="Failed to save connection",
+            )
         )
 
-    # Redirect to frontend with success
-    redirect_url = oauth_state.redirect_uri or frontend_url
-    return RedirectResponse(f"{redirect_url}/connect?platform={platform.value}&status=success")
+    return RedirectResponse(frontend_connect_url(platform=platform.value, status="success"))
 
 
 # =============================================================================

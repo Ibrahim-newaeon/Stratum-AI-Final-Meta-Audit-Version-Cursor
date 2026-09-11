@@ -15,6 +15,7 @@ import {
   Hash,
   Layers,
   LayoutDashboard,
+  Link2,
   LineChart,
   Network,
   PieChart,
@@ -23,7 +24,6 @@ import {
   Shield,
   Sparkles,
   Target,
-  TrendingUp,
   Users,
   Workflow,
   Zap,
@@ -78,6 +78,16 @@ export function CommandPalette({ tenantId }: CommandPaletteProps) {
         action: () => navigate(`${basePath}/campaigns`),
         keywords: ['ads', 'advertising'],
         shortcut: 'G C',
+      },
+      {
+        id: 'connect-platforms',
+        title: 'Connect Platforms',
+        description: 'Connect Meta Ads (Facebook, Instagram, WhatsApp)',
+        icon: <Link2 className="h-4 w-4" />,
+        category: 'Navigation',
+        action: () =>
+          navigate(tenantId ? `/app/${tenantId}/campaigns/connect` : '/dashboard/campaigns/connect'),
+        keywords: ['meta', 'facebook', 'instagram', 'whatsapp', 'oauth', 'connect'],
       },
       {
         id: 'cdp',
@@ -181,15 +191,6 @@ export function CommandPalette({ tenantId }: CommandPaletteProps) {
         category: 'AI Features',
         action: () => navigate(`${basePath}/explainability`),
         keywords: ['shap', 'lime', 'explain'],
-      },
-      {
-        id: 'churn',
-        title: 'Predictive Churn',
-        description: 'Churn risk analysis',
-        icon: <TrendingUp className="h-4 w-4" />,
-        category: 'AI Features',
-        action: () => navigate('/dashboard/cdp/predictive-churn'),
-        keywords: ['risk', 'retention'],
       },
 
       // Trust Engine

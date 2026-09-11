@@ -49,7 +49,7 @@ export function CTA() {
             }}
           >
             <SparklesIcon className="w-4 h-4" style={{ color: theme.gold }} />
-            <span className="text-sm font-medium" style={{ color: theme.gold }}>14-day free trial</span>
+            <span className="text-sm font-medium" style={{ color: theme.gold }}>Free account</span>
           </div>
         </div>
 
@@ -76,7 +76,7 @@ export function CTA() {
               boxShadow: '0 0 40px rgba(0, 199, 190, 0.3)',
             }}
           >
-            14 Day Free Trial
+            Create free account
             <ArrowRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </button>
 

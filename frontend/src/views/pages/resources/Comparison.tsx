@@ -470,7 +470,7 @@ export default function ComparisonPage() {
                     boxShadow: '0 4px 20px rgba(139, 92, 246, 0.3)',
                   }}
                 >
-                  Start Free Trial
+                  Create free account
                   <ArrowRightIcon className="w-4 h-4" />
                 </Link>
                 <Link

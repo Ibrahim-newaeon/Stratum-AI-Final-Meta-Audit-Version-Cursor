@@ -218,9 +218,9 @@ export default function Signup() {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-4">
               {[
-                { icon: '✓', text: '14-day free trial' },
+                { icon: '✓', text: 'Free account' },
                 { icon: '✓', text: 'No credit card required' },
-                { icon: '✓', text: 'Cancel anytime' },
+                { icon: '✓', text: 'No subscription' },
               ].map((item) => (
                 <div
                   key={item.text}
@@ -284,7 +284,7 @@ export default function Signup() {
               <h2 className="text-2xl font-semibold mb-2" style={{ color: theme.textPrimary }}>
                 Create your account
               </h2>
-              <p style={{ color: theme.textMuted }}>Start your 14-day free trial</p>
+              <p style={{ color: theme.textMuted }}>Create a free workspace — no credit card</p>
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

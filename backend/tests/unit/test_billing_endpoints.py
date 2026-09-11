@@ -273,6 +273,7 @@ def sync_mocks(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 def paddle(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """Configured Paddle: settings + price map + a spec'd client mock."""
     monkeypatch.setattr(settings, "paddle_api_key", "pdl_sdbx_apikey_test")
+    monkeypatch.setattr(settings, "billing_payments_enabled", True)
     monkeypatch.setattr(settings, "paddle_client_token", CLIENT_TOKEN)
     monkeypatch.setattr(settings, "paddle_environment", "sandbox")
     monkeypatch.setattr(settings, "paddle_starter_price_id", PRICE_IDS[SubscriptionTier.STARTER])
@@ -411,6 +412,7 @@ def test_config_when_not_configured(client: TestClient, unconfigured: None) -> N
     assert body["success"] is True
     data = body["data"]
     assert data["paddle_configured"] is False
+    assert data["payments_enabled"] is False
     assert data["client_token"] is None
     assert data["environment"] == "sandbox"
     assert data["price_ids"] == {"starter": None, "professional": None, "enterprise": None}
@@ -429,6 +431,7 @@ def test_config_when_configured(client: TestClient, paddle: MagicMock) -> None:
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["paddle_configured"] is True
+    assert data["payments_enabled"] is True
     assert data["client_token"] == CLIENT_TOKEN
     assert data["price_ids"]["starter"] == PRICE_IDS[SubscriptionTier.STARTER]
     assert data["price_ids"]["professional"] == PRICE_IDS[SubscriptionTier.PROFESSIONAL]
@@ -627,6 +630,17 @@ def test_checkout_session_when_not_configured_is_503(
 ) -> None:
     response = client.post(f"{BASE}/checkout-session", json={"tier": "starter"}, headers=_headers())
     assert response.status_code == 503
+
+
+def test_checkout_session_when_payments_disabled_is_503(
+    client: TestClient, paddle: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Paddle keys alone must not open checkout on this free portal."""
+    monkeypatch.setattr(settings, "billing_payments_enabled", False)
+    response = client.post(f"{BASE}/checkout-session", json={"tier": "starter"}, headers=_headers())
+    assert response.status_code == 503
+    assert response.json()["detail"] == "This portal does not take payments"
+    paddle.create_customer.assert_not_awaited()
 
 
 def test_checkout_session_creates_customer_once(

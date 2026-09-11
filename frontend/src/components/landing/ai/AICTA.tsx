@@ -17,7 +17,7 @@ const benefits = [
   { icon: SparklesIcon, text: '6 AI models included' },
   { icon: ShieldCheckIcon, text: 'Trust-gated safety' },
   { icon: CpuChipIcon, text: '<50ms predictions' },
-  { icon: ChartBarIcon, text: '14-day free trial' },
+  { icon: ChartBarIcon, text: 'Free account' },
 ];
 
 export default function AICTA() {

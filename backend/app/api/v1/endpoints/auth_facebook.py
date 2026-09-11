@@ -74,6 +74,7 @@ from app.api.v1.endpoints.auth import (
 from app.auth.deps import CurrentUserDep
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.subscription import free_workspace_tenant_kwargs
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -433,9 +434,9 @@ async def _provision_account(db: AsyncSession, profile: FacebookProfile) -> User
     tenant = Tenant(
         name=workspace_name,
         slug=await _unique_tenant_slug(db, workspace_name),
-        plan="free",
         settings={},
         feature_flags={},
+        **free_workspace_tenant_kwargs(),
     )
     db.add(tenant)
     await db.flush()

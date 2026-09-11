@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.tiers import SubscriptionTier
+from app.core.tiers import TIER_LIMITS, SubscriptionTier
 
 logger = get_logger(__name__)
 
@@ -25,6 +25,7 @@ __all__ = [
     "GRACE_PERIOD_DAYS",
     "SubscriptionInfo",
     "SubscriptionStatus",
+    "free_workspace_tenant_kwargs",
     "get_expiry_warning_message",
     "get_subscription_info",
 ]
@@ -43,12 +44,31 @@ class SubscriptionStatus(str, enum.Enum):
     EXPIRED = "expired"
 
 
+# Self-serve signups are unpaid on this portal. ``free`` is a historical alias
+# for the same full-access workspace (not the Starter paid cap).
+_FREE_PLAN_ALIASES = frozenset({"", "free"})
+
+
+def free_workspace_tenant_kwargs() -> dict[str, Any]:
+    """Fields for a signup tenant that never goes through a payment gateway."""
+    limits = TIER_LIMITS[SubscriptionTier.ENTERPRISE]
+    return {
+        "plan": SubscriptionTier.ENTERPRISE.value,
+        "plan_expires_at": None,
+        "max_users": limits["max_users"],
+        "max_campaigns": limits["max_users"],
+    }
+
+
 def _tier_for_plan(plan: str) -> SubscriptionTier:
     """Map a tenant plan string to a subscription tier."""
+    normalized = (plan or "").strip().lower()
+    if normalized in _FREE_PLAN_ALIASES:
+        return SubscriptionTier.ENTERPRISE
     try:
-        return SubscriptionTier(plan.lower())
+        return SubscriptionTier(normalized)
     except ValueError:
-        # Unknown/free plans map to the starter tier
+        # Unknown plans stay on the starter cap rather than unlocking everything.
         return SubscriptionTier.STARTER
 
 

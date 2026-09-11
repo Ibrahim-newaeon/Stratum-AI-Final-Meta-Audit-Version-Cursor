@@ -29,8 +29,6 @@ import { useCurrentUser, useUpdatePreferences } from '@/api/auth';
 import { useToast } from '@/components/ui/use-toast';
 import GA4Integration from '@/components/settings/GA4Integration';
 import GTMIntegration from '@/components/settings/GTMIntegration';
-import PaddleBilling from '@/components/settings/PaddleBilling';
-import { useBillingSubscription } from '@/api/billing';
 
 type SettingsTab =
   | 'profile'
@@ -810,8 +808,6 @@ function SecuritySettings({
 
 function IntegrationSettings() {
   const { t } = useTranslation();
-  // Paddle Billing is "connected" once the tenant has a Paddle customer record
-  const { data: billingSubscription } = useBillingSubscription();
   const [webhooks, setWebhooks] = useState([
     {
       id: '1',
@@ -837,7 +833,7 @@ function IntegrationSettings() {
           />
         </svg>
       ),
-      // Paddle Billing (neutral icon, no third-party wordmark)
+      // Paddle Billing is unused on this free portal
       paddle: <CreditCard className="w-6 h-6" aria-hidden="true" />,
       wordpress: (
         <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
@@ -892,13 +888,6 @@ function IntegrationSettings() {
       connected: true,
       color: 'text-green-500',
       description: 'Sync orders and product catalog',
-    },
-    {
-      id: 'paddle',
-      name: 'Paddle Billing',
-      connected: !!billingSubscription?.has_customer,
-      color: 'text-amber-500',
-      description: t('settings.integrationPaddleDesc'),
     },
     {
       id: 'wordpress',
@@ -1252,12 +1241,22 @@ function PreferenceSettings() {
 function BillingSettings() {
   const { t } = useTranslation();
 
-  // Live subscription state, checkout, portal, cancel/resume and invoices are
-  // all handled by the Paddle Billing card (no static/mock billing data here).
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold">{t('settings.billingSettings')}</h2>
-      <PaddleBilling />
+      <div
+        className="rounded-xl border p-6 space-y-2"
+        style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+        }}
+      >
+        <h3 className="text-base font-semibold">Free workspace</h3>
+        <p className="text-sm text-muted-foreground">
+          This portal does not take payments. Anyone can create an account with full workspace
+          access — no credit card, no subscription, and no checkout overlay.
+        </p>
+      </div>
     </div>
   );
 }

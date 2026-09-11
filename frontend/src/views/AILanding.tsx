@@ -135,7 +135,7 @@ export default function AILanding() {
                 className="relative group px-5 py-2.5 rounded-xl text-sm font-medium overflow-hidden"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500 via-cyan-500 to-purple-500 bg-[length:200%_100%] group-hover:animate-gradient-x" />
-                <span className="relative text-white">Start Free Trial</span>
+                <span className="relative text-white">Create free account</span>
               </a>
             </div>
           </div>

@@ -14,6 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import decode_token
 from app.db.session import get_async_session
@@ -149,8 +150,11 @@ async def get_current_verified_user(
     """
     Get current user that is verified.
     Use this for endpoints that require email verification.
+
+    When SMTP is not configured the verification email cannot be delivered, so
+    the check is skipped rather than blocking Connect / other verified routes.
     """
-    if not current_user.is_verified:
+    if settings.email_verification_enforced and not current_user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email verification required",

@@ -101,7 +101,7 @@ export default function TenantLayout() {
   };
 
   const handleBackToMain = () => {
-    navigate('/app/overview');
+    navigate('/dashboard/overview');
   };
 
   const getUserInitials = () => {

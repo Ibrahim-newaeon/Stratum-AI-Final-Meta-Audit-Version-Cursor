@@ -40,6 +40,7 @@ export interface TierPriceInfo {
 }
 
 export interface BillingConfig {
+  payments_enabled?: boolean;
   paddle_configured: boolean;
   environment: PaddleEnvironment;
   /** Paddle client-side token (safe for the browser); null when not configured. */

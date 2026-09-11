@@ -37,27 +37,27 @@ const categories = [
 ];
 
 // Fallback FAQ data when CMS content is not available
-const fallbackFaqs: FAQItem[] = [
+export const fallbackFaqs: FAQItem[] = [
   // Pricing & Plans
   {
     id: '1',
     question: 'What pricing plans does Stratum AI offer?',
     answer:
-      'We offer three tiers: Starter ($499/mo) for growing teams, Professional ($1,499/mo) for scaling businesses with advanced automation, and custom Enterprise plans for large organizations. Each tier includes a 14-day free trial with full feature access.',
+      'This portal is free. Anyone can create an account with full workspace access. There is no payment gateway, paid tier, or credit card.',
     category: 'pricing',
   },
   {
     id: '2',
     question: 'Is there a free trial available?',
     answer:
-      'Yes! We offer a 14-day free trial on all plans with full feature access. No credit card required to start. You can also use our Interactive Demo Mode to explore the platform with sample data before signing up.',
+      'You do not need a trial. Signup is free, with no credit card and no expiry clock.',
     category: 'pricing',
   },
   {
     id: '3',
     question: 'Can I change my plan later?',
     answer:
-      'Absolutely. You can upgrade or downgrade your plan at any time. Upgrades take effect immediately with prorated billing. Downgrades take effect at the start of your next billing cycle.',
+      'There are no paid plans on this portal, so there is nothing to upgrade or downgrade.',
     category: 'pricing',
   },
   // Features
@@ -65,7 +65,7 @@ const fallbackFaqs: FAQItem[] = [
     id: '4',
     question: 'What is the Trust-Gated Autopilot?',
     answer:
-      'Trust-Gated Autopilot is our core innovation. It automatically executes optimizations ONLY when signal health passes safety thresholds (70+ score). This prevents costly mistakes from bad data while maximizing automation when conditions are right.',
+      'Trust-Gated Autopilot executes optimizations only when Signal Health is at or above 70. This portal ships with Meta Autopilot writes off; Signal Health still scores reliability and holds or blocks automation until operators enable writes.',
     category: 'features',
   },
   {
@@ -87,7 +87,7 @@ const fallbackFaqs: FAQItem[] = [
     id: '7',
     question: 'How does Signal Health scoring work?',
     answer:
-      'Signal Health is a 0-100 score measuring data reliability. It factors in data freshness, completeness, consistency, and anomaly detection. Scores above 70 are "Healthy" (green), 40-70 are "Degraded" (yellow), and below 40 are "Unhealthy" (red).',
+      'Signal Health is a 0-100 score measuring data reliability. It factors in data freshness, completeness, consistency, and anomaly detection. Scores at or above 70 are PASS (Healthy), 40-69 are HOLD (Degraded), and below 40 are BLOCK (Unhealthy). Missing or stale scores fail closed to BLOCK.',
     category: 'trust-engine',
   },
   {
@@ -109,7 +109,7 @@ const fallbackFaqs: FAQItem[] = [
     id: '10',
     question: 'How do I connect my ad accounts?',
     answer:
-      'Go to Tenant Settings → Connect Platforms. Click "Connect" on any platform to start the OAuth flow. You\'ll be redirected to the platform to grant permissions, then automatically returned to Stratum AI.',
+      'From the dashboard, open Connect Platforms in the sidebar (or Getting Started → Connect). Click Connect Meta Ads, grant Facebook, Instagram, and WhatsApp permissions, then you return to the same page.',
     category: 'integrations',
   },
   {

@@ -58,6 +58,9 @@ class TierPriceIds(BillingSchema):
 class BillingConfigResponse(BillingSchema):
     """Public billing configuration consumed by the frontend (Paddle.js bootstrap)."""
 
+    payments_enabled: bool = Field(
+        ..., description="False when this portal does not take payments"
+    )
     paddle_configured: bool = Field(..., description="True when a Paddle API key is set")
     environment: PaddleEnvironment = Field(..., description="Paddle environment")
     client_token: Optional[str] = Field(None, description="Paddle.js client-side token")

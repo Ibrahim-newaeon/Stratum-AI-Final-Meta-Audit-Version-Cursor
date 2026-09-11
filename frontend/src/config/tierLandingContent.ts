@@ -106,7 +106,7 @@ const starter: TierContent = {
     subheadline: 'AI optimization for Facebook, Instagram and WhatsApp campaigns',
     description:
       'Stratum AI watches your signal health around the clock and only automates when your data can be trusted. Every AI decision is auditable, explainable and reversible - with one-click human override.',
-    primaryCta: 'Start 14-day free trial',
+    primaryCta: 'Create free account',
     secondaryCta: 'Watch demo',
     metrics: [
       { value: '3', label: 'Ad Accounts', description: 'Facebook, Instagram & WhatsApp' },
@@ -228,7 +228,7 @@ const starter: TierContent = {
     {
       question: 'Do I need a credit card to start the trial?',
       answer:
-        'No. Start a 14-day free trial with no credit card. Connect any ad account read-only and see your signal health within minutes.',
+        'No. Create a free account with no credit card. Connect any ad account read-only and see your signal health within minutes.',
     },
     {
       question: 'Can Stratum change my campaigns without my approval?',
@@ -264,7 +264,7 @@ const professional: TierContent = {
     subheadline: 'Full CDP, audience sync and predictive models for Meta advertisers',
     description:
       'Everything in Starter, plus one-click Meta audience sync, RFM segmentation, funnels and the full predictive suite - ROAS, LTV, churn, conversion and creative fatigue. Trust-Gated Autopilot executes only when your signals are healthy.',
-    primaryCta: 'Start 14-day free trial',
+    primaryCta: 'Create free account',
     secondaryCta: 'Watch demo',
     metrics: [
       { value: '10', label: 'Ad Accounts', description: 'Facebook, Instagram & WhatsApp' },

@@ -1,10 +1,42 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { execSync } from 'node:child_process';
+
+function resolveGitSha(): string {
+  const fromEnv = process.env.VITE_GIT_SHA || process.env.GIT_SHA;
+  if (fromEnv && fromEnv.trim()) {
+    return fromEnv.trim();
+  }
+  try {
+    return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function stampCommitMeta() {
+  const sha = resolveGitSha();
+  return {
+    name: 'stamp-commit-meta',
+    transformIndexHtml: {
+      order: 'pre' as const,
+      handler(html: string) {
+        if (html.includes('name="stratum-commit"')) {
+          return html;
+        }
+        return html.replace(
+          '<meta charset="UTF-8" />',
+          `<meta charset="UTF-8" />\n    <meta name="stratum-commit" content="${sha}" />`
+        );
+      },
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), stampCommitMeta()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

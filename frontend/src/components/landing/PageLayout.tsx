@@ -213,7 +213,7 @@ export function PageLayout({ children }: PageLayoutProps) {
                   boxShadow: '0 0 30px rgba(0, 199, 190, 0.2)',
                 }}
               >
-                Start Free Trial
+                Create free account
               </Link>
             </div>
 
@@ -328,7 +328,7 @@ export function PageLayout({ children }: PageLayoutProps) {
                   style={{ background: '#00c7be' }}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  Start Free Trial
+                  Create free account
                 </Link>
               </div>
             </div>

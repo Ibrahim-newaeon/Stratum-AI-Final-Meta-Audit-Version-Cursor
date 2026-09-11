@@ -45,7 +45,7 @@ const DEFAULT_CHECKLIST: ChecklistItem[] = [
     description: 'Link your Facebook, Instagram, or WhatsApp account',
     icon: Link2,
     actionLabel: 'Connect',
-    actionUrl: '/dashboard/capi-setup',
+    actionUrl: '/dashboard/campaigns/connect',
     completed: false,
     required: true,
   },
