@@ -49,83 +49,6 @@ interface Campaign {
   trend: 'up' | 'down' | 'stable';
 }
 
-const mockCampaigns: Campaign[] = [
-  {
-    id: 1,
-    name: 'Summer Sale 2024',
-    platform: 'facebook',
-    status: 'active',
-    spend: 12450,
-    budget: 15000,
-    revenue: 48750,
-    roas: 3.92,
-    impressions: 1245000,
-    clicks: 34560,
-    conversions: 890,
-    ctr: 2.78,
-    trend: 'up',
-  },
-  {
-    id: 2,
-    name: 'Brand Awareness Q4',
-    platform: 'meta',
-    status: 'active',
-    spend: 8900,
-    budget: 10000,
-    revenue: 35600,
-    roas: 4.0,
-    impressions: 2100000,
-    clicks: 42000,
-    conversions: 560,
-    ctr: 2.0,
-    trend: 'stable',
-  },
-  {
-    id: 3,
-    name: 'Product Launch - Widget Pro',
-    platform: 'instagram',
-    status: 'paused',
-    spend: 5600,
-    budget: 8000,
-    revenue: 15680,
-    roas: 2.8,
-    impressions: 890000,
-    clicks: 21340,
-    conversions: 234,
-    ctr: 2.4,
-    trend: 'down',
-  },
-  {
-    id: 4,
-    name: 'Retargeting - Cart Abandoners',
-    platform: 'meta',
-    status: 'active',
-    spend: 3200,
-    budget: 5000,
-    revenue: 19200,
-    roas: 6.0,
-    impressions: 450000,
-    clicks: 13500,
-    conversions: 320,
-    ctr: 3.0,
-    trend: 'up',
-  },
-  {
-    id: 5,
-    name: 'Instagram Influencer Collab',
-    platform: 'instagram',
-    status: 'active',
-    spend: 7800,
-    budget: 12000,
-    revenue: 23400,
-    roas: 3.0,
-    impressions: 5600000,
-    clicks: 168000,
-    conversions: 420,
-    ctr: 3.0,
-    trend: 'up',
-  },
-];
 
 type SortField = 'name' | 'spend' | 'revenue' | 'roas' | 'conversions';
 type SortDirection = 'asc' | 'desc';
@@ -169,7 +92,7 @@ export function Campaigns() {
         trend: c.trend || (c.roas >= 3.5 ? 'up' : c.roas < 2.5 ? 'down' : 'stable'),
       }));
     }
-    return mockCampaigns;
+    return [];
   }, [campaignsData]);
 
   const handleSort = (field: SortField) => {
