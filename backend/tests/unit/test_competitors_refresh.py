@@ -120,7 +120,8 @@ def test_fetch_competitor_data_persists_mock_result():
     select_query = MagicMock(name="select_query")
     select_query.where.return_value = select_query
 
-    async def fake_get(domain: str) -> CompetitorData:
+    async def fake_get(_self, domain: str) -> CompetitorData:
+        # Bound-method patch: first arg is the MarketIntelligenceService instance.
         return CompetitorData(
             domain=domain,
             estimated_traffic=5000,
