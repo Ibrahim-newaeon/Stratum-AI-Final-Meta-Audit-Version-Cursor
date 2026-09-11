@@ -56,6 +56,21 @@ def test_stamp_local_only_marks_scope():
     assert stamped["action"] == "pause_campaign"
 
 
+def test_skipped_local_mutation_is_still_stamped_local_only():
+    """Portal kill-switch skips must keep the LOCAL_ONLY audit stamp."""
+    stamped = stamp_local_only(
+        {
+            "action": "pause_campaign",
+            "success": False,
+            "skipped": True,
+            "reason": "local_campaign_mutations_disabled",
+        }
+    )
+    assert stamped["skipped"] is True
+    assert stamped["execution_scope"] == EXECUTION_SCOPE_LOCAL_DB
+    assert stamped["meta_write"] is False
+
+
 def test_refuse_direct_meta_write_always():
     with pytest.raises(RulesMetaWriteForbidden, match="cannot write to Meta"):
         refuse_direct_meta_write("unit-test")

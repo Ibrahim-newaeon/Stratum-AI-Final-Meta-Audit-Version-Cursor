@@ -64,6 +64,7 @@ services:
       - SERVICE_ROLE=api
       - AUTOPILOT_EXECUTION_ENABLED=false
       - AUTOPILOT_EXECUTION_DRY_RUN=true
+      - RULES_META_WRITES_ENABLED=false
       - RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
@@ -116,6 +117,7 @@ services:
       - USE_MOCK_AD_DATA=false
       - AUTOPILOT_EXECUTION_ENABLED=false
       - AUTOPILOT_EXECUTION_DRY_RUN=true
+      - RULES_META_WRITES_ENABLED=false
       - RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
@@ -165,6 +167,7 @@ services:
       - USE_MOCK_AD_DATA=false
       - AUTOPILOT_EXECUTION_ENABLED=false
       - AUTOPILOT_EXECUTION_DRY_RUN=true
+      - RULES_META_WRITES_ENABLED=false
       - RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0

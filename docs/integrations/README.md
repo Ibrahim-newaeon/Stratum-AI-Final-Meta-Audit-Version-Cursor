@@ -22,6 +22,7 @@ in their own tables (`tenant_ga4_integrations`, `tenant_gtm_integrations`) behin
 - Meta Pixel + Conversions API for event delivery (see `backend/app/services/capi/`).
 - WhatsApp Cloud API for messaging and conversation attribution. Module G outbound messaging uses per-tenant encrypted rows in ``tenant_whatsapp_credentials`` (``PUT /api/v1/whatsapp/credentials``); global ``WHATSAPP_*`` env is for webhook verify/signature, platform OTP, and development fallback only. Do not reuse ``tenant_capi_credentials`` for messaging — that table is Conversions API only.
 - CDP Audience Sync pushes segments to Meta Custom Audiences (Facebook, Instagram, WhatsApp).
+- **Automation Rules vs Autopilot:** Rules are LOCAL_ONLY (local `Campaign` rows + alerts; never `write_client`). Live Meta Ads mutations go only through Autopilot when deliberately enabled. See `docs/architecture/trust-engine.md` ("Rules → Meta policy").
 
 ### Meta App Review callbacks (required for `ads_read` / `ads_management`)
 

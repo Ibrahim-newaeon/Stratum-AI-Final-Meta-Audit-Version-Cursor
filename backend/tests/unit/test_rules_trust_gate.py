@@ -230,6 +230,8 @@ class TestRulesRespectTheTrustGate:
         action = session.added[0].action_result
         assert action["skipped"] is True
         assert action["reason"] == "local_campaign_mutations_disabled"
+        assert action["execution_scope"] == "local_db_only"
+        assert action["meta_write"] is False
         assert action["trust_gate"]["decision"] == "pass"
 
     def test_pass_pauses_when_local_mutations_are_enabled(self, wire, monkeypatch):

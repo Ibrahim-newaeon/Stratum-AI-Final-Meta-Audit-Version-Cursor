@@ -656,6 +656,8 @@ Consequences operators should know:
 
 Config: `RULES_META_WRITES_ENABLED=false` (default). The flag only reserves a future **Rules → Autopilot queue** bridge; it never authorizes `write_client` from the rules modules. See `app/services/rules_meta_policy.py`. Direct Rules→Graph is forbidden (`refuse_direct_meta_write`).
 
+Portal kill-switch for **local** pause/budget mutations: `RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false` (default). When false, PASS still records the gate but skip results are stamped `execution_scope=local_db_only` / `meta_write=false`. Labels and alerts may still run.
+
 ### Prerequisite: the rollup has to run
 
 Signal health only exists if `tasks.signal_health_rollup` runs (beat key `trust-signal-health-rollup`,

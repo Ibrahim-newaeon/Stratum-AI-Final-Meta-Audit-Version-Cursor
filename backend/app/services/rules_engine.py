@@ -260,6 +260,7 @@ class RulesEngine:
         campaign: Campaign,
     ) -> dict[str, Any]:
         """Execute the rule action on the local Campaign row (not Meta)."""
+        from app.core.config import settings
         from app.services.rules_meta_policy import stamp_local_only
 
         action = rule.action_type
@@ -272,6 +273,18 @@ class RulesEngine:
             action=action.value,
             execution_scope="local_db_only",
         )
+
+        if action in (RuleAction.PAUSE_CAMPAIGN, RuleAction.ADJUST_BUDGET) and (
+            not settings.rules_local_campaign_mutations_enabled
+        ):
+            return stamp_local_only(
+                {
+                    "action": action.value,
+                    "success": False,
+                    "skipped": True,
+                    "reason": "local_campaign_mutations_disabled",
+                }
+            )
 
         if action == RuleAction.APPLY_LABEL:
             label = config.get("label", "flagged")
