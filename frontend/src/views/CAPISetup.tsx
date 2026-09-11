@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
@@ -248,9 +249,9 @@ export function CAPISetup() {
             <span>
               This is for <strong>server-side event tracking only</strong>. To manage ad accounts &
               campaigns, use{' '}
-              <a href="/dashboard/tenants" className="text-primary hover:underline">
-                Tenant Settings → Connect Platforms
-              </a>
+              <Link to="/dashboard/campaigns/connect" className="text-primary hover:underline">
+                Connect Platforms
+              </Link>
             </span>
           </p>
         </div>
@@ -524,7 +525,7 @@ export function CAPISetup() {
       {/* Quick Links */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <a
-          href="/data-quality"
+          href="/dashboard/data-quality"
           className="flex items-center justify-between p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors"
         >
           <div className="flex items-center gap-3">

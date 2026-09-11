@@ -54,90 +54,6 @@ interface Rule {
   createdAt: string;
 }
 
-const mockRules: Rule[] = [
-  {
-    id: 1,
-    name: 'WhatsApp Alert for Budget Overspend',
-    description: 'Send WhatsApp notification when campaign spends over 80% of budget',
-    status: 'active',
-    condition: { field: 'spend', operator: 'greater_than', value: '800' },
-    action: {
-      type: 'notify_whatsapp',
-      config: { contact_ids: [1, 2], template_name: 'rule_alert' },
-    },
-    appliesTo: ['Summer Sale 2024', 'Brand Awareness Q4'],
-    triggerCount: 7,
-    lastTriggered: '2024-12-06T08:00:00Z',
-    cooldownHours: 12,
-    createdAt: '2024-12-01',
-  },
-  {
-    id: 2,
-    name: 'Pause Low ROAS Campaigns',
-    description: 'Automatically pause campaigns when ROAS drops below 2.0',
-    status: 'active',
-    condition: { field: 'roas', operator: 'less_than', value: '2.0' },
-    action: { type: 'pause_campaign', config: {} },
-    appliesTo: ['All Campaigns'],
-    triggerCount: 12,
-    lastTriggered: '2024-11-28T14:30:00Z',
-    cooldownHours: 24,
-    createdAt: '2024-06-15',
-  },
-  {
-    id: 3,
-    name: 'Alert on High Spend',
-    description: 'Send alert when daily spend exceeds $500',
-    status: 'active',
-    condition: { field: 'spend', operator: 'greater_than', value: '500' },
-    action: { type: 'send_alert', config: { email: 'marketing@company.com' } },
-    appliesTo: ['Summer Sale 2024', 'Brand Awareness Q4'],
-    triggerCount: 45,
-    lastTriggered: '2024-11-29T09:15:00Z',
-    cooldownHours: 4,
-    createdAt: '2024-07-20',
-  },
-  {
-    id: 4,
-    name: 'Label High Performers',
-    description: 'Apply "star" label to campaigns with ROAS above 4.0',
-    status: 'active',
-    condition: { field: 'roas', operator: 'greater_than', value: '4.0' },
-    action: { type: 'apply_label', config: { label: 'star-performer' } },
-    appliesTo: ['All Campaigns'],
-    triggerCount: 8,
-    lastTriggered: '2024-11-27T16:45:00Z',
-    cooldownHours: 12,
-    createdAt: '2024-08-10',
-  },
-  {
-    id: 5,
-    name: 'Budget Boost for Winners',
-    description: 'Increase budget by 20% when CTR exceeds 3%',
-    status: 'paused',
-    condition: { field: 'ctr', operator: 'greater_than', value: '3.0' },
-    action: { type: 'adjust_budget', config: { adjustment_percent: 20 } },
-    appliesTo: ['Product Launch - Widget Pro'],
-    triggerCount: 3,
-    lastTriggered: '2024-11-25T11:00:00Z',
-    cooldownHours: 48,
-    createdAt: '2024-09-05',
-  },
-  {
-    id: 6,
-    name: 'Slack Alert for Fatigue',
-    description: 'Notify Slack when creative fatigue score exceeds 70%',
-    status: 'draft',
-    condition: { field: 'fatigue_score', operator: 'greater_than', value: '70' },
-    action: { type: 'notify_slack', config: { channel: '#marketing-alerts' } },
-    appliesTo: [],
-    triggerCount: 0,
-    lastTriggered: null,
-    cooldownHours: 24,
-    createdAt: '2024-11-28',
-  },
-];
-
 const operators = [
   { value: 'equals', label: '=' },
   { value: 'not_equals', label: '≠' },
@@ -297,7 +213,7 @@ export function Rules() {
         createdAt: r.created_at || r.createdAt || new Date().toISOString(),
       }));
     }
-    return mockRules;
+    return [];
   }, [rulesData]);
 
   // Handle toggle rule status
@@ -415,7 +331,9 @@ export function Rules() {
         </div>
         <div className="metric-card active p-4">
           <p className="text-sm text-muted-foreground mb-1">{t('rules.triggersToday')}</p>
-          <p className="text-2xl font-bold text-primary">23</p>
+          <p className="text-2xl font-bold text-primary">
+            {isLoading ? '...' : 0}
+          </p>
         </div>
         <div className="metric-card premium p-4">
           <p className="text-sm text-muted-foreground mb-1">{t('rules.actionsExecuted')}</p>

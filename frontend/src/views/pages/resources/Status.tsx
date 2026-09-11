@@ -194,7 +194,9 @@ export default function StatusPage() {
             </h1>
 
             <p className="text-gray-400">
-              Real-time status and uptime monitoring for all Stratum AI services.
+              Live process health: frontend <code className="text-gray-300">/health</code>, API{' '}
+              <code className="text-gray-300">/health/api</code>. The service cards below are
+              illustrative names, not a live probe of this deployment.
             </p>
           </div>
         </section>

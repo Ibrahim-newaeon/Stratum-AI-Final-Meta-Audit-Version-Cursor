@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
 import DashboardLayout from './views/DashboardLayout';
@@ -20,6 +20,12 @@ import { OfflineIndicator } from './components/common/OfflineIndicator';
 function DocumentDirectionHandler() {
   useDocumentDirection();
   return null;
+}
+
+/** Meta OAuth and older CTAs used `/connect`, which is not a dashboard route. */
+function ConnectPlatformsRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/dashboard/campaigns/connect${search}`} replace />;
 }
 
 // Lazy load pages for code splitting
@@ -62,8 +68,7 @@ const CDPAudienceSync = lazy(() => import('./views/cdp/CDPAudienceSync'));
 const CDPRfm = lazy(() => import('./views/cdp/CDPRfm'));
 const CDPFunnels = lazy(() => import('./views/cdp/CDPFunnels'));
 const CDPComputedTraits = lazy(() => import('./views/cdp/CDPComputedTraits'));
-const CDPConsent = lazy(() => import('./views/cdp/CDPConsent'));
-const CDPPredictiveChurn = lazy(() => import('./views/cdp/CDPPredictiveChurn'));
+const LaunchUnavailable = lazy(() => import('./views/LaunchUnavailable'));
 
 // Knowledge Graph views
 const KnowledgeGraphInsights = lazy(() => import('./views/KnowledgeGraphInsights'));
@@ -126,10 +131,6 @@ const ABTesting = lazy(() => import('./views/tenant/ABTesting'));
 const DeadLetterQueue = lazy(() => import('./views/tenant/DeadLetterQueue'));
 const ModelExplainability = lazy(() => import('./views/tenant/ModelExplainability'));
 
-// Enterprise feature views
-const CustomAutopilotRules = lazy(() => import('./views/CustomAutopilotRules'));
-const CustomReportBuilder = lazy(() => import('./views/CustomReportBuilder'));
-
 // Embed Widgets
 const EmbedWidgets = lazy(() => import('./views/tenant/EmbedWidgets'));
 
@@ -145,8 +146,6 @@ const FeaturesPage = lazy(() => import('./views/pages/Features'));
 const PricingPage = lazy(() => import('./views/pages/Pricing'));
 const IntegrationsPage = lazy(() => import('./views/pages/Integrations'));
 const ApiDocsPage = lazy(() => import('./views/pages/ApiDocs'));
-// Direct import (not lazy) for testing
-import TestPage from './views/pages/TestPage';
 
 // Public pages (Solutions)
 const CDPSolutionPage = lazy(() => import('./views/pages/solutions/CDP'));
@@ -421,9 +420,6 @@ function App() {
                       }
                     />
 
-                    {/* Test page (public) - for debugging routing */}
-                    <Route path="/test-page" element={<TestPage />} />
-
                     {/* Product pages (public) */}
                     <Route
                       path="/features"
@@ -656,6 +652,9 @@ function App() {
                       }
                     />
 
+                    {/* Legacy OAuth return URL — real page is under the dashboard. */}
+                    <Route path="/connect" element={<ConnectPlatformsRedirect />} />
+
                     {/* Protected dashboard routes - wrapped with onboarding guard */}
                     <Route
                       path="/dashboard"
@@ -689,6 +688,14 @@ function App() {
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <Campaigns />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="campaigns/connect"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <ConnectPlatforms />
                           </Suspense>
                         }
                       />
@@ -883,7 +890,10 @@ function App() {
                         path="cdp/consent"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <CDPConsent />
+                            <LaunchUnavailable
+                              title="Consent"
+                              reason="Consent management is not included in this portal release. It previously showed simulated tenant data."
+                            />
                           </Suspense>
                         }
                       />
@@ -891,7 +901,10 @@ function App() {
                         path="cdp/predictive-churn"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <CDPPredictiveChurn />
+                            <LaunchUnavailable
+                              title="Predictive Churn"
+                              reason="Churn scoring is not included in this portal release. It previously rendered mock risk lists."
+                            />
                           </Suspense>
                         }
                       />
@@ -929,13 +942,27 @@ function App() {
                           </Suspense>
                         }
                       />
+                      <Route
+                        path="knowledge-graph/journeys"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <LaunchUnavailable
+                              title="Journey Explorer"
+                              reason="This page is not in the portal release. The previous nav link had no matching route."
+                            />
+                          </Suspense>
+                        }
+                      />
 
                       {/* Enterprise feature routes */}
                       <Route
                         path="custom-autopilot-rules"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <CustomAutopilotRules />
+                            <LaunchUnavailable
+                              title="Custom Autopilot"
+                              reason="Custom Autopilot rules are not included in this portal release. Saves stayed in the browser and never reached the API."
+                            />
                           </Suspense>
                         }
                       />
@@ -943,7 +970,10 @@ function App() {
                         path="custom-reports"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <CustomReportBuilder />
+                            <LaunchUnavailable
+                              title="Custom Reports"
+                              reason="The custom report builder is not included in this portal release."
+                            />
                           </Suspense>
                         }
                       />

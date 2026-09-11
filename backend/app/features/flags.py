@@ -328,7 +328,10 @@ def get_default_features(plan: str) -> dict[str, Any]:
     Returns:
         Dict of default feature flags
     """
-    plan_lower = plan.lower()
+    plan_lower = (plan or "").strip().lower()
+    if plan_lower in ("", "free"):
+        # Unpaid portal workspaces get the full feature set, not the legacy free cap.
+        return DEFAULT_FEATURES_BY_PLAN[PlanTier.ENTERPRISE].copy()
     if plan_lower in DEFAULT_FEATURES_BY_PLAN:
         return DEFAULT_FEATURES_BY_PLAN[plan_lower].copy()
     # Default to starter if unknown plan

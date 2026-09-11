@@ -77,7 +77,7 @@ export function TierPricingCTA({ content }: TierPricingCTAProps) {
           <p className="text-lg text-gray-400 max-w-xl mx-auto">
             {id === 'enterprise'
               ? "Custom pricing tailored to your organization's needs."
-              : 'Start your 14-day free trial today. No credit card required.'}
+              : 'Create a free account. No credit card required.'}
           </p>
         </div>
 

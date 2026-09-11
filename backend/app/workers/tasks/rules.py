@@ -21,6 +21,7 @@ from celery.utils.log import get_task_logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import SyncSessionLocal
 from app.models import (
     Campaign,
@@ -93,6 +94,7 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
         matches = 0
         executions = 0
         held = 0
+        skipped = 0
 
         for campaign in campaigns:
             # Evaluate rule conditions
@@ -146,7 +148,10 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
                     action_result=action_result,
                 )
                 db.add(execution)
-                executions += 1
+                if action_result.get("skipped"):
+                    skipped += 1
+                else:
+                    executions += 1
 
         db.commit()
 
@@ -169,12 +174,14 @@ def evaluate_rules(self, tenant_id: int, rule_id: int):
             )
 
         logger.info(
-            f"Rule {rule_id}: {matches} matches, {executions} executions, {held} held"
+            f"Rule {rule_id}: {matches} matches, {executions} executions, "
+            f"{held} held, {skipped} skipped"
         )
         return {
             "matches": matches,
             "executions": executions,
             "held": held,
+            "skipped": skipped,
             "trust_gate": gate_audit,
         }
 
@@ -279,6 +286,7 @@ def _parse_condition_value(value: str, target_type: type) -> Any:
 # "alert only", so these stay available while the gate HOLDs; everything else
 # mutates the local Campaign row and needs a PASS.
 ALERT_ONLY_ACTIONS = frozenset({"apply_label", "send_alert"})
+LOCAL_CAMPAIGN_MUTATIONS = frozenset({"pause_campaign", "adjust_budget"})
 
 
 def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, Any]:
@@ -300,6 +308,15 @@ def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, An
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
+    if (
+        action_type in LOCAL_CAMPAIGN_MUTATIONS
+        and not settings.rules_local_campaign_mutations_enabled
+    ):
+        result["success"] = False
+        result["skipped"] = True
+        result["reason"] = "local_campaign_mutations_disabled"
+        return result
+
     try:
         if action_type == "apply_label":
             labels = campaign.labels or []
@@ -310,9 +327,9 @@ def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, An
 
         elif action_type == "pause_campaign":
             # LOCAL_ONLY: pauses the Stratum row, not the Meta campaign.
-            previous = campaign.status
+            previous_status = campaign.status
             campaign.status = "paused"
-            result["previous_status"] = previous
+            result["previous_status"] = previous_status
             result["local_only"] = True
 
         elif action_type == "send_alert":

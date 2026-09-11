@@ -15,7 +15,8 @@ automations without audit logging").
 The gate reuses the same pure evaluator as the async path, so the thresholds
 cannot drift between them. The documented bands apply:
 
-* PASS  -> the action executes
+* PASS  -> labels and alerts execute; pause/budget mutations stay off unless
+  RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED is true
 * HOLD  -> "alert only": labels and alerts still go out, platform mutations are
   held and recorded with the reason
 * BLOCK -> nothing runs at all
@@ -217,14 +218,42 @@ class TestRulesRespectTheTrustGate:
         assert result["executions"] == 1
         assert result["held"] == 0
 
-    def test_pass_executes_and_records_the_gate(self, wire):
-        """A healthy tenant still gets its automation, with the gate attached."""
+    def test_pass_skips_local_campaign_mutations_by_default(self, wire):
+        """PASS still records the gate, but local pause/budget writes stay off."""
+        session, campaign, _ = wire(GateDecision.PASS)
+
+        result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
+
+        assert result["executions"] == 0
+        assert result["skipped"] == 1
+        assert campaign.status == "active"
+        action = session.added[0].action_result
+        assert action["skipped"] is True
+        assert action["reason"] == "local_campaign_mutations_disabled"
+        assert action["trust_gate"]["decision"] == "pass"
+
+    def test_pass_pauses_when_local_mutations_are_enabled(self, wire, monkeypatch):
+        """Operators can turn local mutations back on after a PASS."""
+        monkeypatch.setattr(
+            rules_module.settings, "rules_local_campaign_mutations_enabled", True
+        )
         session, campaign, _ = wire(GateDecision.PASS)
 
         result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
 
         assert result["executions"] == 1
         assert campaign.status == "paused"
+        assert session.added[0].action_result["previous_status"] == "active"
+        assert session.added[0].action_result["trust_gate"]["decision"] == "pass"
+
+    def test_pass_executes_and_records_the_gate(self, wire):
+        """A healthy tenant still gets its automation, with the gate attached."""
+        session, campaign, _ = wire(GateDecision.PASS)
+
+        result = rules_module.evaluate_rules.run(TENANT_ID, RULE_ID)
+
+        assert result["skipped"] == 1
+        assert campaign.status == "active"
         assert session.added[0].action_result["trust_gate"]["decision"] == "pass"
 
     def test_budget_change_is_held_below_the_threshold(self, wire):

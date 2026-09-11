@@ -1,10 +1,8 @@
 /**
  * Landing Pricing Section (marketing only)
  *
- * The plan CTAs here are navigation-only (signup / contact). No payment
- * provider is wired into public pages: subscription checkout happens after
- * signup in Settings > Billing via the Paddle.js overlay
- * (see src/components/settings/PaddleBilling.tsx).
+ * This portal is a free workspace: CTAs go to signup. There is no payment
+ * overlay on public pages or in Settings.
  */
 
 import { useNavigate } from 'react-router-dom';
@@ -25,79 +23,33 @@ import { type PricingTier, type TrustBadge, usePricingTiers, useTrustBadges } fr
 // Fallback pricing data when CMS content is not available
 const fallbackPlans: PricingTier[] = [
   {
-    id: '1',
-    name: 'Starter',
-    description: 'For teams scaling their ad operations',
-    price: '$499',
-    period: '/month',
-    adSpend: 'Up to $100K monthly ad spend',
-    features: [
-      '5 ad accounts',
-      'Signal health monitoring',
-      'RFM customer analysis',
-      'Dashboard exports',
-      'Slack notifications',
-      'Anomaly detection alerts',
-      'Email support (48hr)',
-    ],
-    cta: 'Start Free Trial',
-    ctaLink: '/signup',
-    highlighted: false,
-    displayOrder: 0,
-  },
-  {
-    id: '2',
-    name: 'Professional',
-    description: 'For growing marketing teams',
-    price: '$999',
-    period: '/month',
-    adSpend: 'Up to $500K monthly ad spend',
-    features: [
-      '15 ad accounts',
-      'Everything in Starter',
-      'Funnel builder',
-      'Computed traits',
-      'Trust gate audit logs',
-      'Action dry-run mode',
-      'Pipedrive CRM integration',
-      'Priority support (24hr)',
-    ],
-    cta: 'Start Free Trial',
-    ctaLink: '/signup',
-    highlighted: true,
-    badge: 'Most Popular',
-    displayOrder: 1,
-  },
-  {
-    id: '3',
-    name: 'Enterprise',
-    description: 'For large organizations',
-    price: 'Custom',
+    id: 'free',
+    name: 'Free',
+    description: 'Full workspace access for anyone who signs up',
+    price: '$0',
     period: '',
-    adSpend: 'Unlimited ad spend',
+    adSpend: 'No spend cap on this portal',
     features: [
       'Unlimited ad accounts',
-      'Everything in Professional',
-      'Predictive churn modeling',
-      'Custom autopilot rules',
-      'Salesforce CRM integration',
-      'Custom report builder',
-      'Consent management (GDPR/CCPA)',
-      'Dedicated success manager (4hr)',
+      'Signal health monitoring',
+      'Trust Gate (Meta Autopilot writes off until enabled)',
+      'Campaigns, rules, CAPI, and EMQ',
+      'No payment gateway',
+      'No credit card',
     ],
-    cta: 'Contact Sales',
-    ctaLink: '/contact',
-    highlighted: false,
-    displayOrder: 2,
+    cta: 'Create free account',
+    ctaLink: '/signup',
+    highlighted: true,
+    badge: 'Free',
+    displayOrder: 0,
   },
 ];
 
 const fallbackTrustBadges: TrustBadge[] = [
   { id: '1', icon: '🔒', text: 'SOC 2 Compliant', displayOrder: 0 },
   { id: '2', icon: '🛡️', text: 'GDPR Ready', displayOrder: 1 },
-  { id: '3', icon: '💳', text: 'No Card for Trial', displayOrder: 2 },
-  { id: '4', icon: '🔄', text: 'Cancel Anytime', displayOrder: 3 },
-  { id: '5', icon: '💰', text: '30-Day Money Back', displayOrder: 4 },
+  { id: '3', icon: '💳', text: 'No credit card', displayOrder: 2 },
+  { id: '4', icon: '🆓', text: 'Free workspace', displayOrder: 3 },
 ];
 
 // Stratum Gold Dark theme
@@ -117,12 +69,11 @@ const theme = {
 export function Pricing() {
   const navigate = useNavigate();
 
-  // Fetch from CMS with fallback
-  const { data: cmsPlans, isLoading: plansLoading } = usePricingTiers();
+  const { isLoading: plansLoading } = usePricingTiers();
   const { data: cmsBadges, isLoading: badgesLoading } = useTrustBadges();
 
-  // Use CMS data if available and has content, otherwise use fallback
-  const plans = cmsPlans && cmsPlans.length > 0 ? cmsPlans : fallbackPlans;
+  // Paid CMS catalogue is ignored: this portal is a single free workspace.
+  const plans = fallbackPlans;
   const trustBadges = cmsBadges && cmsBadges.length > 0 ? cmsBadges : fallbackTrustBadges;
 
   const isLoading = plansLoading || badgesLoading;
@@ -146,14 +97,14 @@ export function Pricing() {
             Simple, Transparent Pricing
           </h2>
           <p className="text-lg max-w-2xl mx-auto" style={{ color: theme.textMuted }}>
-            Choose the plan that fits your ad spend. All plans include full access to core features.
-            Start free for 14 days — no credit card required.
+            This portal is free. Create an account with full workspace access — no credit card
+            and no payment gateway.
           </p>
         </div>
 
         {/* Pricing cards */}
         <div
-          className={`grid md:grid-cols-3 gap-8 max-w-6xl mx-auto ${isLoading ? 'opacity-50' : ''}`}
+          className={`grid md:grid-cols-1 gap-8 max-w-md mx-auto ${isLoading ? 'opacity-50' : ''}`}
         >
           {plans.map((plan) => (
             <Card

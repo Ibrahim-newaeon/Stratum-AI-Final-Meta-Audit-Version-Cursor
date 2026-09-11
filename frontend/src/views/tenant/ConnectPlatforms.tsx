@@ -1,12 +1,12 @@
 /**
- * Stratum AI - Connect Platforms Page
+ * Connect Platforms — Meta Ads OAuth.
  *
- * OAuth connection management for Meta Ads (Facebook / Instagram / WhatsApp
- * placements share one Marketing API connection — AdPlatform is Meta-only).
+ * Facebook, Instagram, and WhatsApp share one Meta Business connection.
  */
 
-import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowPathIcon,
   CheckCircleIcon,
@@ -16,252 +16,280 @@ import {
 } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
 import {
-  type Platform,
-  useAdAccounts,
-  useConnectorStatus,
-  useDisconnectPlatform,
-  useRefreshToken,
-  useStartConnection,
-} from '@/api/campaignBuilder';
+  disconnectOAuth,
+  getOAuthStatus,
+  refreshOAuth,
+  startOAuth,
+  type OAuthConnectionStatus,
+} from '@/api/oauth';
 
-interface PlatformConnection {
-  id: Platform;
-  name: string;
-  status: 'connected' | 'disconnected' | 'expired' | 'error';
-  connectedAt?: string;
-  expiresAt?: string;
-  accountCount?: number;
-  lastError?: string | null;
-}
+type UiStatus = 'connected' | 'disconnected' | 'expired' | 'error';
 
-/** Single Meta Ads card — FB/IG/WA are channels on this connection, not separate OAuth products. */
-const META_PLATFORM: PlatformConnection = {
-  id: 'meta',
-  name: 'Meta Ads',
-  status: 'disconnected',
-};
-
-const statusConfig = {
+const statusConfig: Record<
+  UiStatus,
+  {
+    icon: typeof CheckCircleIcon;
+    color: string;
+    label: string;
+  }
+> = {
   connected: {
     icon: CheckCircleIcon,
     color: 'text-emerald-600 dark:text-emerald-400',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
     label: 'Connected',
   },
   disconnected: {
-    icon: XCircleIcon,
-    color: 'text-gray-400',
-    bgColor: 'bg-gray-50 dark:bg-gray-900/30',
-    label: 'Not Connected',
+    icon: LinkIcon,
+    color: 'text-muted-foreground',
+    label: 'Not connected',
   },
   expired: {
     icon: ExclamationTriangleIcon,
     color: 'text-amber-600 dark:text-amber-400',
-    bgColor: 'bg-amber-50 dark:bg-amber-950/30',
-    label: 'Token Expired',
+    label: 'Token expired',
   },
   error: {
     icon: XCircleIcon,
     color: 'text-red-600 dark:text-red-400',
-    bgColor: 'bg-red-50 dark:bg-red-950/30',
-    label: 'Connection Error',
+    label: 'Connection error',
   },
 };
 
-export default function ConnectPlatforms() {
-  const { tenantId } = useParams<{ tenantId: string }>();
-  const tid = parseInt(tenantId || '1', 10);
-  const [connecting, setConnecting] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+function asUiStatus(status: string | undefined): UiStatus {
+  if (status === 'connected' || status === 'expired' || status === 'error') {
+    return status;
+  }
+  return 'disconnected';
+}
 
-  const { data: metaStatus, isLoading: statusLoading } = useConnectorStatus(tid, 'meta');
-  const { data: metaAccounts } = useAdAccounts(tid, 'meta');
+function formatDay(value?: string | null): string {
+  if (!value) return '—';
+  const day = value.split('T')[0];
+  return day || '—';
+}
 
-  const startConnection = useStartConnection(tid);
-  const refreshToken = useRefreshToken(tid);
-  const disconnectPlatform = useDisconnectPlatform(tid);
-
-  const platform: PlatformConnection = useMemo(() => {
-    if (!metaStatus) {
-      return META_PLATFORM;
-    }
-    return {
-      ...META_PLATFORM,
-      status: (metaStatus.status as PlatformConnection['status']) || 'disconnected',
-      connectedAt: metaStatus.connected_at?.split('T')[0],
-      accountCount: metaAccounts?.length ?? 0,
-      lastError: metaStatus.last_error,
-    };
-  }, [metaStatus, metaAccounts]);
-
-  const handleConnect = async () => {
-    setConnecting(true);
-    setActionError(null);
-    try {
-      const result = await startConnection.mutateAsync('meta');
-      if (result.oauth_url) {
-        window.location.href = result.oauth_url;
-        return;
+function errorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data
+      ?.detail;
+    if (typeof detail === 'string' && detail.trim()) {
+      if (detail === 'Email verification required') {
+        return 'Verify your email before connecting Meta Ads. Check your inbox, or set SMTP so the verification email can be sent.';
       }
-      setActionError('OAuth URL missing from server response. Check META_APP_ID configuration.');
-    } catch (error) {
-      console.error('Failed to start connection:', error);
-      const detail =
-        (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        'Failed to start Meta OAuth. Ensure META_APP_ID and META_APP_SECRET are configured.';
-      setActionError(detail);
-    } finally {
-      setConnecting(false);
+      return detail;
     }
-  };
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
 
-  const handleDisconnect = async () => {
-    if (!confirm('Disconnect Meta Ads? Campaign sync and autopilot writes will stop until reconnected.')) {
+export default function ConnectPlatforms() {
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [banner, setBanner] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  const statusQuery = useQuery({
+    queryKey: ['oauth-status', 'meta'],
+    queryFn: () => getOAuthStatus('meta'),
+  });
+
+  useEffect(() => {
+    const status = searchParams.get('status');
+    const error = searchParams.get('error');
+    const message = searchParams.get('message');
+    if (!status && !error) {
       return;
     }
-    setActionError(null);
-    try {
-      await disconnectPlatform.mutateAsync('meta');
-    } catch (error) {
-      console.error('Failed to disconnect:', error);
-      setActionError('Failed to disconnect Meta. Try again or contact support.');
+    if (status === 'success') {
+      setBanner({ kind: 'success', text: 'Meta Ads connected. Ad accounts will appear after sync.' });
+      void queryClient.invalidateQueries({ queryKey: ['oauth-status', 'meta'] });
+    } else {
+      setBanner({
+        kind: 'error',
+        text: message || error || 'Meta authorization did not complete.',
+      });
     }
-  };
+    setSearchParams({}, { replace: true });
+  }, [queryClient, searchParams, setSearchParams]);
 
-  const handleRefresh = async () => {
-    setActionError(null);
-    try {
-      await refreshToken.mutateAsync('meta');
-    } catch (error) {
-      console.error('Failed to refresh token:', error);
-      const detail =
-        (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        'Token refresh failed. You may need to reconnect.';
-      setActionError(detail);
-    }
-  };
+  const connectMutation = useMutation({
+    mutationFn: () => startOAuth('meta'),
+    onSuccess: (result) => {
+      if (result.authorization_url) {
+        window.location.href = result.authorization_url;
+        return;
+      }
+      setBanner({ kind: 'error', text: 'Meta did not return an authorization URL.' });
+    },
+    onError: (error) => {
+      setBanner({
+        kind: 'error',
+        text: errorMessage(error, 'Could not start Meta authorization. Check that META_APP_ID is set.'),
+      });
+    },
+  });
 
-  const status = statusConfig[platform.status];
-  const StatusIcon = status.icon;
+  const refreshMutation = useMutation({
+    mutationFn: () => refreshOAuth('meta'),
+    onSuccess: () => {
+      setBanner({ kind: 'success', text: 'Meta token refreshed.' });
+      void queryClient.invalidateQueries({ queryKey: ['oauth-status', 'meta'] });
+    },
+    onError: (error) => {
+      setBanner({ kind: 'error', text: errorMessage(error, 'Could not refresh the Meta token.') });
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => disconnectOAuth('meta'),
+    onSuccess: () => {
+      setBanner({ kind: 'success', text: 'Meta Ads disconnected.' });
+      void queryClient.invalidateQueries({ queryKey: ['oauth-status', 'meta'] });
+    },
+    onError: (error) => {
+      setBanner({ kind: 'error', text: errorMessage(error, 'Could not disconnect Meta Ads.') });
+    },
+  });
+
+  const meta: OAuthConnectionStatus | undefined = statusQuery.data;
+  const uiStatus = asUiStatus(meta?.status);
+  const StatusIcon = statusConfig[uiStatus].icon;
+  const busy = connectMutation.isPending || refreshMutation.isPending || disconnectMutation.isPending;
+
+  const connectedOn = useMemo(() => formatDay(meta?.connected_at), [meta?.connected_at]);
+  const expiresOn = useMemo(() => formatDay(meta?.token_expires_at), [meta?.token_expires_at]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Connect Platforms</h1>
         <p className="text-muted-foreground">
-          Connect Meta Ads via OAuth to sync campaigns and manage ad accounts. Facebook, Instagram,
-          and WhatsApp placements use this same Marketing API connection.
+          Connect your Meta Business account so Stratum can read Facebook, Instagram, and WhatsApp
+          ads. This is not Conversion API (CAPI) setup.
         </p>
         <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
           <ExclamationTriangleIcon className="w-3 h-3" />
           <span>
-            This grants access to <strong>ad accounts &amp; campaigns</strong>. For server-side
-            conversion tracking (CAPI), go to{' '}
-            <a href="/dashboard/capi-setup" className="text-primary hover:underline">
+            For server-side conversion tracking, go to{' '}
+            <Link to="/dashboard/capi-setup" className="text-primary hover:underline">
               CAPI Setup
-            </a>
-            . Independent measurement lives under{' '}
-            <a href="/dashboard/settings" className="text-primary hover:underline">
-              Settings → Measurement &amp; Verification (GA4 read-only, GTM tag deployment)
-            </a>
+            </Link>
             .
           </span>
         </p>
       </div>
 
-      {actionError && (
+      {banner && (
         <div
-          className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-700 dark:text-red-300"
-          role="alert"
+          className={cn(
+            'rounded-lg border px-4 py-3 text-sm',
+            banner.kind === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+              : 'border-red-500/30 bg-red-500/10 text-red-400'
+          )}
         >
-          {actionError}
+          {banner.text}
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div
-          className={cn(
-            'rounded-xl border p-6 transition-all',
-            platform.status === 'connected' ? 'bg-card shadow-card' : 'bg-muted/30'
-          )}
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-4">
-              <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 flex items-center justify-center">
-                <span className="text-lg font-bold text-gray-600 dark:text-gray-300">M</span>
-              </div>
-              <div>
-                <h3 className="font-semibold">{platform.name}</h3>
-                <div className={cn('flex items-center gap-1 text-sm', status.color)}>
-                  <StatusIcon className="h-4 w-4" />
-                  <span>{statusLoading ? 'Checking…' : status.label}</span>
-                </div>
-              </div>
+      {statusQuery.isError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {errorMessage(statusQuery.error, 'Could not load connection status.')}
+        </div>
+      )}
+
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-lg bg-[#0866FF]/15 flex items-center justify-center">
+              <span className="text-lg font-bold text-[#0866FF]">M</span>
             </div>
-          </div>
-
-          {platform.status === 'connected' && (
-            <div className="mt-4 pt-4 border-t space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Connected Accounts</span>
-                <span className="font-medium">{platform.accountCount ?? 0}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Connected On</span>
-                <span className="font-medium">{platform.connectedAt || '—'}</span>
-              </div>
-            </div>
-          )}
-
-          {platform.status === 'error' && platform.lastError && (
-            <p className="mt-3 text-sm text-red-600 dark:text-red-400">{platform.lastError}</p>
-          )}
-
-          <div className="mt-4 flex gap-2">
-            {platform.status === 'connected' || platform.status === 'expired' ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
-                >
-                  <ArrowPathIcon className="h-4 w-4" />
-                  Refresh Token
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDisconnect}
-                  className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                >
-                  Disconnect
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleConnect}
-                disabled={connecting}
-                className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {connecting ? (
+            <div>
+              <h3 className="font-semibold">Meta Ads</h3>
+              <p className="text-sm text-muted-foreground">Facebook, Instagram, and WhatsApp</p>
+              <div className={cn('mt-1 flex items-center gap-1 text-sm', statusConfig[uiStatus].color)}>
+                {statusQuery.isLoading ? (
                   <ArrowPathIcon className="h-4 w-4 animate-spin" />
                 ) : (
-                  <LinkIcon className="h-4 w-4" />
+                  <StatusIcon className="h-4 w-4" />
                 )}
-                Connect Meta Ads
-              </button>
+                <span>{statusQuery.isLoading ? 'Checking…' : statusConfig[uiStatus].label}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {uiStatus === 'connected' && (
+          <div className="mt-4 pt-4 border-t space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Connected accounts</span>
+              <span className="font-medium">{meta?.ad_accounts_count ?? 0}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Connected on</span>
+              <span className="font-medium">{connectedOn}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Token expires</span>
+              <span className="font-medium">{expiresOn}</span>
+            </div>
+            {meta?.last_error && (
+              <p className="text-sm text-red-400">{meta.last_error}</p>
             )}
           </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {uiStatus === 'connected' || uiStatus === 'expired' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => refreshMutation.mutate()}
+                disabled={busy}
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                <ArrowPathIcon className={cn('h-4 w-4', refreshMutation.isPending && 'animate-spin')} />
+                Refresh token
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Disconnect Meta Ads from this workspace?')) {
+                    disconnectMutation.mutate();
+                  }
+                }}
+                disabled={busy}
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => connectMutation.mutate()}
+              disabled={busy || statusQuery.isLoading}
+              className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {connectMutation.isPending ? (
+                <ArrowPathIcon className="h-4 w-4 animate-spin" />
+              ) : (
+                <LinkIcon className="h-4 w-4" />
+              )}
+              Connect Meta Ads
+            </button>
+          )}
         </div>
       </div>
 
       <div className="rounded-xl border bg-muted/30 p-6">
-        <h3 className="font-semibold mb-2">About Platform Connections</h3>
+        <h3 className="font-semibold mb-2">About this connection</h3>
         <ul className="space-y-2 text-sm text-muted-foreground">
-          <li>- One Meta OAuth connection covers Facebook, Instagram, and WhatsApp ad placements</li>
-          <li>- OAuth tokens are encrypted at rest and can be refreshed from this page</li>
-          <li>- Requires a configured Meta App (`META_APP_ID` / `META_APP_SECRET`) and App Review for `ads_read`</li>
-          <li>- You can disconnect at any time; reconnect to refresh scopes after App Review</li>
+          <li>You will sign in with Facebook and grant ads_read, ads_management, and business_management.</li>
+          <li>Tokens are stored encrypted for this workspace only.</li>
+          <li>Autopilot writes stay off unless an operator enables them separately.</li>
         </ul>
       </div>
     </div>

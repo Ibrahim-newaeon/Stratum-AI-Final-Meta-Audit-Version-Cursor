@@ -38,6 +38,7 @@ from app.models import (
     Campaign,
     CampaignStatus,
 )
+from app.api.v1.endpoints.oauth import FRONTEND_CONNECT_PATH
 from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
 from app.models.onboarding import OnboardingStatus, TenantOnboarding
 from app.schemas import APIResponse
@@ -1086,7 +1087,7 @@ async def get_quick_actions(
                 id="connect_platform",
                 label="Connect Platform",
                 icon="link",
-                action="/connect",
+                action=FRONTEND_CONNECT_PATH,
             )
         )
 

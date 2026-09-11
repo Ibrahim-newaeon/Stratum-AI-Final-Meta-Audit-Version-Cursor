@@ -3,7 +3,7 @@
  * Deep black background (#0b1215) + gold accent frosted glass cards
  */
 
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   EnvelopeIcon,
@@ -39,6 +39,10 @@ const theme = {
   goldGlow: 'rgba(0, 199, 190, 0.5)',
   goldSubtle: 'rgba(0, 199, 190, 0.1)',
 };
+
+const DevDemoAccess = import.meta.env.DEV
+  ? lazy(() => import('./DevDemoAccess'))
+  : () => null;
 
 // HUD Corner component for sci-fi styling
 const HUDCorner = ({ position }: { position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' }) => {
@@ -120,32 +124,6 @@ export default function Login() {
     }
   };
 
-  const handleDemoLogin = async (role: 'superadmin' | 'admin' | 'user') => {
-    const credentials = {
-      superadmin: { email: 'superadmin@stratum.ai', password: 'Admin123!' },
-      admin: { email: 'demo@stratum.ai', password: 'demo1234' },
-      user: { email: 'demo@stratum.ai', password: 'demo1234' },
-    };
-
-    const { email, password } = credentials[role];
-    setEmail(email);
-    setPassword(password);
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const result = await login(email, password);
-      if (result.success) {
-        navigate(from, { replace: true });
-      } else {
-        setError(result.error || 'Login failed');
-      }
-    } catch (err) {
-      setError('An unexpected error occurred');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen flex" style={{ background: theme.bgVoid }}>
@@ -485,37 +463,26 @@ export default function Login() {
               />
             </div>
 
-            <div className="mt-6 pt-6" style={{ borderTop: `1px solid ${theme.border}` }}>
-              <p className="text-center text-xs mb-3" style={{ color: theme.textMuted }}>
-                Quick Demo Access
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {['superadmin', 'admin', 'user'].map((role) => (
-                  <button
-                    key={role}
-                    onClick={() => handleDemoLogin(role as any)}
-                    disabled={isLoading}
-                    className="px-3 py-2 rounded-xl text-xs font-medium capitalize transition-all duration-200 disabled:opacity-50"
-                    style={{
-                      background: theme.bgCard,
-                      backdropFilter: 'blur(40px)',
-                      border: `1px solid ${theme.border}`,
-                      color: theme.textMuted,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = theme.borderHover;
-                      e.currentTarget.style.color = theme.primary;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = theme.border;
-                      e.currentTarget.style.color = theme.textMuted;
-                    }}
-                  >
-                    {role === 'superadmin' ? 'Super' : role}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {import.meta.env.DEV ? (
+              <Suspense fallback={null}>
+                <DevDemoAccess
+                  login={login}
+                  from={from}
+                  isLoading={isLoading}
+                  setIsLoading={setIsLoading}
+                  setError={setError}
+                  setEmail={setEmail}
+                  setPassword={setPassword}
+                  theme={{
+                    primary: theme.primary,
+                    textMuted: theme.textMuted,
+                    bgCard: theme.bgCard,
+                    border: theme.border,
+                    borderHover: theme.borderHover,
+                  }}
+                />
+              </Suspense>
+            ) : null}
 
             <p className="text-center text-sm mt-6" style={{ color: theme.textMuted }}>
               Don't have an account?{' '}

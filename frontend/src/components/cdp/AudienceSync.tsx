@@ -1046,7 +1046,7 @@ export function AudienceSync() {
           </p>
           {connectedPlatforms.length === 0 ? (
             <Link
-              to="/dashboard/settings"
+              to="/dashboard/campaigns/connect"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
             >
               <Link2 className="w-4 h-4" />

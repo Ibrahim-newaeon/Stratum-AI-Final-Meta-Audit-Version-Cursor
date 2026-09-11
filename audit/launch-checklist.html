@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stratum AI launch checklist — NO-GO</title>
+<style>
+:root {
+  --bg: #f4f1ea; --ink: #1b1b18; --muted: #5c5a54; --line: #d9d4c8;
+  --pass: #0f6b3a; --fail: #9b1c1c; --blocked: #8a5a00; --na: #4a4a4a; --card: #fff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; color: var(--ink); background: var(--bg); }
+header { background: #1b1b18; color: #f4f1ea; padding: 1.25rem 1.5rem; }
+header h1 { margin: 0 0 .35rem; font-size: 1.5rem; }
+.rec { display: inline-block; font-weight: 700; letter-spacing: .04em; padding: .35rem .7rem; border: 2px solid #f4f1ea; }
+.meta { margin-top: .75rem; font-size: .92rem; color: #d9d4c8; }
+main { max-width: 1100px; margin: 0 auto; padding: 1rem 1rem 4rem; }
+.counts { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+.count { background: var(--card); border: 1px solid var(--line); padding: .6rem .9rem; min-width: 6.5rem; }
+.num { font-size: 1.4rem; font-weight: 700; }
+.lbl { font-size: .75rem; color: var(--muted); }
+.st-pass { color: var(--pass); } .st-fail { color: var(--fail); }
+.st-blocked { color: var(--blocked); } .st-na, .st-notrun { color: var(--na); }
+.callout { background: #fff3f0; border: 1px solid #e2b4b4; padding: 1rem; margin: 1rem 0; }
+.callout h2 { margin: 0 0 .4rem; font-size: 1.05rem; }
+.toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
+input[type=search] { flex: 1; min-width: 12rem; padding: .5rem .6rem; border: 1px solid var(--line); font: inherit; }
+.toolbar button { font: inherit; padding: .35rem .6rem; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.toolbar button.on { background: #1b1b18; color: #fff; }
+.note { font-size: .9rem; color: var(--muted); }
+.mod { margin: 1.5rem 0; }
+.mod h2 { font-size: 1.15rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+.mod h2 small { color: var(--muted); font-weight: 400; }
+.item { background: var(--card); border: 1px solid var(--line); padding: .85rem 1rem; margin: .6rem 0; }
+.item.hidden { display: none; }
+.item-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.id { font-family: ui-monospace, monospace; font-size: .85rem; }
+.badge { font-size: .75rem; font-weight: 700; }
+.fu { margin-right: auto; font-size: .85rem; }
+.item h3 { margin: .4rem 0; font-size: 1rem; }
+.item p { margin: .25rem 0; font-size: .92rem; }
+ol.steps li { margin: .35rem 0; }
+@media print {
+  header { color: #000; background: #fff; border-bottom: 2px solid #000; }
+  .toolbar, .fu { display: none; }
+  .item { break-inside: avoid; }
+}
+@media (max-width: 640px) {
+  header, main { padding-left: .75rem; padding-right: .75rem; }
+  .count { min-width: 45%; flex: 1; }
+}
+</style>
+</head>
+<body>
+<header>
+  <p class="rec" role="status">Release recommendation: NO-GO</p>
+  <h1>Stratum AI pre-launch checklist</h1>
+  <div class="meta">
+    Environment: mixed (local unit tests + production-equivalent read-only https://meta.stratumai.app)<br />
+    Audited commit: ccc97a6cdde6d293df30bba265e672ce747aa41a (main)<br />
+    Deployed version: spa index-DqB9HH_Q.js · HTML Last-Modified 2026-09-09T17:27:05Z · APP_ENV unknown · deployed_matches_tested=false<br />
+    Audit timestamp (UTC): 2026-09-10T13:45:00Z
+  </div>
+</header>
+<main>
+  <p class="note">Color is supplementary. Every status is written as text. Checking “Follow-up completed.” does not change a test to PASS and does not change the NO-GO recommendation. Only documented retesting can verify a fix.</p>
+  <div class="counts" aria-label="Summary counts">
+    <div class="count"><div class="num st-pass">33</div><div class="lbl">PASS</div></div><div class="count"><div class="num st-fail">30</div><div class="lbl">FAIL</div></div><div class="count"><div class="num st-blocked">49</div><div class="lbl">BLOCKED</div></div><div class="count"><div class="num st-notrun">0</div><div class="lbl">NOT RUN</div></div><div class="count"><div class="num st-na">2</div><div class="lbl">NOT APPLICABLE</div></div>
+    <div class="count"><div class="num">114</div><div class="lbl">DENOMINATOR</div></div>
+  </div>
+  <section class="callout">
+    <h2>Verified vs must retest</h2>
+    <p><strong>Verified:</strong> backend unit suite 2236 passed (trust gate 69/70/71, Meta executor idempotency, fail-closed missing health); frontend 63 unit tests, tsc, production build; public pages on the live host; GitHub CI success on the SHA.</p>
+    <p><strong>Must retest after fixes / access:</strong> all FAIL rows, all BLOCKED authenticated workflows (onboarding, campaigns, isolation HTTP, billing sandbox, WhatsApp/CAPI), and ENV-002 after a Node 20 CI-parity frontend build.</p>
+  </section>
+  <section class="callout">
+    <h2>Highest-priority next steps</h2>
+    <ol class="steps">
+      <li>Classify the live host and remove demo Super/admin/user login from any customer-facing build (DEF-001).</li>
+      <li>Remove or implement Custom Autopilot; stop advertising it as live (DEF-006, DEF-007).</li>
+      <li>Write TrustGateAuditLog from the worker for PASS/HOLD/BLOCK (DEF-002).</li>
+      <li>Fix rules mock fallback, beat cooldown, and add a real emergency stop (DEF-009, DEF-010, DEF-013).</li>
+      <li>Run tenant-isolation integration tests with Postgres (AUTH-009).</li>
+      <li>Add Journey Explorer or remove the nav item (DEF-020).</li>
+      <li>Provide two isolated test tenants and retest BLOCKED IDs.</li>
+    </ol>
+  </section>
+  <section>
+    <h2>Confirmed defects (see audit/defects.md)</h2>
+    <p>DEF-001 demo login · DEF-002 no durable gate audit · DEF-003 FAQ 40–70 / above 70 · DEF-004 insights no_data · DEF-005 hardcoded UI bands · DEF-006 Custom Autopilot mock · DEF-007 consecutive days vs days_running · DEF-008 fatigue units · DEF-009 rules mock · DEF-010 no worker cooldown · DEF-011 previous_status · DEF-012 BLOCK has no RuleExecution · DEF-013 no emergency stop · DEF-014–017/021/022 mock-as-live · DEF-018 nginx health · DEF-019 KG insights placeholder · DEF-020 Journey Explorer 404 · DEF-023 sparse a11y tree · DEF-024 /test-page · DEF-025 index hash gap · DEF-026 hardcoded status · DEF-027 missing HSTS.</p>
+    <p>Suspected: SUS-001 host may be staging · SUS-002 demo users may exist · SUS-003 KG overlay unreproduced · SUS-004 dual entitlements · SUS-005 CSP unsafe-eval. Ambiguities AMB-001–004 in defects.md.</p>
+  </section>
+  <div class="toolbar">
+    <label for="q">Search checklist</label>
+    <input id="q" type="search" placeholder="Filter by id, module, feature, defect…" />
+    <button type="button" data-filter="ALL" class="on">All</button> <button type="button" data-filter="PASS">PASS (33)</button> <button type="button" data-filter="FAIL">FAIL (30)</button> <button type="button" data-filter="BLOCKED">BLOCKED (49)</button> <button type="button" data-filter="NOT RUN">NOT RUN (0)</button> <button type="button" data-filter="NOT APPLICABLE">NOT APPLICABLE (2)</button>
+  </div>
+  <section class="mod"><h2>Environment <small>5</small></h2>
+<article class="item" data-status="PASS" data-text="env-001 environment pin audited commit record sha/branch used for all local checks merge pr #47 feat/schedule-apply-actions-queue  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ENV-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Pin audited commit</h3>
+  <p><strong>Expected:</strong> Record SHA/branch used for all local checks</p>
+  <p><strong>Assertions:</strong> SHA ccc97a6 on main</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> audit/test-execution.md</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Merge PR #47 feat/schedule-apply-actions-queue</p>
+</article>
+<article class="item" data-status="FAIL" data-text="env-002 environment deployed version matches tested commit production spa index hash equals local build of the audited sha vendor chunks match this commit; index chunk differs. local node 24 vs ci node 20. deployed_matches_tested=false def-025 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ENV-002</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Deployed version matches tested commit</h3>
+  <p><strong>Expected:</strong> Production SPA index hash equals local build of the audited SHA</p>
+  <p><strong>Assertions:</strong> index-*.js hashes equal</p>
+  <p><strong>Route / API / worker:</strong> https://meta.stratumai.app · n/a · n/a</p>
+  <p><strong>Evidence:</strong> audit/evidence/PROD-login.png; local dist index-Darafsqv.js vs prod index-DqB9HH_Q.js</p>
+  <p><strong>Defects:</strong> DEF-025</p>
+  <p><strong>Blocker / next input:</strong> Vendor chunks match this commit; index chunk differs. Local Node 24 vs CI Node 20. deployed_matches_tested=false</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="env-003 environment classify live host as staging vs production app_env, seed_demo, paddle mode, and customer data stores proven treat as production-equivalent. demo login buttons and seed_demo docs conflict with custom domain + facebook login enabled def-018 api app_env not readable through spa /health; no operator confirmation">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ENV-003</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Classify live host as staging vs production</h3>
+  <p><strong>Expected:</strong> APP_ENV, SEED_DEMO, Paddle mode, and customer data stores proven</p>
+  <p><strong>Assertions:</strong> environment JSON from API health</p>
+  <p><strong>Route / API / worker:</strong> https://meta.stratumai.app/health · /health · n/a</p>
+  <p><strong>Evidence:</strong> SPA /health returns nginx healthy; API JSON not exposed on this host</p>
+  <p><strong>Defects:</strong> DEF-018</p>
+  <p><strong>Blocker / next input:</strong> API APP_ENV not readable through SPA /health; no operator confirmation</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="env-004 environment local isolated stack for mutations docker compose postgres/redis/api available for mutation tests used backend/.venv/bin/python -m pytest instead  no .env; docker compose empty; venv pytest shebang points at old desktop path">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ENV-004</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Local isolated stack for mutations</h3>
+  <p><strong>Expected:</strong> docker compose Postgres/Redis/API available for mutation tests</p>
+  <p><strong>Assertions:</strong> compose ps healthy</p>
+  <p><strong>Route / API / worker:</strong> localhost · n/a · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No .env; docker compose empty; venv pytest shebang points at old Desktop path</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="env-005 environment integration tests against postgres cdp, tenant isolation, actions api tests execute not a product defect; unverified isolation at http+db  local postgres/redis not running">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ENV-005</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Integration tests against Postgres</h3>
+  <p><strong>Expected:</strong> CDP, tenant isolation, actions API tests execute</p>
+  <p><strong>Assertions:</strong> 57 integration tests pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/* · n/a</p>
+  <p><strong>Evidence:</strong> pytest tests/integration: 57 errors (no DB)</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Local Postgres/Redis not running</p>
+</article></section><section class="mod"><h2>Authentication <small>7</small></h2>
+<article class="item" data-status="PASS" data-text="auth-001 authentication login page renders password form, facebook button, legal links visible quick demo access visible on production host  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Login page renders</h3>
+  <p><strong>Expected:</strong> Password form, Facebook button, legal links visible</p>
+  <p><strong>Assertions:</strong> page loads over HTTPS</p>
+  <p><strong>Route / API / worker:</strong> /login · /api/v1/auth/login · n/a</p>
+  <p><strong>Evidence:</strong> audit/evidence/PROD-login.png</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Quick Demo Access visible on production host</p>
+</article>
+<article class="item" data-status="FAIL" data-text="auth-002 authentication no demo credentials in production bundle production login must not embed demo emails/passwords or one-click role login did not click super/admin/user on the live host def-001 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-002</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>No demo credentials in production bundle</h3>
+  <p><strong>Expected:</strong> Production login must not embed demo emails/passwords or one-click role login</p>
+  <p><strong>Assertions:</strong> demo buttons absent or env-gated</p>
+  <p><strong>Route / API / worker:</strong> /login · /api/v1/auth/login · n/a</p>
+  <p><strong>Evidence:</strong> frontend/src/views/Login.tsx handleDemoLogin; PROD-login.png</p>
+  <p><strong>Defects:</strong> DEF-001</p>
+  <p><strong>Blocker / next input:</strong> Did not click Super/Admin/User on the live host</p>
+</article>
+<article class="item" data-status="PASS" data-text="auth-003 authentication facebook login config button only if get /auth/facebook/config enabled=true default facebook_login_enabled is false; this host has it on. auth only, not activation  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-003</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Facebook Login config</h3>
+  <p><strong>Expected:</strong> Button only if GET /auth/facebook/config enabled=true</p>
+  <p><strong>Assertions:</strong> config.enabled matches button</p>
+  <p><strong>Route / API / worker:</strong> /login · /api/v1/auth/facebook/config · n/a</p>
+  <p><strong>Evidence:</strong> browser fetch enabled=true; FacebookLoginButton.tsx</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Default FACEBOOK_LOGIN_ENABLED is false; this host has it on. Auth only, not activation</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="auth-004 authentication password recovery forgot/reset email flow completes with new login   no test mailbox">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-004</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Password recovery</h3>
+  <p><strong>Expected:</strong> Forgot/reset email flow completes with new login</p>
+  <p><strong>Assertions:</strong> mail captured; password changed</p>
+  <p><strong>Route / API / worker:</strong> /forgot-password;/reset-password · /api/v1/auth/* · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No test mailbox</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="auth-005 authentication mfa totp mfa challenge, backup codes, lockout unit coverage exists; live path unverified  no mfa test account on live host">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-005</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>MFA TOTP</h3>
+  <p><strong>Expected:</strong> MFA challenge, backup codes, lockout</p>
+  <p><strong>Assertions:</strong> tokens withheld until TOTP</p>
+  <p><strong>Route / API / worker:</strong> /login · /api/v1/auth/login/mfa;/api/v1/mfa · n/a</p>
+  <p><strong>Evidence:</strong> backend/tests/unit/test_auth_facebook.py MFA cases PASS locally</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No MFA test account on live host</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="auth-006 authentication session logout and expiry logout clears tokens; expired session cannot mutate   no authenticated session">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-006</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Session logout and expiry</h3>
+  <p><strong>Expected:</strong> Logout clears tokens; expired session cannot mutate</p>
+  <p><strong>Assertions:</strong> API 401 after logout</p>
+  <p><strong>Route / API / worker:</strong> /dashboard · /api/v1/auth/logout · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No authenticated session</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="auth-007 authentication signup and email verify new account persists and verifies   must not create real accounts on live host">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-007</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Signup and email verify</h3>
+  <p><strong>Expected:</strong> New account persists and verifies</p>
+  <p><strong>Assertions:</strong> user row created</p>
+  <p><strong>Route / API / worker:</strong> /signup;/verify-email · /api/v1/auth/register · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not create real accounts on live host</p>
+</article></section><section class="mod"><h2>Authorization <small>2</small></h2>
+<article class="item" data-status="PASS" data-text="auth-008 authorization auth bypass regressions refresh != access; no x-tenant-id auth; entitlements not self-writable 2236 unit tests include this file  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-008</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Auth bypass regressions</h3>
+  <p><strong>Expected:</strong> Refresh != access; no X-Tenant-ID auth; entitlements not self-writable</p>
+  <p><strong>Assertions:</strong> unit assertions hold</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/* · n/a</p>
+  <p><strong>Evidence:</strong> backend/tests/unit/test_auth_bypass_regression.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> 2236 unit tests include this file</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="auth-009 authorization http tenant isolation user cannot read other tenant campaigns/actions/health release-blocker class remains unverified at http+db  postgres unavailable">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTH-009</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>HTTP tenant isolation</h3>
+  <p><strong>Expected:</strong> User cannot read other tenant campaigns/actions/health</p>
+  <p><strong>Assertions:</strong> integration suite green</p>
+  <p><strong>Route / API / worker:</strong> /app/:tenantId · /api/v1/campaigns · n/a</p>
+  <p><strong>Evidence:</strong> tests/integration/test_tenant_isolation.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Postgres unavailable</p>
+</article></section><section class="mod"><h2>Trust Gate <small>10</small></h2>
+<article class="item" data-status="PASS" data-text="trust-001 trust gate threshold 69/70/71 69 hold, 70 pass, 71 pass; 39 block, 40 hold; none block added during this audit  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Threshold 69/70/71</h3>
+  <p><strong>Expected:</strong> 69 HOLD, 70 PASS, 71 PASS; 39 BLOCK, 40 HOLD; None BLOCK</p>
+  <p><strong>Assertions:</strong> _decision_for_score exact integers</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> backend/tests/unit/test_trust_gate_signal_health.py TestExactScoreBoundaries</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Added during this audit</p>
+</article>
+<article class="item" data-status="PASS" data-text="trust-002 trust gate fail closed on missing health no snapshot / unscorable row blocks execution   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Fail closed on missing health</h3>
+  <p><strong>Expected:</strong> No snapshot / unscorable row BLOCKS execution</p>
+  <p><strong>Assertions:</strong> may_execute is False</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> test_trust_gate_signal_health.py; test_signal_health_service.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="PASS" data-text="trust-003 trust gate stale and future snapshots stale hold (or block if configured); future never pass   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-003</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Stale and future snapshots</h3>
+  <p><strong>Expected:</strong> Stale HOLD (or BLOCK if configured); future never PASS</p>
+  <p><strong>Assertions:</strong> decision not PASS</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> test_trust_gate_signal_health.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="PASS" data-text="trust-004 trust gate gate immediately before meta side effects executor refuses if gate missing or may_execute false; master switch first autopilot_execution_enabled default false  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-004</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Gate immediately before Meta side effects</h3>
+  <p><strong>Expected:</strong> Executor refuses if gate missing or may_execute false; master switch first</p>
+  <p><strong>Assertions:</strong> no HTTP when blocked/disabled</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> test_meta_write_executor.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> autopilot_execution_enabled default false</p>
+</article>
+<article class="item" data-status="FAIL" data-text="trust-005 trust gate durable audit for allow and deny worker writes trustgateauditlog for executed and held/blocked actions dry-run http path can insert; worker path does not def-002 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-005</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Durable audit for allow and deny</h3>
+  <p><strong>Expected:</strong> Worker writes TrustGateAuditLog for executed and held/blocked actions</p>
+  <p><strong>Assertions:</strong> table row for HOLD/BLOCK/PASS</p>
+  <p><strong>Route / API / worker:</strong> /dashboard · /api/v1/trust · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> apply_actions_queue.py log_gate_decision_audit logger.info only</p>
+  <p><strong>Defects:</strong> DEF-002</p>
+  <p><strong>Blocker / next input:</strong> Dry-run HTTP path can insert; worker path does not</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="trust-006 trust gate ui widget vs worker same score trustgateindicator uses same snapshot/freshness as executor code: widget reads gate_decision; execution off by default  no authenticated dashboard session">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-006</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>UI widget vs worker same score</h3>
+  <p><strong>Expected:</strong> TrustGateIndicator uses same snapshot/freshness as executor</p>
+  <p><strong>Assertions:</strong> widget score == gate score</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/* · /api/v1/dashboard · tasks.signal_health_rollup</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No authenticated dashboard session</p>
+</article>
+<article class="item" data-status="FAIL" data-text="trust-007 trust gate public faq threshold copy faq must say &gt;=70 pass and 40-69 hold not above 70 / 40-70 production faq: scores above 70 healthy; 40-70 degraded def-003 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-007</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Public FAQ threshold copy</h3>
+  <p><strong>Expected:</strong> FAQ must say &gt;=70 PASS and 40-69 HOLD not above 70 / 40-70</p>
+  <p><strong>Assertions:</strong> copy matches &gt;= contract</p>
+  <p><strong>Route / API / worker:</strong> /faq · n/a · n/a</p>
+  <p><strong>Evidence:</strong> audit/evidence/PROD-faq.png; FAQ.tsx:90</p>
+  <p><strong>Defects:</strong> DEF-003</p>
+  <p><strong>Blocker / next input:</strong> Production FAQ: Scores above 70 Healthy; 40-70 Degraded</p>
+</article>
+<article class="item" data-status="FAIL" data-text="trust-008 trust gate insights autopilot status on no_data unknown health must not report automation unblocked static inspection; not reproduced on live ui def-004 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-008</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Insights autopilot status on no_data</h3>
+  <p><strong>Expected:</strong> Unknown health must not report automation unblocked</p>
+  <p><strong>Assertions:</strong> blocked true when no snapshot</p>
+  <p><strong>Route / API / worker:</strong> /app/:id/insights · /api/v1/insights · n/a</p>
+  <p><strong>Evidence:</strong> insights.check_signal_health_for_autopilot ignores automation_blocked</p>
+  <p><strong>Defects:</strong> DEF-004</p>
+  <p><strong>Blocker / next input:</strong> Static inspection; not reproduced on live UI</p>
+</article>
+<article class="item" data-status="FAIL" data-text="trust-009 trust gate hardcoded ui bands vs tenant overrides progress/color bands use api healthy_threshold not literals 70/40 decision badge uses api; colors/ticks do not def-005 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-009</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Hardcoded UI bands vs tenant overrides</h3>
+  <p><strong>Expected:</strong> Progress/color bands use API healthy_threshold not literals 70/40</p>
+  <p><strong>Assertions:</strong> UI uses published thresholds</p>
+  <p><strong>Route / API / worker:</strong> /dashboard · /api/v1/trust · n/a</p>
+  <p><strong>Evidence:</strong> TrustGateStatus.tsx HEALTHY_BAND=70; SignalHealthCard getScoreColor</p>
+  <p><strong>Defects:</strong> DEF-005</p>
+  <p><strong>Blocker / next input:</strong> Decision badge uses API; colors/ticks do not</p>
+</article>
+<article class="item" data-status="PASS" data-text="trust-010 trust gate rules worker uses same evaluator evaluate_all_rules calls check_signal_health_sync; block/hold skip mutations hold still allows apply_label and send_alert  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TRUST-010</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Rules worker uses same evaluator</h3>
+  <p><strong>Expected:</strong> evaluate_all_rules calls check_signal_health_sync; BLOCK/HOLD skip mutations</p>
+  <p><strong>Assertions:</strong> no pause/budget on HOLD/BLOCK</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/rules · /api/v1/rules · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> test_rules_trust_gate.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> HOLD still allows apply_label and send_alert</p>
+</article></section><section class="mod"><h2>Signal Health <small>1</small></h2>
+<article class="item" data-status="PASS" data-text="sig-001 signal health insufficient data not scored as 0 api overall_score null with missing_inputs; rollup writes no row explains no data widget vs mock active rules  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SIG-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Insufficient data not scored as 0</h3>
+  <p><strong>Expected:</strong> API overall_score null with missing_inputs; rollup writes no row</p>
+  <p><strong>Assertions:</strong> no fabricated 85</p>
+  <p><strong>Route / API / worker:</strong> /dashboard · /api/v1/trust · trust-signal-health-rollup</p>
+  <p><strong>Evidence:</strong> test_signal_health_service.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Explains NO DATA widget vs mock active rules</p>
+</article></section><section class="mod"><h2>Autopilot <small>4</small></h2>
+<article class="item" data-status="PASS" data-text="auto-001 autopilot meta writes off by default scheduled apply_actions_queue issues no meta request when disabled spend-changing meta writes not enabled in default launch build  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Meta writes off by default</h3>
+  <p><strong>Expected:</strong> Scheduled apply_actions_queue issues no Meta request when disabled</p>
+  <p><strong>Assertions:</strong> no HTTP; no row query when disabled</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · autopilot-apply-actions-queue</p>
+  <p><strong>Evidence:</strong> test_meta_write_executor.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Spend-changing Meta writes not enabled in default launch build</p>
+</article>
+<article class="item" data-status="PASS" data-text="auto-002 autopilot duplicate-execution protection claim applying before write; ambiguous timeout reconciled not retried; relative change not compounded verified in unit tests only; live meta sandbox not used  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Duplicate-execution protection</h3>
+  <p><strong>Expected:</strong> Claim applying before write; ambiguous timeout reconciled not retried; relative change not compounded</p>
+  <p><strong>Assertions:</strong> second write not issued</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> test_meta_write_executor.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Verified in unit tests only; live Meta sandbox not used</p>
+</article>
+<article class="item" data-status="PASS" data-text="auto-003 autopilot failed/blocked not counted applied processed increments only for applied; hold/block distinct buckets   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-003</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Failed/blocked not counted applied</h3>
+  <p><strong>Expected:</strong> processed increments only for applied; HOLD/BLOCK distinct buckets</p>
+  <p><strong>Assertions:</strong> bucket != applied</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · tasks.apply_actions_queue</p>
+  <p><strong>Evidence:</strong> action_executor.py ActionOutcome; unit tests</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="PASS" data-text="auto-004 autopilot allowlist excludes budget increase default executable types budget_decrease,pause_adset,bid_decrease custom autopilot ui still shows +20% scale  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-004</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Allowlist excludes budget increase</h3>
+  <p><strong>Expected:</strong> Default executable types budget_decrease,pause_adset,bid_decrease</p>
+  <p><strong>Assertions:</strong> scale_budget not default</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · action_executor</p>
+  <p><strong>Evidence:</strong> test_meta_write_executor.py allowlist</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Custom Autopilot UI still shows +20% scale</p>
+</article></section><section class="mod"><h2>Custom Autopilot <small>5</small></h2>
+<article class="item" data-status="FAIL" data-text="auto-005 custom autopilot custom autopilot is a real backend create/edit/activate persists and evaluates server-side with trust gate advertised on professional pricing as trust-gated autopilot def-006 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-005</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Custom Autopilot is a real backend</h3>
+  <p><strong>Expected:</strong> Create/edit/activate persists and evaluates server-side with trust gate</p>
+  <p><strong>Assertions:</strong> reload keeps rules; API called</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-autopilot-rules · none · none</p>
+  <p><strong>Evidence:</strong> frontend/src/views/CustomAutopilotRules.tsx mockRules + setTimeout save</p>
+  <p><strong>Defects:</strong> DEF-006</p>
+  <p><strong>Blocker / next input:</strong> Advertised on Professional pricing as Trust-Gated Autopilot</p>
+</article>
+<article class="item" data-status="FAIL" data-text="auto-006 custom autopilot scale high roas consecutive days description 3 consecutive roas&gt;4 days must match stored condition and evaluator days_running is not a campaign column; real rules engine cannot evaluate it def-007 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-006</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Scale High ROAS consecutive days</h3>
+  <p><strong>Expected:</strong> Description 3 consecutive ROAS&gt;4 days must match stored condition and evaluator</p>
+  <p><strong>Assertions:</strong> streak not campaign age; ROAS 4.0 excluded by gt</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-autopilot-rules · none · none</p>
+  <p><strong>Evidence:</strong> CustomAutopilotRules.tsx description vs days_running gte 3 and roas gt 4.0</p>
+  <p><strong>Defects:</strong> DEF-007</p>
+  <p><strong>Blocker / next input:</strong> days_running is not a Campaign column; real rules engine cannot evaluate it</p>
+</article>
+<article class="item" data-status="FAIL" data-text="auto-007 custom autopilot preset pause underperformers cpa&gt;50, conversions&lt;10, age&gt;=7 persist and execute with currency pause_campaign not in meta allowlist; rules worker can pause local campaign.status def-006 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-007</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Preset Pause Underperformers</h3>
+  <p><strong>Expected:</strong> CPA&gt;50, conversions&lt;10, age&gt;=7 persist and execute with currency</p>
+  <p><strong>Assertions:</strong> backend evaluation</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-autopilot-rules · none · none</p>
+  <p><strong>Evidence:</strong> mock only</p>
+  <p><strong>Defects:</strong> DEF-006</p>
+  <p><strong>Blocker / next input:</strong> pause_campaign not in Meta allowlist; rules worker can pause local Campaign.status</p>
+</article>
+<article class="item" data-status="FAIL" data-text="auto-008 custom autopilot creative fatigue 70 vs 0.70 threshold units match stored contract mock only; slack notify never sent in this audit def-008 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-008</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Creative fatigue 70 vs 0.70</h3>
+  <p><strong>Expected:</strong> Threshold units match stored contract</p>
+  <p><strong>Assertions:</strong> 70% vs 0.70 consistent</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-autopilot-rules · none · none</p>
+  <p><strong>Evidence:</strong> fatigue_score gt 70 percentage</p>
+  <p><strong>Defects:</strong> DEF-008</p>
+  <p><strong>Blocker / next input:</strong> Mock only; Slack notify never sent in this audit</p>
+</article>
+<article class="item" data-status="FAIL" data-text="auto-009 custom autopilot save/toggle/delete persistence mutations survive reload  def-006 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-009</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Save/toggle/delete persistence</h3>
+  <p><strong>Expected:</strong> Mutations survive reload</p>
+  <p><strong>Assertions:</strong> GET after POST</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-autopilot-rules · none · none</p>
+  <p><strong>Evidence:</strong> handleSaveRule setTimeout 1000ms</p>
+  <p><strong>Defects:</strong> DEF-006</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article></section><section class="mod"><h2>Automation Rules <small>7</small></h2>
+<article class="item" data-status="FAIL" data-text="rule-001 automation rules empty api does not show live mock rules empty store shows empty state not synthetic active rules hypothesis 5.d demo vs live def-009 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Empty API does not show live mock rules</h3>
+  <p><strong>Expected:</strong> Empty store shows empty state not synthetic active rules</p>
+  <p><strong>Assertions:</strong> no mockRules when items empty</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/rules · /api/v1/rules · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> frontend/src/views/Rules.tsx return mockRules</p>
+  <p><strong>Defects:</strong> DEF-009</p>
+  <p><strong>Blocker / next input:</strong> Hypothesis 5.D demo vs live</p>
+</article>
+<article class="item" data-status="PASS" data-text="rule-002 automation rules empty conditions match nothing unconfigured rule does not fire on every campaign   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Empty conditions match nothing</h3>
+  <p><strong>Expected:</strong> Unconfigured rule does not fire on every campaign</p>
+  <p><strong>Assertions:</strong> matched False</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/rules · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> test_rules_trust_gate.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="FAIL" data-text="rule-003 automation rules worker cooldown beat path honors cooldown_hours across restarts api dry-run uses rulesengine; beat worker does not def-010 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-003</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Worker cooldown</h3>
+  <p><strong>Expected:</strong> Beat path honors cooldown_hours across restarts</p>
+  <p><strong>Assertions:</strong> second run skipped in cooldown</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/rules · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> workers/tasks/rules.py has no cooldown; services/rules_engine.py does</p>
+  <p><strong>Defects:</strong> DEF-010</p>
+  <p><strong>Blocker / next input:</strong> API dry-run uses RulesEngine; beat worker does not</p>
+</article>
+<article class="item" data-status="FAIL" data-text="rule-004 automation rules pause_campaign previous_status audit records status before mutation always records paused def-011 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-004</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>pause_campaign previous_status</h3>
+  <p><strong>Expected:</strong> Audit records status before mutation</p>
+  <p><strong>Assertions:</strong> previous_status is prior value</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> rules.py sets status then previous_status=campaign.status</p>
+  <p><strong>Defects:</strong> DEF-011</p>
+  <p><strong>Blocker / next input:</strong> Always records paused</p>
+</article>
+<article class="item" data-status="FAIL" data-text="rule-005 automation rules block durable ruleexecution denied runs persist with reason task return dict only def-012 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-005</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>BLOCK durable RuleExecution</h3>
+  <p><strong>Expected:</strong> Denied runs persist with reason</p>
+  <p><strong>Assertions:</strong> row exists on BLOCK</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> test_rules_trust_gate.py asserts no RuleExecution on BLOCK</p>
+  <p><strong>Defects:</strong> DEF-012</p>
+  <p><strong>Blocker / next input:</strong> Task return dict only</p>
+</article>
+<article class="item" data-status="PASS" data-text="rule-006 automation rules days_running not a campaign metric evaluator getattr(campaign, metric); missing metric fails closed (no match) fail-safe for custom autopilot fields on the real engine  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-006</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>days_running not a Campaign metric</h3>
+  <p><strong>Expected:</strong> Evaluator getattr(campaign, metric); missing metric fails closed (no match)</p>
+  <p><strong>Assertions:</strong> days_running is None -&gt; no match</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/rules · evaluate-active-rules</p>
+  <p><strong>Evidence:</strong> base_models.py Campaign has roas not days_running</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Fail-safe for Custom Autopilot fields on the real engine</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="rule-007 automation rules rules crud via ui and api create/edit/activate/pause/delete persist   no tenant credentials">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RULE-007</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Rules CRUD via UI and API</h3>
+  <p><strong>Expected:</strong> Create/edit/activate/pause/delete persist</p>
+  <p><strong>Assertions:</strong> reload + store</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/rules · /api/v1/rules · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No tenant credentials</p>
+</article></section><section class="mod"><h2>Kill switch <small>1</small></h2>
+<article class="item" data-status="FAIL" data-text="auto-010 kill switch product emergency stop operator can halt all automation including rules and queue autopilot_execution_enabled is the meta switch; rules beat ignores it def-013 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AUTO-010</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Product emergency stop</h3>
+  <p><strong>Expected:</strong> Operator can halt all automation including rules and queue</p>
+  <p><strong>Assertions:</strong> no side effects after stop</p>
+  <p><strong>Route / API / worker:</strong> settings / enforcement · /tenant/{id}/autopilot/enforcement/kill-switch · n/a</p>
+  <p><strong>Evidence:</strong> kill switch is budget/ROAS enforcer not Meta master switch; no global UI stop</p>
+  <p><strong>Defects:</strong> DEF-013</p>
+  <p><strong>Blocker / next input:</strong> AUTOPILOT_EXECUTION_ENABLED is the Meta switch; rules beat ignores it</p>
+</article></section><section class="mod"><h2>Onboarding <small>2</small></h2>
+<article class="item" data-status="PASS" data-text="onb-001 onboarding step allowlist and money cents wizard fields map; money *100; trust thresholds persist core onboarding ui still blocked  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ONB-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Step allowlist and money cents</h3>
+  <p><strong>Expected:</strong> Wizard fields map; money *100; trust thresholds persist</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> /onboarding · /api/v1/onboarding/steps · n/a</p>
+  <p><strong>Evidence:</strong> test_onboarding_steps.py; test_onboarding_agent_thresholds.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Core onboarding UI still BLOCKED</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="onb-002 onboarding start setup wizard ui steps validate, cancel, resume, survive reload   no authenticated session; core onboarding is a potential release blocker until tested">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ONB-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Start Setup wizard UI</h3>
+  <p><strong>Expected:</strong> Steps validate, cancel, resume, survive reload</p>
+  <p><strong>Assertions:</strong> status matches prerequisites</p>
+  <p><strong>Route / API / worker:</strong> /onboarding · /api/v1/onboarding · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No authenticated session; core onboarding is a potential release blocker until tested</p>
+</article></section><section class="mod"><h2>Overview <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="ovr-001 overview overview uses selected org and ad account kpis scoped to selection; empty/partial/complete states   no session">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">OVR-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Overview uses selected org and ad account</h3>
+  <p><strong>Expected:</strong> KPIs scoped to selection; empty/partial/complete states</p>
+  <p><strong>Assertions:</strong> reload matches store</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/overview · /api/v1/dashboard · sync-all-campaigns</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article></section><section class="mod"><h2>Custom Dashboard <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="dash-001 custom dashboard widget crud and persistence create/config/resize/order/remove/saved layouts isolated per user/org   no session">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">DASH-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Widget CRUD and persistence</h3>
+  <p><strong>Expected:</strong> Create/config/resize/order/remove/saved layouts isolated per user/org</p>
+  <p><strong>Assertions:</strong> reload layout</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/dashboard · /api/v1/dashboard · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article></section><section class="mod"><h2>Campaigns <small>3</small></h2>
+<article class="item" data-status="BLOCKED" data-text="camp-001 campaigns campaign list/detail/sync account selection, hierarchy, filters, pagination, sync freshness   no session; meta insights are get-only">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CAMP-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Campaign list/detail/sync</h3>
+  <p><strong>Expected:</strong> Account selection, hierarchy, filters, pagination, sync freshness</p>
+  <p><strong>Assertions:</strong> store matches UI</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/campaigns · /api/v1/campaigns · sync-all-campaigns</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session; Meta insights are GET-only</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="camp-002 campaigns campaign mutations pause/budget changes permissioned, correct ids and units, read-back   must not mutate live ads. isolated sandbox not available">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CAMP-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Campaign mutations</h3>
+  <p><strong>Expected:</strong> Pause/budget changes permissioned, correct IDs and units, read-back</p>
+  <p><strong>Assertions:</strong> Meta state matches</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/campaigns;/app/:id/campaigns · /api/v1/campaigns · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not mutate live ads. Isolated sandbox not available</p>
+</article>
+<article class="item" data-status="PASS" data-text="camp-003 campaigns insights ingestion read-only insights_client get only; last_synced_at not refreshed on empty/failure unit suite passed including meta insights tests  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CAMP-003</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Insights ingestion read-only</h3>
+  <p><strong>Expected:</strong> insights_client GET only; last_synced_at not refreshed on empty/failure</p>
+  <p><strong>Assertions:</strong> no write verbs</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · sync-all-campaigns</p>
+  <p><strong>Evidence:</strong> docs/integrations; test_meta_insights.py if present in 2236</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Unit suite passed including Meta insights tests</p>
+</article></section><section class="mod"><h2>Stratum Analytics <small>2</small></h2>
+<article class="item" data-status="FAIL" data-text="ana-001 stratum analytics no mock insights when api empty empty analytics is empty not mockinsights  def-014 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ANA-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>No mock insights when API empty</h3>
+  <p><strong>Expected:</strong> Empty analytics is empty not mockInsights</p>
+  <p><strong>Assertions:</strong> no mockPredictionData as live</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/stratum · /api/v1/analytics · n/a</p>
+  <p><strong>Evidence:</strong> frontend/src/views/Stratum.tsx mock fallbacks</p>
+  <p><strong>Defects:</strong> DEF-014</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="ana-002 stratum analytics independent metric oracle roas/spend recalculated from fixtures   needs fixture tenant">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ANA-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Independent metric oracle</h3>
+  <p><strong>Expected:</strong> ROAS/spend recalculated from fixtures</p>
+  <p><strong>Assertions:</strong> independent expected values</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/stratum · /api/v1/analytics · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Needs fixture tenant</p>
+</article></section><section class="mod"><h2>Benchmarks <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="bench-001 benchmarks benchmark source and freshness cohort, units, missing not zero   no session">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">BENCH-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Benchmark source and freshness</h3>
+  <p><strong>Expected:</strong> Cohort, units, missing not zero</p>
+  <p><strong>Assertions:</strong> provenance labeled</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/benchmarks · /api/v1/* · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article></section><section class="mod"><h2>Competitor Intelligence <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="comp-001 competitor intelligence competitor setup and refresh sources, duplicates, unavailable labeled; not presented as measured ads   no session; market_proxy mock fallback exists in code">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">COMP-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Competitor setup and refresh</h3>
+  <p><strong>Expected:</strong> Sources, duplicates, unavailable labeled; not presented as measured ads</p>
+  <p><strong>Assertions:</strong> estimates labeled</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/competitors · /api/v1/competitors · refresh-competitor-data</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session; market_proxy mock fallback exists in code</p>
+</article></section><section class="mod"><h2>Asset Library <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="ast-001 asset library upload/preview/delete isolation type/size limits, tenant isolation, unsafe content   no session; no production uploads">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AST-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Upload/preview/delete isolation</h3>
+  <p><strong>Expected:</strong> Type/size limits, tenant isolation, unsafe content</p>
+  <p><strong>Assertions:</strong> file not in other tenant</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/assets · /api/v1/assets · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session; no production uploads</p>
+</article></section><section class="mod"><h2>Custom Reports <small>2</small></h2>
+<article class="item" data-status="FAIL" data-text="rpt-001 custom reports reports persist to backend saved reports reload from api not mock_reports  def-015 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RPT-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Reports persist to backend</h3>
+  <p><strong>Expected:</strong> Saved reports reload from API not MOCK_REPORTS</p>
+  <p><strong>Assertions:</strong> GET list</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-reports · none · none</p>
+  <p><strong>Evidence:</strong> CustomReportBuilder.tsx MOCK_REPORTS</p>
+  <p><strong>Defects:</strong> DEF-015</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="rpt-002 custom reports export figures reconcile csv/pdf matches source; formula injection escaped   would require real reports; mock builder cannot export live data">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">RPT-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Export figures reconcile</h3>
+  <p><strong>Expected:</strong> CSV/PDF matches source; formula injection escaped</p>
+  <p><strong>Assertions:</strong> figures match</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/custom-reports;/app/:id/reporting · /api/v1/reporting · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Would require real reports; mock builder cannot export live data</p>
+</article></section><section class="mod"><h2>WhatsApp <small>2</small></h2>
+<article class="item" data-status="BLOCKED" data-text="wa-001 whatsapp connection templates conversations credentials tenant-owned; templates; 24h window; webhooks   must not message real recipients. no approved sandbox recipients">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">WA-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Connection templates conversations</h3>
+  <p><strong>Expected:</strong> Credentials tenant-owned; templates; 24h window; webhooks</p>
+  <p><strong>Assertions:</strong> delivery status distinct from API accept</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/whatsapp · /api/v1/whatsapp · process-scheduled-whatsapp</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not message real recipients. No approved sandbox recipients</p>
+</article>
+<article class="item" data-status="PASS" data-text="wa-002 whatsapp dispatch unit guards opt-out, missing template, rate limit, tenant miss recorded as not sent not a live delivery proof  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">WA-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Dispatch unit guards</h3>
+  <p><strong>Expected:</strong> Opt-out, missing template, rate limit, tenant miss recorded as not sent</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/whatsapp · app.workers.tasks.whatsapp</p>
+  <p><strong>Evidence:</strong> tests/unit/test_whatsapp_dispatch.py in 2236 passed</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Not a live delivery proof</p>
+</article></section><section class="mod"><h2>CDP <small>11</small></h2>
+<article class="item" data-status="BLOCKED" data-text="cdp-001 cdp cdp overview health real /cdp/health stats view wired to api; live unverified  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>CDP overview health</h3>
+  <p><strong>Expected:</strong> Real /cdp/health stats</p>
+  <p><strong>Assertions:</strong> numbers from API</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp · /api/v1/cdp/health · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> View wired to API; live unverified</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-002 cdp profiles search search/filter tenant scoped no session  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Profiles search</h3>
+  <p><strong>Expected:</strong> Search/filter tenant scoped</p>
+  <p><strong>Assertions:</strong> no cross-tenant</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/profiles · /api/v1/cdp/profiles · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-003 cdp segments crud/compute create/compute persists no session  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-003</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Segments CRUD/compute</h3>
+  <p><strong>Expected:</strong> Create/compute persists</p>
+  <p><strong>Assertions:</strong> worker result</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/segments · /api/v1/cdp/segments · compute-cdp-segments</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-004 cdp events timeline ingested events listed; malformed rejected integration ingest tests error without db  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-004</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Events timeline</h3>
+  <p><strong>Expected:</strong> Ingested events listed; malformed rejected</p>
+  <p><strong>Assertions:</strong> store</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/events · /api/v1/cdp/events · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Integration ingest tests ERROR without DB</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-005 cdp identity graph merge merge/unmerge cannot cross orgs no session  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-005</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Identity graph merge</h3>
+  <p><strong>Expected:</strong> Merge/unmerge cannot cross orgs</p>
+  <p><strong>Assertions:</strong> no cross-org merge</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/identity · /api/v1/cdp · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-006 cdp audience sync to meta push custom audiences; no google/tiktok activation must not sync live audiences. connector is real in code  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-006</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Audience sync to Meta</h3>
+  <p><strong>Expected:</strong> Push Custom Audiences; no Google/TikTok activation</p>
+  <p><strong>Assertions:</strong> Meta audience updated</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/audience-sync · /api/v1/cdp/audience-sync · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not sync live audiences. Connector is real in code</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-007 cdp rfm analysis scores from real events view uses real hooks  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-007</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>RFM analysis</h3>
+  <p><strong>Expected:</strong> Scores from real events</p>
+  <p><strong>Assertions:</strong> API stats</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/rfm · /api/v1/cdp · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> View uses real hooks</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-008 cdp funnels crud/analyze   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-008</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Funnels</h3>
+  <p><strong>Expected:</strong> CRUD/analyze</p>
+  <p><strong>Assertions:</strong> worker</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/funnels · /api/v1/cdp · compute-cdp-funnels</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="cdp-009 cdp computed traits builder persists   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-009</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Computed traits</h3>
+  <p><strong>Expected:</strong> Builder persists</p>
+  <p><strong>Assertions:</strong> API</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/computed-traits · /api/v1/cdp · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="FAIL" data-text="cdp-010 cdp consent manager uses real api consent stats from backend not math.random / tenantid=1  def-016 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-010</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Consent manager uses real API</h3>
+  <p><strong>Expected:</strong> Consent stats from backend not Math.random / tenantId=1</p>
+  <p><strong>Assertions:</strong> API called</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/consent · none · none</p>
+  <p><strong>Evidence:</strong> components/cdp/ConsentManager.tsx</p>
+  <p><strong>Defects:</strong> DEF-016</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="FAIL" data-text="cdp-011 cdp predictive churn uses real model predictions from training artifacts not mock_* constants  def-017 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CDP-011</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Predictive churn uses real model</h3>
+  <p><strong>Expected:</strong> Predictions from training artifacts not MOCK_* constants</p>
+  <p><strong>Assertions:</strong> API called</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/cdp/predictive-churn · none · none</p>
+  <p><strong>Evidence:</strong> views/cdp/CDPPredictiveChurn.tsx</p>
+  <p><strong>Defects:</strong> DEF-017</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article></section><section class="mod"><h2>Knowledge Graph <small>5</small></h2>
+<article class="item" data-status="FAIL" data-text="kg-001 knowledge graph insights section implemented graph-derived insights from api not placeholder cards nav insights exists def-019 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">KG-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Insights section implemented</h3>
+  <p><strong>Expected:</strong> Graph-derived insights from API not placeholder cards</p>
+  <p><strong>Assertions:</strong> API data</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/knowledge-graph/insights · /api/v1/knowledge-graph · n/a</p>
+  <p><strong>Evidence:</strong> KnowledgeGraphInsights.tsx placeholder comment</p>
+  <p><strong>Defects:</strong> DEF-019</p>
+  <p><strong>Blocker / next input:</strong> Nav Insights exists</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="kg-002 knowledge graph problem detection triggers, evidence, resolve, tenant isolation view wired; live unverified  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">KG-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Problem Detection</h3>
+  <p><strong>Expected:</strong> Triggers, evidence, resolve, tenant isolation</p>
+  <p><strong>Assertions:</strong> resolve persists</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/knowledge-graph/problems · /api/v1/knowledge-graph · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> View wired; live unverified</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="kg-003 knowledge graph revenue attribution credited revenue matches events and model view wired; live unverified  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">KG-003</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Revenue Attribution</h3>
+  <p><strong>Expected:</strong> Credited revenue matches events and model</p>
+  <p><strong>Assertions:</strong> reconcile totals</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/knowledge-graph/revenue · /api/v1/knowledge-graph · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> View wired; live unverified</p>
+</article>
+<article class="item" data-status="FAIL" data-text="kg-004 knowledge graph journey explorer route nav target renders journey ui backend journey endpoint exists without ui def-020 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">KG-004</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Journey Explorer route</h3>
+  <p><strong>Expected:</strong> Nav target renders journey UI</p>
+  <p><strong>Assertions:</strong> not 404</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/knowledge-graph/journeys · /api/v1/knowledge-graph/analytics/journey/{id} · n/a</p>
+  <p><strong>Evidence:</strong> DashboardLayout kgNavigation vs App.tsx no Route; no view file</p>
+  <p><strong>Defects:</strong> DEF-020</p>
+  <p><strong>Blocker / next input:</strong> Backend journey endpoint exists without UI</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="kg-005 knowledge graph dark overlay reproduction central content not obscured across viewports filed as suspected; landing chat overlay is separate  authenticated kg not opened">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">KG-005</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Dark overlay reproduction</h3>
+  <p><strong>Expected:</strong> Central content not obscured across viewports</p>
+  <p><strong>Assertions:</strong> content visible</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/knowledge-graph/* · n/a · n/a</p>
+  <p><strong>Evidence:</strong> NeuralNetworkBg behind z-10; Insights has no overlay in markup</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Authenticated KG not opened</p>
+</article></section><section class="mod"><h2>Organizations <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="org-001 organizations org switch isolation prior tenant data does not leak after switch no multi-tenant credentials  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ORG-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Org switch isolation</h3>
+  <p><strong>Expected:</strong> Prior tenant data does not leak after switch</p>
+  <p><strong>Assertions:</strong> requests retarget</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/tenants;/app/:id · /api/v1/tenants · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No multi-tenant credentials</p>
+</article></section><section class="mod"><h2>Settings <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="set-001 settings settings persistence prefs, integrations, notifications persist no session  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SET-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Settings persistence</h3>
+  <p><strong>Expected:</strong> Prefs, integrations, notifications persist</p>
+  <p><strong>Assertions:</strong> store</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/settings;/app/:id/settings · /api/v1/* · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article></section><section class="mod"><h2>ML Training <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="ml-001 ml training training jobs isolated lightweight fixtures; no paid training; tenant isolation   did not start training jobs">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">ML-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Training jobs isolated</h3>
+  <p><strong>Expected:</strong> Lightweight fixtures; no paid training; tenant isolation</p>
+  <p><strong>Assertions:</strong> placeholder metrics not reported as measured</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/ml-training · /api/v1/ml · ml queue</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Did not start training jobs</p>
+</article></section><section class="mod"><h2>CAPI <small>2</small></h2>
+<article class="item" data-status="BLOCKED" data-text="capi-001 capi capi setup and event trace synthetic event through validation, forward, diagnostics   no sandbox pixel/capi credentials used">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CAPI-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>CAPI setup and event trace</h3>
+  <p><strong>Expected:</strong> Synthetic event through validation, forward, diagnostics</p>
+  <p><strong>Assertions:</strong> accepted vs confirmed distinct</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/capi-setup · /api/v1/capi · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No sandbox pixel/CAPI credentials used</p>
+</article>
+<article class="item" data-status="PASS" data-text="capi-002 capi emq honesty unit tests no invented emq; delivery logs drive scores   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CAPI-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>EMQ honesty unit tests</h3>
+  <p><strong>Expected:</strong> No invented EMQ; delivery logs drive scores</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/emq · n/a</p>
+  <p><strong>Evidence:</strong> test_emq_v2_honesty.py in 2236</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article></section><section class="mod"><h2>Data Quality <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="dq-001 data quality data quality dashboard live source, freshness, denominator documented no session  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">DQ-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Data quality dashboard live</h3>
+  <p><strong>Expected:</strong> Source, freshness, denominator documented</p>
+  <p><strong>Assertions:</strong> drill-down evidence</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/data-quality · /api/v1/* · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No session</p>
+</article></section><section class="mod"><h2>EMQ Dashboard <small>1</small></h2>
+<article class="item" data-status="FAIL" data-text="emq-001 emq dashboard emq dashboard not mixed with mocks coverage/pii/funnel/alerts from api when emq present  def-021 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">EMQ-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>EMQ dashboard not mixed with mocks</h3>
+  <p><strong>Expected:</strong> Coverage/PII/funnel/alerts from API when EMQ present</p>
+  <p><strong>Assertions:</strong> no mock mix</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/emq-dashboard · /api/v1/emq · n/a</p>
+  <p><strong>Evidence:</strong> DataQualityDashboard.tsx seeds mock constants</p>
+  <p><strong>Defects:</strong> DEF-021</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article></section><section class="mod"><h2>Billing <small>3</small></h2>
+<article class="item" data-status="PASS" data-text="bill-001 billing paddle webhook signatures and idempotency invalid/stale signatures rejected; event_id idempotent; plan sync did not complete a live/sandbox checkout  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">BILL-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Paddle webhook signatures and idempotency</h3>
+  <p><strong>Expected:</strong> Invalid/stale signatures rejected; event_id idempotent; plan sync</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/webhooks/paddle · n/a</p>
+  <p><strong>Evidence:</strong> test_paddle_webhook.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Did not complete a live/sandbox checkout</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="bill-002 billing sandbox checkout and entitlements test-mode purchase, failure, cancel, plan change, server-side entitlements host csp allows both live and sandbox paddle  no paddle test account; must not purchase on live">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">BILL-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Sandbox checkout and entitlements</h3>
+  <p><strong>Expected:</strong> Test-mode purchase, failure, cancel, plan change, server-side entitlements</p>
+  <p><strong>Assertions:</strong> plan in DB not just redirect</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/settings;/pricing · /api/v1/billing · n/a</p>
+  <p><strong>Evidence:</strong> PROD-pricing.png; Permissions-Policy includes sandbox-buy.paddle.com</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No Paddle test account; must not purchase on live</p>
+</article>
+<article class="item" data-status="PASS" data-text="bill-003 billing seat limits and entitlement writes max_users enforced; tenant admin cannot patch own plan two parallel systems: features/flags.py vs core/tiers.py  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">BILL-003</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Seat limits and entitlement writes</h3>
+  <p><strong>Expected:</strong> max_users enforced; tenant admin cannot PATCH own plan</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/tenants · n/a</p>
+  <p><strong>Evidence:</strong> test_seat_limits.py; test_auth_bypass_regression.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Two parallel systems: features/flags.py vs core/tiers.py</p>
+</article></section><section class="mod"><h2>Global chrome <small>4</small></h2>
+<article class="item" data-status="FAIL" data-text="chr-001 global chrome notifications are real bell count matches unread store; not demo list / hardcoded 3  def-022 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CHR-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Notifications are real</h3>
+  <p><strong>Expected:</strong> Bell count matches unread store; not demo list / hardcoded 3</p>
+  <p><strong>Assertions:</strong> count matches API</p>
+  <p><strong>Route / API / worker:</strong> /dashboard · /api/v1/notifications · n/a</p>
+  <p><strong>Evidence:</strong> NotificationCenter DEMO_NOTIFICATIONS; DashboardLayout unreadCount=3</p>
+  <p><strong>Defects:</strong> DEF-022</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="PASS" data-text="chr-002 global chrome public language control en-us visible on public pages authenticated rtl not tested  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CHR-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Public language control</h3>
+  <p><strong>Expected:</strong> EN-US visible on public pages</p>
+  <p><strong>Assertions:</strong> control present</p>
+  <p><strong>Route / API / worker:</strong> /pricing;/faq · n/a · n/a</p>
+  <p><strong>Evidence:</strong> PROD-pricing.png EN-US</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Authenticated RTL not tested</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="chr-003 global chrome command palette shortcut cmd/ctrl+k search; no os collision no authenticated chrome  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CHR-003</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Command palette shortcut</h3>
+  <p><strong>Expected:</strong> Cmd/Ctrl+K search; no OS collision</p>
+  <p><strong>Assertions:</strong> navigates</p>
+  <p><strong>Route / API / worker:</strong> /dashboard · n/a · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No authenticated chrome</p>
+</article>
+<article class="item" data-status="PASS" data-text="chr-004 global chrome landing floating chat chat does not prevent reading hero (inventory) overlays content; a11y tree mostly missing  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CHR-004</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Landing floating chat</h3>
+  <p><strong>Expected:</strong> Chat does not prevent reading hero (inventory)</p>
+  <p><strong>Assertions:</strong> dismissible</p>
+  <p><strong>Route / API / worker:</strong> / · n/a · n/a</p>
+  <p><strong>Evidence:</strong> PROD-landing.png</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Overlays content; a11y tree mostly missing</p>
+</article></section><section class="mod"><h2>Accessibility <small>1</small></h2>
+<article class="item" data-status="FAIL" data-text="a11y-001 accessibility public pages expose interactive tree nav links and ctas in accessibility snapshot visual ui present; at tree sparse. login snapshot also incomplete vs screenshot def-023 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">A11Y-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Public pages expose interactive tree</h3>
+  <p><strong>Expected:</strong> Nav links and CTAs in accessibility snapshot</p>
+  <p><strong>Assertions:</strong> roles for nav/buttons</p>
+  <p><strong>Route / API / worker:</strong> /;/login;/pricing;/faq · n/a · n/a</p>
+  <p><strong>Evidence:</strong> browser_snapshot on landing/pricing/faq: skip-link + notifications only until chat</p>
+  <p><strong>Defects:</strong> DEF-023</p>
+  <p><strong>Blocker / next input:</strong> Visual UI present; AT tree sparse. Login snapshot also incomplete vs screenshot</p>
+</article></section><section class="mod"><h2>Operations <small>3</small></h2>
+<article class="item" data-status="FAIL" data-text="ops-001 operations public /health reports api environment health json includes version and app_env from fastapi cannot prove production vs staging from this host def-018 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">OPS-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Public /health reports API environment</h3>
+  <p><strong>Expected:</strong> Health JSON includes version and APP_ENV from FastAPI</p>
+  <p><strong>Assertions:</strong> JSON environment field</p>
+  <p><strong>Route / API / worker:</strong> /health · /health · n/a</p>
+  <p><strong>Evidence:</strong> frontend/nginx.conf return 200 healthy; FastAPI JSON not proxied</p>
+  <p><strong>Defects:</strong> DEF-018</p>
+  <p><strong>Blocker / next input:</strong> Cannot prove production vs staging from this host</p>
+</article>
+<article class="item" data-status="FAIL" data-text="ops-002 operations debug /test-page not in launch host debug route absent or auth-gated  def-024 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">OPS-002</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Debug /test-page not in launch host</h3>
+  <p><strong>Expected:</strong> Debug route absent or auth-gated</p>
+  <p><strong>Assertions:</strong> 404</p>
+  <p><strong>Route / API / worker:</strong> /test-page · n/a · n/a</p>
+  <p><strong>Evidence:</strong> audit/evidence/PROD-test-page.png</p>
+  <p><strong>Defects:</strong> DEF-024</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article>
+<article class="item" data-status="FAIL" data-text="ops-003 operations status page is measured uptime from real probes not hardcoded jan 2026 bars claims real-time monitoring def-026 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">OPS-003</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Status page is measured</h3>
+  <p><strong>Expected:</strong> Uptime from real probes not hardcoded Jan 2026 bars</p>
+  <p><strong>Assertions:</strong> live probe data</p>
+  <p><strong>Route / API / worker:</strong> /status · n/a · n/a</p>
+  <p><strong>Evidence:</strong> PROD-status.png; Status.tsx uptimeHistory Jan 9-22 hardcoded 99.98%</p>
+  <p><strong>Defects:</strong> DEF-026</p>
+  <p><strong>Blocker / next input:</strong> Claims real-time monitoring</p>
+</article></section><section class="mod"><h2>Security <small>4</small></h2>
+<article class="item" data-status="FAIL" data-text="sec-001 security hsts on production https strict-transport-security present tls is on; hsts missing at origin def-027 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SEC-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>HSTS on production HTTPS</h3>
+  <p><strong>Expected:</strong> Strict-Transport-Security present</p>
+  <p><strong>Assertions:</strong> HSTS header</p>
+  <p><strong>Route / API / worker:</strong> https://meta.stratumai.app · n/a · n/a</p>
+  <p><strong>Evidence:</strong> fetch /pricing headers: no STS; nginx HSTS commented</p>
+  <p><strong>Defects:</strong> DEF-027</p>
+  <p><strong>Blocker / next input:</strong> TLS is on; HSTS missing at origin</p>
+</article>
+<article class="item" data-status="PASS" data-text="sec-002 security baseline security headers csp, x-frame-options, nosniff, referrer-policy, permissions-policy csp is present but permissive; sandbox paddle allowed  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SEC-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Baseline security headers</h3>
+  <p><strong>Expected:</strong> CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy</p>
+  <p><strong>Assertions:</strong> headers present</p>
+  <p><strong>Route / API / worker:</strong> / · n/a · n/a</p>
+  <p><strong>Evidence:</strong> CSP includes unsafe-inline and unsafe-eval</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> CSP is present but permissive; sandbox Paddle allowed</p>
+</article>
+<article class="item" data-status="PASS" data-text="sec-003 security paddle and meta signed webhooks signatures, freshness, idempotency no production webhook injection attempted  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SEC-003</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Paddle and Meta signed webhooks</h3>
+  <p><strong>Expected:</strong> Signatures, freshness, idempotency</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/webhooks/paddle; /api/v1/meta/* · n/a</p>
+  <p><strong>Evidence:</strong> test_paddle_webhook.py; test_meta_callbacks.py; test_meta_signed_request.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No production webhook injection attempted</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="sec-004 security xss/csrf/upload/ssrf isolated proofs safe local proofs of exploitability static: demo creds, csp unsafe-eval, no hsts  no local app; production exploit tests forbidden">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SEC-004</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>XSS/CSRF/upload/SSRF isolated proofs</h3>
+  <p><strong>Expected:</strong> Safe local proofs of exploitability</p>
+  <p><strong>Assertions:</strong> proof or absence</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No local app; production exploit tests forbidden</p>
+</article></section><section class="mod"><h2>CI <small>1</small></h2>
+<article class="item" data-status="PASS" data-text="ci-001 ci github actions on audited sha ci job success for ccc97a6 did not re-run gha; used recorded result  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">CI-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>GitHub Actions on audited SHA</h3>
+  <p><strong>Expected:</strong> CI job success for ccc97a6</p>
+  <p><strong>Assertions:</strong> CI success</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> gh run list: CI, Docker, Docs success</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Did not re-run GHA; used recorded result</p>
+</article></section><section class="mod"><h2>Frontend quality <small>3</small></h2>
+<article class="item" data-status="PASS" data-text="fe-001 frontend quality frontend unit tests vitest run all pass only 4 test files; no custom autopilot/rules/kg coverage  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">FE-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Frontend unit tests</h3>
+  <p><strong>Expected:</strong> Vitest run all pass</p>
+  <p><strong>Assertions:</strong> 63 passed</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> npm run test -- --run</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Only 4 test files; no Custom Autopilot/Rules/KG coverage</p>
+</article>
+<article class="item" data-status="PASS" data-text="fe-002 frontend quality typecheck and build tsc --noemit and vite build succeed lint 0 errors 510 warnings  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">FE-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Typecheck and build</h3>
+  <p><strong>Expected:</strong> tsc --noEmit and vite build succeed</p>
+  <p><strong>Assertions:</strong> exit 0</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> tsc_exit:0; vite built in 6.86s</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> lint 0 errors 510 warnings</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="fe-003 frontend quality playwright e2e chromium e2e against local app   no running frontend/api. ci playwright is non-blocking">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">FE-003</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Playwright E2E</h3>
+  <p><strong>Expected:</strong> Chromium e2e against local app</p>
+  <p><strong>Assertions:</strong> project=chromium pass</p>
+  <p><strong>Route / API / worker:</strong> localhost:5173 · n/a · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No running frontend/API. CI Playwright is non-blocking</p>
+</article></section><section class="mod"><h2>Workers <small>1</small></h2>
+<article class="item" data-status="PASS" data-text="wrk-001 workers beat queues consumed every beat queue is in celery_queues apply_actions_queue on sync every 5 min  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">WRK-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Beat queues consumed</h3>
+  <p><strong>Expected:</strong> Every beat queue is in CELERY_QUEUES</p>
+  <p><strong>Assertions:</strong> no unconsumed queues</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · BEAT_SCHEDULE</p>
+  <p><strong>Evidence:</strong> test_worker_queue_coverage.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> apply_actions_queue on sync every 5 min</p>
+</article></section><section class="mod"><h2>Activation <small>1</small></h2>
+<article class="item" data-status="NOT APPLICABLE" data-text="na-001 activation google ads / tiktok / snapchat activation meta-only activation; ga4/gtm measurement only audience sync ui is meta custom audiences  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">NA-001</span>
+    <span class="badge st-na">NOT APPLICABLE</span>
+  </div>
+  <h3>Google Ads / TikTok / Snapchat activation</h3>
+  <p><strong>Expected:</strong> Meta-only activation; GA4/GTM measurement only</p>
+  <p><strong>Assertions:</strong> no Google Ads paths</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> integrations README; CLAUDE.md</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Audience sync UI is Meta Custom Audiences</p>
+</article></section><section class="mod"><h2>Payments <small>1</small></h2>
+<article class="item" data-status="NOT APPLICABLE" data-text="na-002 payments stripe checkout paddle is the only payment provider   ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">NA-002</span>
+    <span class="badge st-na">NOT APPLICABLE</span>
+  </div>
+  <h3>Stripe checkout</h3>
+  <p><strong>Expected:</strong> Paddle is the only payment provider</p>
+  <p><strong>Assertions:</strong> no Stripe SDK</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> —</p>
+</article></section><section class="mod"><h2>Privacy <small>2</small></h2>
+<article class="item" data-status="BLOCKED" data-text="priv-001 privacy gdpr anonymize path documented erasure only; not legal certification   must not anonymize live users">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">PRIV-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>GDPR anonymize path</h3>
+  <p><strong>Expected:</strong> Documented erasure only; not legal certification</p>
+  <p><strong>Assertions:</strong> documented tables cleared</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/gdpr/anonymize · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not anonymize live users</p>
+</article>
+<article class="item" data-status="PASS" data-text="priv-002 privacy meta data-deletion callback signed_request verified; idempotent; tokens cleared did not call live meta callbacks  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">PRIV-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Meta data-deletion callback</h3>
+  <p><strong>Expected:</strong> signed_request verified; idempotent; tokens cleared</p>
+  <p><strong>Assertions:</strong> unit pass</p>
+  <p><strong>Route / API / worker:</strong> n/a · /api/v1/meta/data-deletion · n/a</p>
+  <p><strong>Evidence:</strong> test_meta_callbacks.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Did not call live Meta callbacks</p>
+</article></section><section class="mod"><h2>Tenant app <small>2</small></h2>
+<article class="item" data-status="BLOCKED" data-text="ten-001 tenant app campaign builder publish drafts, connect, accounts, publish logs must not publish live campaigns  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TEN-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Campaign builder publish</h3>
+  <p><strong>Expected:</strong> Drafts, connect, accounts, publish logs</p>
+  <p><strong>Assertions:</strong> no live publish</p>
+  <p><strong>Route / API / worker:</strong> /app/:id/campaigns/* · /api/v1/campaign-builder · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not publish live campaigns</p>
+</article>
+<article class="item" data-status="BLOCKED" data-text="ten-002 tenant app pacing profit attribution reporting tenant analytics routes routes exist; many missing from tenant sidebar  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">TEN-002</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Pacing profit attribution reporting</h3>
+  <p><strong>Expected:</strong> Tenant analytics routes</p>
+  <p><strong>Assertions:</strong> API data</p>
+  <p><strong>Route / API / worker:</strong> /app/:id/pacing;/profit;/attribution;/reporting · /api/v1/pacing,/profit,/attribution,/reporting · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Routes exist; many missing from tenant sidebar</p>
+</article></section><section class="mod"><h2>Superadmin <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="sa-001 superadmin control tower and tenants role-gated superadmin consoles must not use production superadmin demo button  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">SA-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Control tower and tenants</h3>
+  <p><strong>Expected:</strong> Role-gated superadmin consoles</p>
+  <p><strong>Assertions:</strong> non-superadmin 403</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/superadmin/* · /api/v1/superadmin · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Must not use production superadmin demo button</p>
+</article></section><section class="mod"><h2>Account Manager <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="am-001 account manager portfolio and narrative portfolio uses batched gate equal to tenant unit coverage exists  no am session on live">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">AM-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Portfolio and narrative</h3>
+  <p><strong>Expected:</strong> Portfolio uses batched gate equal to tenant</p>
+  <p><strong>Assertions:</strong> insufficient_data agrees</p>
+  <p><strong>Route / API / worker:</strong> /dashboard/am/portfolio · /api/v1/tenants/portfolio · n/a</p>
+  <p><strong>Evidence:</strong> test_account_portfolio.py unit PASS</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No AM session on live</p>
+</article></section><section class="mod"><h2>Public marketing <small>2</small></h2>
+<article class="item" data-status="PASS" data-text="pub-001 public marketing landing and pricing render public pages load; claims treated as hypotheses landing shows 94.7% trust score and $124.8k spend as demo chrome  ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">PUB-001</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Landing and pricing render</h3>
+  <p><strong>Expected:</strong> Public pages load; claims treated as hypotheses</p>
+  <p><strong>Assertions:</strong> HTTPS 200</p>
+  <p><strong>Route / API / worker:</strong> /;/pricing · n/a · n/a</p>
+  <p><strong>Evidence:</strong> PROD-landing.png; PROD-pricing.png</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Landing shows 94.7% trust score and $124.8K spend as demo chrome</p>
+</article>
+<article class="item" data-status="PASS" data-text="pub-002 public marketing legal pages routed privacy terms security dpa routes exist not a compliance certification  did not legally review policy text">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">PUB-002</span>
+    <span class="badge st-pass">PASS</span>
+  </div>
+  <h3>Legal pages routed</h3>
+  <p><strong>Expected:</strong> Privacy Terms Security DPA routes exist</p>
+  <p><strong>Assertions:</strong> routes in App.tsx</p>
+  <p><strong>Route / API / worker:</strong> /privacy;/terms;/security;/dpa · n/a · n/a</p>
+  <p><strong>Evidence:</strong> App.tsx legal routes</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Did not legally review policy text</p>
+</article></section><section class="mod"><h2>Localization <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="i18n-001 localization arabic rtl authenticated rtl layout; mixed-direction ids/dates/currency   public /ar not separately screenshot; dashboard rtl unverified">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">I18N-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Arabic RTL authenticated</h3>
+  <p><strong>Expected:</strong> RTL layout; mixed-direction IDs/dates/currency</p>
+  <p><strong>Assertions:</strong> dir=rtl; numbers intact</p>
+  <p><strong>Route / API / worker:</strong> /ar;/dashboard · n/a · n/a</p>
+  <p><strong>Evidence:</strong> </p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> Public /ar not separately screenshot; dashboard RTL unverified</p>
+</article></section><section class="mod"><h2>Demo vs live <small>1</small></h2>
+<article class="item" data-status="FAIL" data-text="data-001 demo vs live production does not present synthetic data as live empty states empty; demo labeled; status/changelog/notifications measured seed_demo may be on this host; unproven def-009,def-006,def-015,def-016,def-017,def-021,def-022,def-026 ">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">DATA-001</span>
+    <span class="badge st-fail">FAIL</span>
+  </div>
+  <h3>Production does not present synthetic data as live</h3>
+  <p><strong>Expected:</strong> Empty states empty; demo labeled; status/changelog/notifications measured</p>
+  <p><strong>Assertions:</strong> synthetic labeled</p>
+  <p><strong>Route / API / worker:</strong> multiple · multiple · multiple</p>
+  <p><strong>Evidence:</strong> Rules/Stratum/Custom Autopilot/Reports/Consent/Churn/Status/Notifications mocks</p>
+  <p><strong>Defects:</strong> DEF-009,DEF-006,DEF-015,DEF-016,DEF-017,DEF-021,DEF-022,DEF-026</p>
+  <p><strong>Blocker / next input:</strong> SEED_DEMO may be on this host; unproven</p>
+</article></section><section class="mod"><h2>Clock/currency <small>1</small></h2>
+<article class="item" data-status="BLOCKED" data-text="fx-001 clock/currency timezone and meta money units day boundaries in account tz; meta offset conversion via major_to_meta_minor unit coverage for conversion/refusal; live unverified  no live jpy account">
+  <div class="item-head">
+    <label class="fu"><input type="checkbox" /> Follow-up completed.</label>
+    <span class="id">FX-001</span>
+    <span class="badge st-blocked">BLOCKED</span>
+  </div>
+  <h3>Timezone and Meta money units</h3>
+  <p><strong>Expected:</strong> Day boundaries in account TZ; Meta offset conversion via major_to_meta_minor</p>
+  <p><strong>Assertions:</strong> JPY 100x not applied wrongly</p>
+  <p><strong>Route / API / worker:</strong> n/a · n/a · action_executor</p>
+  <p><strong>Evidence:</strong> write_client tests in test_meta_write_executor.py</p>
+  <p><strong>Defects:</strong> —</p>
+  <p><strong>Blocker / next input:</strong> No live JPY account</p>
+</article></section>
+</main>
+<script>
+(function () {
+  const q = document.getElementById("q");
+  const buttons = document.querySelectorAll(".toolbar button");
+  let status = "ALL";
+  function apply() {
+    const term = (q.value || "").toLowerCase();
+    document.querySelectorAll(".item").forEach(function (el) {
+      const okStatus = status === "ALL" || el.getAttribute("data-status") === status;
+      const okText = !term || (el.getAttribute("data-text") || "").indexOf(term) !== -1;
+      el.classList.toggle("hidden", !(okStatus && okText));
+    });
+  }
+  q.addEventListener("input", apply);
+  buttons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      status = b.getAttribute("data-filter");
+      buttons.forEach(function (x) { x.classList.toggle("on", x === b); });
+      apply();
+    });
+  });
+})();
+</script>
+</body>
+</html>

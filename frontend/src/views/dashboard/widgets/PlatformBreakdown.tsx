@@ -3,6 +3,7 @@
  */
 
 import { AlertTriangle, BarChart3, CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import type { PlatformSummary } from '@/api/dashboard';
 
@@ -71,6 +72,12 @@ export function PlatformBreakdown({ platforms, loading = false }: PlatformBreakd
       <div className="bg-card border rounded-lg p-5 text-center text-muted-foreground">
         <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
         <p>No platforms connected</p>
+        <Link
+          to="/dashboard/campaigns/connect"
+          className="inline-block mt-3 text-sm text-primary hover:underline"
+        >
+          Connect Meta Ads
+        </Link>
       </div>
     );
   }

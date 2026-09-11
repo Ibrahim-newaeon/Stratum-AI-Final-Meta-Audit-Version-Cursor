@@ -33,6 +33,8 @@ COPY package*.json ./
 RUN npm ci --legacy-peer-deps
 
 COPY . .
+ARG GIT_SHA=unknown
+ENV VITE_GIT_SHA=$GIT_SHA
 RUN npm run build
 
 # Production stage (memory audit Feb 2026)
@@ -41,8 +43,7 @@ FROM nginx:alpine AS production
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html
 # nginx.conf is a template: the image's entrypoint renders ${API_UPSTREAM} into
-# /etc/nginx/conf.d/default.conf at startup (docker-compose: api:8000,
-# Railway: api.railway.internal:8000).
+# /etc/nginx/conf.d/default.conf at startup (docker compose: api:8000).
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 ENV API_UPSTREAM=api:8000
 # Makes the entrypoint export NGINX_LOCAL_RESOLVERS (from /etc/resolv.conf) for the template

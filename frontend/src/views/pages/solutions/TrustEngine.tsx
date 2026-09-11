@@ -53,7 +53,7 @@ export default function TrustEngineSolution() {
                   boxShadow: '0 4px 20px rgba(249, 115, 22, 0.4)',
                 }}
               >
-                Start Free Trial
+                Create free account
               </Link>
             </div>
             <div
