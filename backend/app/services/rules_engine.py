@@ -345,7 +345,7 @@ class RulesEngine:
             - message: Custom message text (for text messages within 24hr window)
         """
         from app.models import WhatsAppContact, WhatsAppMessage, WhatsAppMessageStatus
-        from app.services.whatsapp_client import WhatsAppAPIError, WhatsAppClient
+        from app.services.whatsapp_client import WhatsAppAPIError, get_whatsapp_client_for_tenant
 
         contact_ids = config.get("contact_ids", [])
         template_name = config.get("template_name", "rule_alert")
@@ -386,7 +386,7 @@ class RulesEngine:
         )
 
         # Send to each contact
-        client = WhatsAppClient()
+        client = await get_whatsapp_client_for_tenant(self.db, self.tenant_id)
         sent_count = 0
         failed_count = 0
         results = []
