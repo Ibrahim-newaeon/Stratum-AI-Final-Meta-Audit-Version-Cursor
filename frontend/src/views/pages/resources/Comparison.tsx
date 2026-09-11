@@ -145,7 +145,7 @@ const features: FeatureRow[] = [
   {
     feature: 'Custom Autopilot Rules',
     category: 'Automation',
-    stratum: 'yes',
+    stratum: 'no',
     competitors: { segment: 'no', braze: 'yes', mparticle: 'no', amplitude: 'no' },
   },
   {
@@ -157,7 +157,7 @@ const features: FeatureRow[] = [
   {
     feature: 'Predictive Churn Scoring',
     category: 'Automation',
-    stratum: 'yes',
+    stratum: 'no',
     competitors: { segment: 'no', braze: 'yes', mparticle: 'partial', amplitude: 'yes' },
   },
 

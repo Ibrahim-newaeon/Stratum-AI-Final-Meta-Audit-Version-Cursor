@@ -334,7 +334,7 @@ const professional: TierContent = {
       name: 'Reporting & Support',
       icon: 'chart',
       features: [
-        { name: 'Custom report builder', included: true },
+        { name: 'Custom report builder', included: false },
         { name: 'Scheduled reports', included: true },
         { name: 'Priority support', included: true },
         { name: 'Dedicated account manager', included: false },
@@ -439,9 +439,9 @@ const enterprise: TierContent = {
       features: [
         {
           name: 'Custom Autopilot Rules',
-          description: 'Your own if/then automation logic, gated by trust thresholds.',
-          included: true,
-          highlight: true,
+          description: 'Not included in this portal release (was mock-only).',
+          included: false,
+          highlight: false,
         },
         { name: 'SSO & role-based access', included: true, highlight: true },
         { name: 'Trust Gate Audit Logs', included: true },
@@ -468,8 +468,8 @@ const enterprise: TierContent = {
       icon: 'brain',
       features: [
         { name: 'Full CDP with audience sync', included: true },
-        { name: 'All predictive models', description: 'ROAS, LTV, churn, conversion, creative fatigue.', included: true },
-        { name: 'Predictive Churn Modeling', included: true, highlight: true },
+        { name: 'Predictive models (ROAS / creative fatigue)', included: true },
+        { name: 'Predictive Churn Modeling', included: false, highlight: false },
         { name: 'Identity Graph', included: true },
       ],
     },
@@ -487,7 +487,7 @@ const enterprise: TierContent = {
   testimonials: [
     {
       quote:
-        'We manage forty Meta ad accounts across brands. Custom Autopilot rules with hard trust thresholds gave us automation our compliance team could actually approve.',
+        'We manage forty Meta ad accounts across brands. Trust Gate audit logs and explicit write switches gave us automation our compliance team could actually approve.',
       author: 'Ingrid Vos',
       role: 'Director of Media',
       company: 'Atlas Commerce Group',
@@ -527,7 +527,7 @@ const enterprise: TierContent = {
     {
       question: 'Can we enforce our own automation guardrails?',
       answer:
-        'Yes. Custom Autopilot Rules let you define your own if/then logic, spending caps and approval thresholds. All rules are still gated by signal health - automation never executes below the trust threshold.',
+        'Yes. Trust Gate thresholds, Autopilot execution flags (writes off by default), and Automation Rules that stay local-only until you enable them. Custom Autopilot Rules are not included in this portal release.',
     },
     {
       question: 'Do you support SSO and granular permissions?',
