@@ -54,7 +54,7 @@ const PLATFORMS = [
     name: 'WhatsApp Business',
     logo: '/platforms/whatsapp.svg',
     color: 'bg-green-500',
-    description: 'WhatsApp Business Cloud API',
+    description: 'WhatsApp Conversions API (not Module G messaging)',
     credentials: [
       {
         field: 'phone_number_id',
@@ -252,6 +252,8 @@ export function CAPISetup() {
               <Link to="/dashboard/campaigns/connect" className="text-primary hover:underline">
                 Connect Platforms
               </Link>
+              . WhatsApp here is <strong>Conversions API</strong> only — Module G messaging tokens
+              go under WhatsApp Manager → Credentials.
             </span>
           </p>
         </div>

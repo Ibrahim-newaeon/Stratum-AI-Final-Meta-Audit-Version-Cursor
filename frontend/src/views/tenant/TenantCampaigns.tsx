@@ -6,9 +6,9 @@
 
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { FunnelIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, FunnelIcon, MagnifyingGlassIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
-import { useCampaigns } from '@/api/hooks';
+import { useCampaigns, useDiscoverCampaigns } from '@/api/hooks';
 
 interface Campaign {
   id: string;
@@ -36,6 +36,20 @@ export default function TenantCampaigns() {
 
   // Fetch campaigns from API
   const { data: campaignsData } = useCampaigns();
+  const discoverCampaigns = useDiscoverCampaigns();
+  const [discoverMessage, setDiscoverMessage] = useState<string | null>(null);
+
+  const onDiscover = async () => {
+    setDiscoverMessage(null);
+    try {
+      await discoverCampaigns.mutateAsync();
+      setDiscoverMessage('Discovery queued. Campaign list refreshes when Meta sync finishes.');
+    } catch (err) {
+      setDiscoverMessage(
+        err instanceof Error ? err.message : 'Failed to start campaign discovery',
+      );
+    }
+  };
 
   // Transform API data; empty when none discovered yet
   const campaigns = useMemo((): Campaign[] => {
@@ -80,14 +94,30 @@ export default function TenantCampaigns() {
           <h1 className="text-2xl font-bold">Campaigns</h1>
           <p className="text-muted-foreground">Manage your advertising campaigns</p>
         </div>
-        <Link
-          to={`/app/${tenantId}/campaigns/new`}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-        >
-          <PlusIcon className="h-5 w-5" />
-          Create Campaign
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onDiscover}
+            disabled={discoverCampaigns.isPending}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border bg-background hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <ArrowPathIcon
+              className={cn('h-5 w-5', discoverCampaigns.isPending && 'animate-spin')}
+            />
+            Discover from Meta
+          </button>
+          <Link
+            to={`/app/${tenantId}/campaigns/new`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Create Campaign
+          </Link>
+        </div>
       </div>
+      {discoverMessage && (
+        <p className="text-sm text-muted-foreground -mt-2">{discoverMessage}</p>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
