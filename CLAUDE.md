@@ -137,6 +137,7 @@ Frontend lint, type checking, unit tests, and builds are blocking in GitHub Acti
 - Do not hardcode production API or WebSocket hosts; use the existing same-origin defaults and environment configuration.
 - Keep routes, navigation, API types, loading/error states, and English/Arabic copy aligned when a feature changes.
 - Reuse the existing component, theme, and state-management patterns before introducing new abstractions.
+- **Full website (landing) + dashboard redesign is an important product goal but must not be started ASAP.** Prefer Meta activation and backend/product work first; keep current-FE changes minimal (thin API adapters) until that redesign begins. See `docs/feature-audit.md`.
 
 ## Database and configuration
 

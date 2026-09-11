@@ -4,6 +4,18 @@
 **Grounded in:** implementation, tests, `CLAUDE.md`, `docs/` (not README/marketing).  
 **Constraints:** no write/automation paths enabled; no production changes.
 
+### Product priority — full frontend redesign (important, not ASAP)
+
+A **full redesign of the marketing website (landing pages) and the in-app dashboard** is an **important** product goal after the audit, but it is **explicitly not an immediate kickoff**.
+
+| Do now | Do later (after Meta go-live + backend gaps) |
+|--------|-----------------------------------------------|
+| Meta OAuth on live/staging, discovery, insights, CAPI traffic | Rebuild landing + dashboard UX/IA/visual system |
+| Backend/product: Rules→Meta policy, WhatsApp per-tenant, ML artifacts, billing/measurement config | Polish or deep-refactor the **current** Campaigns / Overview / CDP screens |
+| Thin API clients the **new** FE can call (e.g. discover hook) | Large dashboard UI features that the redesign will replace |
+
+**Rule for agents/contributors:** treat redesign as a tracked priority, not the next sprint. Prefer durable backend and Meta activation over investing in throwaway UI on the present frontend.
+
 ---
 
 ## Executive summary
@@ -424,6 +436,10 @@ Scheduling ≠ enabling. The beat entry runs so ops can see the worker path, but
 
 ## Explicit callouts
 
+### Full app redesign (website + dashboard)
+
+**Important, deferred.** Rebuild landing pages and the dashboard after Meta activation and remaining backend/product work. Do **not** start the redesign ASAP; do **not** spend large effort polishing the current FE (it will be replaced). Keep new FE work minimal (API adapters / hooks only) until the redesign begins.
+
 ### Mock vs real (current defaults in examples / Cloud install)
 
 | Flag | Typical local | Effect |
@@ -455,3 +471,5 @@ Real code in `write_client.py` / `action_executor.py`. Disabled by dual flags so
 - [x] Verified ML artifacts: metadata only, no `.pkl` in repo / `ML_MODELS_PATH`
 
 *Audit matrix complete for requested surfaces. Revisit after product decisions on Rules→Meta and CAPI credential persistence.*
+
+*Product note (2026-09-11): full landing + dashboard redesign is **important** and **deferred** — not an ASAP kickoff; finish Meta go-live and backend gaps first.*
