@@ -315,7 +315,7 @@ def _execute_action(rule: Rule, campaign: Campaign, db: Session) -> dict[str, An
         result["success"] = False
         result["skipped"] = True
         result["reason"] = "local_campaign_mutations_disabled"
-        return result
+        return stamp_local_only(result)
 
     try:
         if action_type == "apply_label":

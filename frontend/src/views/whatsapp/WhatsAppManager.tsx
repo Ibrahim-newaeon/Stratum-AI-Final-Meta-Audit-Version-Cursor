@@ -15,14 +15,16 @@ import {
   CheckCircleIcon,
   ExclamationCircleIcon,
   PaperAirplaneIcon,
+  KeyIcon,
 } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
 import WhatsAppContacts from './WhatsAppContacts';
 import WhatsAppTemplates from './WhatsAppTemplates';
 import WhatsAppBroadcast from './WhatsAppBroadcast';
 import WhatsAppMessages from './WhatsAppMessages';
+import WhatsAppCredentialsPanel from './WhatsAppCredentialsPanel';
 
-type TabId = 'overview' | 'contacts' | 'templates' | 'broadcast' | 'messages';
+type TabId = 'overview' | 'credentials' | 'contacts' | 'templates' | 'broadcast' | 'messages';
 
 interface TabConfig {
   id: TabId;
@@ -37,6 +39,12 @@ const tabs: TabConfig[] = [
     label: 'Overview',
     icon: ChartBarIcon,
     description: 'Dashboard & Analytics',
+  },
+  {
+    id: 'credentials',
+    label: 'Credentials',
+    icon: KeyIcon,
+    description: 'Cloud API messaging',
   },
   {
     id: 'contacts',
@@ -83,6 +91,8 @@ export default function WhatsAppManager() {
 
   const renderContent = () => {
     switch (activeTab) {
+      case 'credentials':
+        return <WhatsAppCredentialsPanel />;
       case 'contacts':
         return <WhatsAppContacts />;
       case 'templates':

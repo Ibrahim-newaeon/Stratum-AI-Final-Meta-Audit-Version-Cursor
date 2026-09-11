@@ -12,6 +12,7 @@ import {
   Pause,
   Play,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   TrendingDown,
@@ -29,6 +30,7 @@ import {
   useActivateCampaign,
   useCampaigns,
   useDeleteCampaign,
+  useDiscoverCampaigns,
   usePauseCampaign,
 } from '@/api/hooks';
 import { useTenantStore } from '@/stores/tenantStore';
@@ -72,8 +74,9 @@ export function Campaigns() {
   const pauseCampaign = usePauseCampaign();
   const activateCampaign = useActivateCampaign();
   const deleteCampaign = useDeleteCampaign();
+  const discoverCampaigns = useDiscoverCampaigns();
 
-  // Transform API data or fall back to mock
+  // Transform API campaigns; empty list when none discovered yet (no mock catalogue)
   const campaigns = useMemo((): Campaign[] => {
     if (campaignsData?.items && campaignsData.items.length > 0) {
       return campaignsData.items.map((c: any) => ({
@@ -208,13 +211,45 @@ export function Campaigns() {
           <p className="text-muted-foreground">{t('campaigns.subtitle')}</p>
         </div>
 
-        <button
-          onClick={() => setCreateModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{t('campaigns.createNew')}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              discoverCampaigns.mutate(undefined, {
+                onSuccess: () => {
+                  toast({
+                    title: 'Discovery queued',
+                    description: 'Campaign list refreshes when Meta sync finishes.',
+                  });
+                },
+                onError: (err) => {
+                  toast({
+                    title: 'Discovery failed',
+                    description: err instanceof Error ? err.message : 'Could not start discovery',
+                    variant: 'destructive',
+                  });
+                },
+              });
+            }}
+            disabled={discoverCampaigns.isPending}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border bg-background hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <Loader2
+              className={cn('w-4 h-4', discoverCampaigns.isPending ? 'animate-spin' : 'hidden')}
+            />
+            <RefreshCw
+              className={cn('w-4 h-4', discoverCampaigns.isPending ? 'hidden' : undefined)}
+            />
+            <span>Discover from Meta</span>
+          </button>
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{t('campaigns.createNew')}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

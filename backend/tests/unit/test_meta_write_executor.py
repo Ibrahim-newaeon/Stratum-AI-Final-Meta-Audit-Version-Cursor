@@ -1724,6 +1724,7 @@ class TestOffByDefault:
         defaults = Settings.model_fields
         assert defaults["autopilot_execution_enabled"].default is False
         assert defaults["autopilot_execution_dry_run"].default is True
+        assert defaults["rules_meta_writes_enabled"].default is False
         assert defaults["rules_local_campaign_mutations_enabled"].default is False
 
     def test_default_allowlist_is_never_wider_than_safe_actions(self):
@@ -1855,6 +1856,7 @@ class TestOffByDefault:
         defaults = Settings.model_fields
         assert defaults["autopilot_execution_enabled"].default is False
         assert defaults["autopilot_execution_dry_run"].default is True
+        assert defaults["rules_meta_writes_enabled"].default is False
         assert defaults["rules_local_campaign_mutations_enabled"].default is False
 
     def test_the_task_starts_its_own_event_loop(self):
