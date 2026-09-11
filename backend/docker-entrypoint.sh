@@ -23,6 +23,11 @@ case "$ROLE" in
       python scripts_seed_demo.py
       python scripts_seed_demo_data.py
     fi
+    # Sample .pkl artifacts for local inference (idempotent; skip if present).
+    # Opt in with BOOTSTRAP_ML_MODELS=true, or automatically with SEED_DEMO.
+    if [ "${BOOTSTRAP_ML_MODELS:-false}" = "true" ] || [ "${SEED_DEMO:-false}" = "true" ]; then
+      python scripts_bootstrap_ml_models.py || echo "warning: ML model bootstrap failed (predictions may be unavailable)"
+    fi
     exec python serve.py
     ;;
   worker)
