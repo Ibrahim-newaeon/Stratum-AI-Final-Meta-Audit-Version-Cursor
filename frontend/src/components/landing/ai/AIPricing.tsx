@@ -108,7 +108,7 @@ const featureCategories = [
     category: 'Trust Engine',
     features: [
       { name: 'Signal Health Scoring', starter: true, professional: true, enterprise: true },
-      { name: 'Trust-Gated Autopilot', starter: false, professional: true, enterprise: true },
+      { name: 'Trust-Gated Autopilot', starter: false, professional: 'Writes off by default', enterprise: 'Writes off by default' },
       {
         name: 'Anomaly Detection',
         starter: 'Basic',

@@ -38,7 +38,8 @@
     "mlTraining": "ML Training",
     "capiSetup": "CAPI Setup",
     "dataQuality": "Data Quality",
-    "emqDashboard": "EMQ Dashboard"
+    "emqDashboard": "EMQ Dashboard",
+    "customAutopilot": "Custom Autopilot"
   },
   "overview": {
     "title": "Overview",

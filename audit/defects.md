@@ -67,6 +67,7 @@ Passwords and tokens are not recorded here.
 ### DEF-006 — Custom Autopilot is an in-memory mock
 
 - **Severity:** Blocker (advertised launch feature with no implementation)
+- **Status:** Mitigated for portal launch — route stays `LaunchUnavailable`; marketing de-claims Custom Autopilot; mock view remains unlinked.
 - **Affected feature:** Custom Autopilot Rules
 - **Reproduction:** `frontend/src/views/CustomAutopilotRules.tsx` seeds `mockRules`, save is `setTimeout` 1s, no API module.
 - **Expected:** Persist, evaluate, trust-gate, audit.
@@ -98,6 +99,7 @@ Passwords and tokens are not recorded here.
 ### DEF-009 — Automation Rules fall back to mock “active” rules
 
 - **Severity:** High
+- **Status:** Fixed — empty API yields empty UI (`Rules.honesty.test.ts`).
 - **Affected feature:** `/dashboard/rules`
 - **Reproduction:** `useMemo` returns `mockRules` when `items` is empty (including a new tenant).
 - **Expected:** Empty state.
@@ -145,6 +147,8 @@ Passwords and tokens are not recorded here.
 
 ### DEF-014 / DEF-015 / DEF-016 / DEF-017 / DEF-021 / DEF-022 — Mock presented as product data
 
+- **Status (portal launch):** Routes for custom reports / consent / churn stay `LaunchUnavailable`; Stratum Apply is local-only labeled; Rules/EMQ empty-state honesty retained; marketing de-claims unfinished modules.
+
 | ID | Surface | Evidence |
 |---|---|---|
 | DEF-014 | Stratum Analytics mock insights when API empty | `views/Stratum.tsx` |
@@ -171,6 +175,7 @@ Passwords and tokens are not recorded here.
 ### DEF-019 — Knowledge Graph Insights is a placeholder
 
 - **Severity:** Medium (advertised module)
+- **Status:** Mitigated — route uses `LaunchUnavailable`; removed from KG nav; listed in `PORTAL_LAUNCH_HIDDEN_HREFS`.
 - **Expected:** Graph insights from API.
 - **Actual:** File comment: “placeholder… under construction”; links only.
 - **Evidence:** `KnowledgeGraphInsights.tsx`
@@ -195,6 +200,7 @@ Passwords and tokens are not recorded here.
 ### DEF-024 — Debug `/test-page` is live
 
 - **Severity:** Low
+- **Status:** Fixed — `TestPage.tsx` deleted; route already absent; href remains hidden in portal launch list.
 - **Expected:** Absent in production.
 - **Actual:** “Routing is working. This page exists only for debugging navigation.”
 - **Evidence:** `audit/evidence/PROD-test-page.png`
@@ -211,6 +217,7 @@ Passwords and tokens are not recorded here.
 ### DEF-026 — Status page is hardcoded marketing
 
 - **Severity:** Medium
+- **Status:** Mitigated — hero labeled illustrative/sample; points operators to `/health` probes.
 - **Expected:** Real probes, or labeled sample.
 - **Actual:** Copy says “Real-time status”; `Status.tsx` hardcodes 99.98% and January 2026 bars.
 - **Evidence:** `audit/evidence/PROD-status.png`; `Status.tsx`

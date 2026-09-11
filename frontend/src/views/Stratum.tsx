@@ -90,9 +90,8 @@ function InsightDetailModal({
   if (!insight) return null;
 
   const handleApply = async () => {
+    // Recommendations are not persisted — marking local UI only.
     setIsApplying(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
     onApply(insight);
     setIsApplying(false);
   };
@@ -408,7 +407,7 @@ function InsightDetailModal({
             ) : (
               <>
                 <Zap className="w-4 h-4" />
-                {insight.type === 'warning' ? 'Fix Issue' : 'Apply Recommendation'}
+                {insight.type === 'warning' ? 'Mark reviewed (local)' : 'Mark applied (local)'}
               </>
             )}
           </button>
@@ -1219,19 +1218,21 @@ export function Stratum() {
   const [createdAlerts, setCreatedAlerts] = useState<AlertRule[]>([]);
 
   // Get tenant ID from tenant store
-  const tenantId = useTenantStore((state) => state.tenantId) ?? 1;
+  const tenantId = useTenantStore((state) => state.tenantId);
+  // Do not default to tenant 1 — wait until the store has a real tenant.
+  const insightsTenantId = tenantId ?? 0;
 
   // Fetch data from API
   const {
     data: insightsData,
     isLoading: insightsLoading,
     refetch: refetchInsights,
-  } = useInsights(tenantId);
-  const { data: _recommendationsData } = useRecommendations(tenantId);
-  const { data: anomaliesData, isLoading: _anomaliesLoading } = useAnomalies(tenantId);
+  } = useInsights(insightsTenantId);
+  const { data: _recommendationsData } = useRecommendations(insightsTenantId);
+  const { data: anomaliesData, isLoading: _anomaliesLoading } = useAnomalies(insightsTenantId);
   const { data: _predictionsData } = useLivePredictions();
 
-  // Transform API insights or fall back to mock
+  // Transform API insights; empty when none (no mock catalogue)
   const insights = useMemo(() => {
     if (insightsData?.actions && insightsData.actions.length > 0) {
       return insightsData.actions.slice(0, 3).map((i, idx) => ({
@@ -1247,7 +1248,7 @@ export function Stratum() {
     return [];
   }, [insightsData]);
 
-  // Transform API anomalies or fall back to mock
+  // Transform API anomalies; empty when none (no mock catalogue)
   const anomalies = useMemo(() => {
     if (anomaliesData?.anomalies && anomaliesData.anomalies.length > 0) {
       return anomaliesData.anomalies.slice(0, 3).map((a, idx) => ({
@@ -1276,12 +1277,10 @@ export function Stratum() {
     setSelectedInsight(insight);
   };
 
-  // Handle apply recommendation
+  // Handle apply recommendation (UI-only; no Autopilot / Meta write)
   const handleApplyRecommendation = (insight: Insight) => {
     setAppliedInsights((prev) => [...prev, insight.id]);
     setSelectedInsight(null);
-    // Here you would typically make an API call to apply the recommendation
-    // For now, we just track it locally
   };
 
   // Handle anomaly card click

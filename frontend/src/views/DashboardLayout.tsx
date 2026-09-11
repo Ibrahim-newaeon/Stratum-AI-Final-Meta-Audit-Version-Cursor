@@ -62,6 +62,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { NeuralNetworkBg } from '@/components/ui/NeuralNetworkBg';
 import { TrustGateIndicator } from '@/components/ui/TrustGateIndicator';
 import { OnboardingChat, OnboardingChatButton } from '@/components/onboarding';
+import { isHiddenInPortalLaunch } from '@/lib/portalLaunch';
 
 // Stratum AI Dashboard Theme - Midnight Teal Glass
 const theme = {
@@ -122,6 +123,7 @@ const navigation = [
   },
   { name: 'nav.assets', href: '/dashboard/assets', icon: PhotoIcon, tourId: 'nav-assets' },
   { name: 'nav.rules', href: '/dashboard/rules', icon: BoltIcon, tourId: 'nav-rules' },
+  { name: 'nav.customAutopilot', href: '/dashboard/custom-autopilot-rules', icon: BoltIcon, tourId: 'nav-custom-autopilot' },
   {
     name: 'nav.whatsapp',
     href: '/dashboard/whatsapp',
@@ -143,10 +145,13 @@ const cdpNavigation = [
 ];
 
 const kgNavigation = [
-  { name: 'Insights', href: '/dashboard/knowledge-graph/insights', icon: SparklesIcon },
   { name: 'Problem Detection', href: '/dashboard/knowledge-graph/problems', icon: ExclamationTriangleIcon },
   { name: 'Revenue Attribution', href: '/dashboard/knowledge-graph/revenue', icon: CurrencyDollarIcon },
 ];
+
+const visibleNavigation = navigation.filter((item) => !isHiddenInPortalLaunch(item.href));
+const visibleCdpNavigation = cdpNavigation.filter((item) => !isHiddenInPortalLaunch(item.href));
+const visibleKgNavigation = kgNavigation.filter((item) => !isHiddenInPortalLaunch(item.href));
 
 export default function DashboardLayout() {
   const { t, i18n } = useTranslation();
@@ -275,7 +280,7 @@ export default function DashboardLayout() {
 
             {/* Navigation */}
             <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1" id="sidebar-nav">
-              {navigation.map((item) => {
+              {visibleNavigation.map((item) => {
                 const isActive = location.pathname === item.href;
                 return (
                   <NavLink
@@ -353,7 +358,7 @@ export default function DashboardLayout() {
                       className="mt-1 ml-3 pl-3 space-y-0.5 overflow-hidden"
                       style={{ borderLeft: `2px solid ${theme.primaryLight}` }}
                     >
-                      {cdpNavigation.map((item, index) => {
+                      {visibleCdpNavigation.map((item, index) => {
                         const isActive = location.pathname === item.href;
                         return (
                           <motion.div
@@ -429,7 +434,7 @@ export default function DashboardLayout() {
                       className="mt-1 ml-3 pl-3 space-y-0.5 overflow-hidden"
                       style={{ borderLeft: `2px solid ${theme.primaryLight}` }}
                     >
-                      {kgNavigation.map((item, index) => {
+                      {visibleKgNavigation.map((item, index) => {
                         const isActive = location.pathname === item.href;
                         return (
                           <motion.div

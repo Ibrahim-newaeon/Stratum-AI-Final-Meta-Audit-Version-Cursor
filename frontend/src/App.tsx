@@ -68,10 +68,10 @@ const CDPAudienceSync = lazy(() => import('./views/cdp/CDPAudienceSync'));
 const CDPRfm = lazy(() => import('./views/cdp/CDPRfm'));
 const CDPFunnels = lazy(() => import('./views/cdp/CDPFunnels'));
 const CDPComputedTraits = lazy(() => import('./views/cdp/CDPComputedTraits'));
+const CustomAutopilotRules = lazy(() => import('./views/CustomAutopilotRules'));
 const LaunchUnavailable = lazy(() => import('./views/LaunchUnavailable'));
 
 // Knowledge Graph views
-const KnowledgeGraphInsights = lazy(() => import('./views/KnowledgeGraphInsights'));
 const KGProblemDetection = lazy(() => import('./views/knowledge-graph/KGProblemDetection'));
 const KGRevenueAttribution = lazy(() => import('./views/knowledge-graph/KGRevenueAttribution'));
 
@@ -914,7 +914,7 @@ function App() {
                         path="knowledge-graph"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <KnowledgeGraphInsights />
+                            <Navigate to="/dashboard/knowledge-graph/problems" replace />
                           </Suspense>
                         }
                       />
@@ -922,7 +922,10 @@ function App() {
                         path="knowledge-graph/insights"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <KnowledgeGraphInsights />
+                            <LaunchUnavailable
+                              title="Knowledge Graph Insights"
+                              reason="This module was a placeholder under construction and is not included in this portal release."
+                            />
                           </Suspense>
                         }
                       />
@@ -959,10 +962,7 @@ function App() {
                         path="custom-autopilot-rules"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Custom Autopilot"
-                              reason="Custom Autopilot rules are not included in this portal release. Saves stayed in the browser and never reached the API."
-                            />
+                            <CustomAutopilotRules />
                           </Suspense>
                         }
                       />

@@ -75,6 +75,10 @@ from app.workers.tasks.rules import (
     evaluate_all_rules,
     evaluate_rules,
 )
+from app.workers.tasks.custom_autopilot import (
+    evaluate_all_custom_autopilot,
+    evaluate_tenant_custom_autopilot,
+)
 from app.workers.tasks.scores import (
     calculate_daily_scores,
 )
@@ -99,6 +103,8 @@ __all__ = [
     # Rules tasks
     "evaluate_rules",
     "evaluate_all_rules",
+    "evaluate_all_custom_autopilot",
+    "evaluate_tenant_custom_autopilot",
     # Competitor tasks
     "fetch_competitor_data",
     "refresh_all_competitors",

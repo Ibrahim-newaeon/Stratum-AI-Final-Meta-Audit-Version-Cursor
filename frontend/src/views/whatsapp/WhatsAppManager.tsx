@@ -72,18 +72,18 @@ const tabs: TabConfig[] = [
   },
 ];
 
-// Mock stats for overview
-const mockStats = {
-  totalContacts: 12453,
-  optedIn: 11234,
-  optedOut: 1219,
-  templates: 8,
-  approvedTemplates: 6,
-  pendingTemplates: 2,
-  messagesSent: 45678,
-  messagesDelivered: 44123,
-  messagesRead: 38456,
-  broadcastsThisMonth: 12,
+// Overview shows zeros until a live stats API exists (do not invent catalogue numbers).
+const emptyStats = {
+  totalContacts: 0,
+  optedIn: 0,
+  optedOut: 0,
+  templates: 0,
+  approvedTemplates: 0,
+  pendingTemplates: 0,
+  messagesSent: 0,
+  messagesDelivered: 0,
+  messagesRead: 0,
+  broadcastsThisMonth: 0,
 };
 
 export default function WhatsAppManager() {
@@ -102,7 +102,7 @@ export default function WhatsAppManager() {
       case 'messages':
         return <WhatsAppMessages />;
       default:
-        return <OverviewDashboard stats={mockStats} onNavigate={setActiveTab} />;
+        return <OverviewDashboard stats={emptyStats} onNavigate={setActiveTab} />;
     }
   };
 
@@ -160,15 +160,26 @@ function OverviewDashboard({
   stats,
   onNavigate,
 }: {
-  stats: typeof mockStats;
+  stats: typeof emptyStats;
   onNavigate: (tab: TabId) => void;
 }) {
-  const deliveryRate = ((stats.messagesDelivered / stats.messagesSent) * 100).toFixed(1);
-  const readRate = ((stats.messagesRead / stats.messagesDelivered) * 100).toFixed(1);
-  const optInRate = ((stats.optedIn / stats.totalContacts) * 100).toFixed(1);
+  const deliveryRate =
+    stats.messagesSent > 0
+      ? ((stats.messagesDelivered / stats.messagesSent) * 100).toFixed(1)
+      : '0.0';
+  const readRate =
+    stats.messagesDelivered > 0
+      ? ((stats.messagesRead / stats.messagesDelivered) * 100).toFixed(1)
+      : '0.0';
+  const optInRate =
+    stats.totalContacts > 0 ? ((stats.optedIn / stats.totalContacts) * 100).toFixed(1) : '0.0';
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-gray-400">
+        Overview counters stay at zero until a live WhatsApp analytics API is wired. Connect
+        messaging credentials first.
+      </p>
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

@@ -195,7 +195,7 @@ export function Rules() {
     }
   }, [deleteRule, toast]);
 
-  // Transform API data or fall back to mock
+  // Transform API data; empty when none (no mock active rules)
   const rules = useMemo((): Rule[] => {
     if (rulesData?.items && rulesData.items.length > 0) {
       return rulesData.items.map((r: any) => ({

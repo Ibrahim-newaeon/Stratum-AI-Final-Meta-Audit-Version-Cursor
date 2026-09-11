@@ -38,7 +38,8 @@
     "mlTraining": "تدريب الذكاء الاصطناعي",
     "capiSetup": "إعداد واجهة التحويلات",
     "dataQuality": "جودة البيانات",
-    "emqDashboard": "لوحة جودة المطابقة"
+    "emqDashboard": "لوحة جودة المطابقة",
+    "customAutopilot": "الطيار الآلي المخصص"
   },
   "overview": {
     "title": "نظرة عامة",

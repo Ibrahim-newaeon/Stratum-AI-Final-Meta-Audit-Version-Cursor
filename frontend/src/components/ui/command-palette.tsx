@@ -28,6 +28,7 @@ import {
   Workflow,
   Zap,
 } from 'lucide-react';
+import { isHiddenInPortalLaunch } from '@/lib/portalLaunch';
 
 interface CommandItem {
   id: string;
@@ -38,6 +39,8 @@ interface CommandItem {
   action: () => void;
   keywords?: string[];
   shortcut?: string;
+  /** When set, portal-launch hidden modules are filtered out of the palette */
+  href?: string;
 }
 
 interface CommandPaletteProps {
@@ -274,11 +277,14 @@ export function CommandPalette({ tenantId }: CommandPaletteProps) {
     [basePath, navigate]
   );
 
-  // Filter commands based on search
+  // Filter portal-hidden modules, then search
   const filteredCommands = React.useMemo(() => {
-    if (!search) return commands;
+    const launchSafe = commands.filter(
+      (cmd) => !cmd.href || !isHiddenInPortalLaunch(cmd.href)
+    );
+    if (!search) return launchSafe;
     const query = search.toLowerCase();
-    return commands.filter(
+    return launchSafe.filter(
       (cmd) =>
         cmd.title.toLowerCase().includes(query) ||
         cmd.description?.toLowerCase().includes(query) ||

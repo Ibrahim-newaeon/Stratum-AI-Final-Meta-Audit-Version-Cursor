@@ -32,6 +32,7 @@ from app.api.v1.endpoints import (
     # CMS (Content Management System)
     cms,
     competitors,
+    custom_autopilot,
     dashboard,
     data_driven_attribution,
     emq_v2,
@@ -176,6 +177,13 @@ api_router.include_router(
     rules.router,
     prefix="/rules",
     tags=["Automation Rules"],
+)
+
+# Custom Autopilot (queues SAFE Autopilot actions only)
+api_router.include_router(
+    custom_autopilot.router,
+    prefix="/custom-autopilot-rules",
+    tags=["Custom Autopilot"],
 )
 
 # Competitor Intelligence (Module D)
