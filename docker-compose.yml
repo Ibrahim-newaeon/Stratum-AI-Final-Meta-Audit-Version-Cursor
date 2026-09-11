@@ -61,7 +61,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - ML_PROVIDER=${ML_PROVIDER:-local}
-      - ML_MODELS_PATH=/app/ml_service/models
+      - ML_MODELS_PATH=/app/ml_models
       - USE_MOCK_AD_DATA=${USE_MOCK_AD_DATA:-true}
       - MARKET_INTEL_PROVIDER=${MARKET_INTEL_PROVIDER:-mock}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-jwt-secret-dev}
@@ -82,7 +82,7 @@ services:
       - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./backend:/app
-      - ./ml_service/models:/app/ml_service/models:ro
+      - ./backend/ml_models:/app/ml_models
     ports:
       - "8000:8000"
     depends_on:
@@ -118,7 +118,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - ML_PROVIDER=${ML_PROVIDER:-local}
-      - ML_MODELS_PATH=/app/ml_service/models
+      - ML_MODELS_PATH=/app/ml_models
       - USE_MOCK_AD_DATA=${USE_MOCK_AD_DATA:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Slack Integration (for background alerts)
@@ -134,7 +134,7 @@ services:
       - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./backend:/app
-      - ./ml_service/models:/app/ml_service/models:ro
+      - ./backend/ml_models:/app/ml_models
     depends_on:
       db:
         condition: service_healthy

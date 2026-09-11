@@ -65,7 +65,18 @@ class ModelTrainer:
     """
 
     def __init__(self, models_path: str = None):
-        self.models_path = Path(models_path or os.getenv("ML_MODELS_PATH", "./models"))
+        # Prefer an explicit path, then Settings / env, then the canonical
+        # in-repo directory. Never default to ``./models`` — that path drifted
+        # from inference (``settings.ml_models_path`` → ``./ml_models``) and
+        # left LocalInferenceStrategy unable to find freshly trained artifacts.
+        if models_path is None:
+            try:
+                from app.core.config import settings
+
+                models_path = settings.ml_models_path
+            except Exception:
+                models_path = os.getenv("ML_MODELS_PATH", "./ml_models")
+        self.models_path = Path(models_path)
         self.models_path.mkdir(parents=True, exist_ok=True)
 
         self.scalers: dict[str, StandardScaler] = {}
@@ -897,7 +908,12 @@ if __name__ == "__main__":
     parser.add_argument("--sample", action="store_true", help="Use sample data")
     parser.add_argument("--campaigns", type=int, default=100, help="Sample campaigns")
     parser.add_argument("--days", type=int, default=30, help="Days per campaign")
-    parser.add_argument("--output", type=str, default="./models", help="Models output path")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Models output path (default: settings.ml_models_path / ./ml_models)",
+    )
 
     args = parser.parse_args()
 
