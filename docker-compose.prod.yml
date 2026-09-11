@@ -82,7 +82,7 @@ services:
       - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
       - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
-      - ./ml_service/models:/app/ml_service/models:ro
+      - ./backend/ml_models:/app/ml_models
     command: >
       sh -c "python scripts_create_schema.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     deploy:
@@ -125,7 +125,7 @@ services:
       - PADDLE_PROFESSIONAL_PRICE_ID=${PADDLE_PROFESSIONAL_PRICE_ID:-}
       - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
-      - ./ml_service/models:/app/ml_service/models:ro
+      - ./backend/ml_models:/app/ml_models
     # -Q must list every queue in celery_app.TASK_ROUTES/BEAT_SCHEDULE
     # (app.workers.celery_app.CELERY_QUEUES); without it the worker drains
     # only Celery's built-in "celery" queue and nothing scheduled runs.
