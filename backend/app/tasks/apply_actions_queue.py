@@ -33,7 +33,9 @@ from app.models.trust_layer import (
     FactActionsQueue,
     FactSignalHealthDaily,
     SignalHealthStatus,
+    TrustGateAuditLog,
 )
+from app.services.signal_health import status_for_score
 from app.services.meta.action_executor import (
     ActionOutcome,
     ExecutionStatus,
@@ -1017,7 +1019,7 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
                                 gate.reason,
                             )
                             action.error = f"Trust gate {gate.decision.value}: {gate.reason}"
-                            await log_gate_decision_audit(action=action, gate=gate)
+                            await log_gate_decision_audit(db=db, action=action, gate=gate)
                             await publish_action_status_update(
                                 tenant_id=action.tenant_id,
                                 action_id=str(action.id),
@@ -1166,11 +1168,67 @@ def apply_actions_queue(self, tenant_id: Optional[int] = None):
     return asyncio.run(run_apply())
 
 
+def _gate_decision_type(decision: GateDecision) -> str:
+    """Map a gate verdict onto TrustGateAuditLog.decision_type values."""
+    return {
+        GateDecision.PASS: "execute",
+        GateDecision.HOLD: "hold",
+        GateDecision.BLOCK: "block",
+    }[decision]
+
+
+async def _persist_trust_gate_audit_log(
+    db: AsyncSession,
+    *,
+    action: FactActionsQueue,
+    gate: SignalHealthGateResult,
+    decision_type: str,
+    gate_passed: bool,
+    is_dry_run: bool = False,
+    action_payload: dict[str, Any] | None = None,
+    action_result: dict[str, Any] | None = None,
+    triggered_by_user_id: int | None = None,
+    triggered_by_system: bool = True,
+) -> TrustGateAuditLog:
+    """
+    Write one durable ``TrustGateAuditLog`` row for an automation decision.
+
+    Stdout logging alone is not an audit trail: a worker restart loses it, and
+    operators cannot query held/blocked decisions later. Preview dry-runs
+    already write this table; the apply path must too.
+    """
+    audit = TrustGateAuditLog(
+        tenant_id=action.tenant_id,
+        decision_type=decision_type,
+        action_type=action.action_type,
+        entity_type=action.entity_type,
+        entity_id=str(action.entity_id),
+        entity_name=action.entity_name,
+        platform=action.platform,
+        signal_health_score=gate.score,
+        signal_health_status=status_for_score(gate.score, gate.bands),
+        gate_passed=1 if gate_passed else 0,
+        gate_reason=json.dumps([gate.reason]),
+        healthy_threshold=gate.bands.healthy,
+        degraded_threshold=gate.bands.degraded,
+        is_dry_run=1 if is_dry_run else 0,
+        action_payload=json.dumps(action_payload) if action_payload is not None else None,
+        action_result=json.dumps(action_result, default=str) if action_result is not None else None,
+        triggered_by_user_id=triggered_by_user_id,
+        triggered_by_system=1 if triggered_by_system else 0,
+        created_at=datetime.now(UTC),
+    )
+    db.add(audit)
+    return audit
+
+
 async def log_gate_decision_audit(
-    action: FactActionsQueue, gate: SignalHealthGateResult
+    db: AsyncSession,
+    action: FactActionsQueue,
+    gate: SignalHealthGateResult,
 ) -> None:
     """
-    Record a held or blocked action in the audit trail.
+    Record a held or blocked action in the durable audit trail.
 
     Every automation decision has to be explainable, so the entry carries the
     component inputs that produced the decision (per-channel scores, statuses
@@ -1178,9 +1236,28 @@ async def log_gate_decision_audit(
     the tenant's enforcement mode - not just the outcome.
 
     Args:
+        db: Async database session (caller commits)
         action: The queued action the gate refused to execute
         gate: The trust gate result explaining why
     """
+    audit_payload = {
+        "action_id": str(action.id),
+        "approved_by": action.approved_by_user_id,
+        "action_json": action.action_json,
+    }
+    await _persist_trust_gate_audit_log(
+        db,
+        action=action,
+        gate=gate,
+        decision_type=_gate_decision_type(gate.decision),
+        gate_passed=False,
+        is_dry_run=False,
+        action_payload=audit_payload,
+        action_result={"executed": False, "trust_gate": gate.to_audit_dict()},
+        triggered_by_user_id=action.approved_by_user_id,
+        triggered_by_system=True,
+    )
+
     audit_entry = {
         "timestamp": datetime.now(UTC).isoformat(),
         "event": "trust_gate_decision",
@@ -1206,15 +1283,13 @@ async def log_action_audit(
     gate: SignalHealthGateResult | None = None,
 ) -> None:
     """
-    Log an execution attempt to the audit trail.
+    Log an execution attempt to the durable audit trail.
 
     Records every attempt, not only the successful ones: a refusal and a
     dry run are automation decisions too, and the reason they did not act is
     the part an operator needs. The before- and after-values here are the ones
     the executor *measured* against Meta - the simulator this replaced logged
     values it had invented.
-
-    In production, this would write to a dedicated audit_log table.
 
     Args:
         db: Async database session
@@ -1224,6 +1299,36 @@ async def log_action_audit(
         gate: The trust gate result that permitted the execution, recorded so
             every executed automation carries the signal health it relied on
     """
+    gate_for_row = gate or SignalHealthGateResult(
+        decision=GateDecision.BLOCK,
+        reason="missing_gate_result",
+    )
+    is_dry_run = (
+        outcome.status is ExecutionStatus.DRY_RUN or settings.autopilot_execution_dry_run
+    )
+    await _persist_trust_gate_audit_log(
+        db,
+        action=action,
+        gate=gate_for_row,
+        decision_type=_gate_decision_type(gate_for_row.decision),
+        gate_passed=bool(gate and gate.may_execute),
+        is_dry_run=is_dry_run,
+        action_payload={
+            "action_id": str(action.id),
+            "approved_by": action.approved_by_user_id,
+            "action_json": action.action_json,
+        },
+        action_result={
+            "outcome_status": outcome.status.value,
+            "executed": outcome.wrote_to_meta,
+            "applied_at": action.applied_at.isoformat() if action.applied_at else None,
+            "execution": outcome.to_audit_dict(),
+            "trust_gate": gate.to_audit_dict() if gate else None,
+        },
+        triggered_by_user_id=action.applied_by_user_id or action.approved_by_user_id,
+        triggered_by_system=True,
+    )
+
     audit_entry = {
         "timestamp": datetime.now(UTC).isoformat(),
         "event": "action_execution_attempt",
@@ -1326,7 +1431,10 @@ def apply_single_action(self, action_id: str, user_id: Optional[int] = None):
                         action.tenant_id,
                         gate.reason,
                     )
-                    await log_gate_decision_audit(action=action, gate=gate)
+                    await log_gate_decision_audit(db=db, action=action, gate=gate)
+                    # Commit before returning: a held/blocked single-action
+                    # path used to leave the durable audit row uncommitted.
+                    await db.commit()
                     await publish_action_status_update(
                         tenant_id=action.tenant_id,
                         action_id=action_id,
