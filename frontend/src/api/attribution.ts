@@ -274,7 +274,7 @@ export const attributionApi = {
   // Journey Analysis
   getContactJourney: async (contactId: string) => {
     const response = await apiClient.get<ApiResponse<JourneyVisualization>>(
-      `/attribution/journeys/${contactId}`
+      `/attribution/journeys/contact/${contactId}`
     );
     return response.data.data;
   },
@@ -286,8 +286,15 @@ export const attributionApi = {
     minConversions?: number;
   }) => {
     const response = await apiClient.get<ApiResponse<ConversionPath[]>>(
-      '/attribution/journeys/top-paths',
-      { params }
+      '/attribution/journeys/conversion-paths',
+      {
+        params: {
+          start_date: params.startDate,
+          end_date: params.endDate,
+          limit: params.limit,
+          min_conversions: params.minConversions,
+        },
+      }
     );
     return response.data.data;
   },
@@ -298,7 +305,12 @@ export const attributionApi = {
         transitions: ChannelInteraction[];
         sankeyData: { nodes: any[]; links: any[] };
       }>
-    >('/attribution/journeys/transitions', { params });
+    >('/attribution/journeys/channel-transitions', {
+      params: {
+        start_date: params.startDate,
+        end_date: params.endDate,
+      },
+    });
     return response.data.data;
   },
 
@@ -316,7 +328,13 @@ export const attributionApi = {
           assistRatio: number;
         }>
       >
-    >('/attribution/journeys/assisted', { params });
+    >('/attribution/journeys/assisted-conversions', {
+      params: {
+        start_date: params.startDate,
+        end_date: params.endDate,
+        group_by: params.groupBy,
+      },
+    });
     return response.data.data;
   },
 
@@ -327,7 +345,12 @@ export const attributionApi = {
         medianDaysToConvert: number;
         distribution: Array<{ days: string; conversions: number; revenue: number }>;
       }>
-    >('/attribution/journeys/time-lag', { params });
+    >('/attribution/journeys/time-lag', {
+      params: {
+        start_date: params.startDate,
+        end_date: params.endDate,
+      },
+    });
     return response.data.data;
   },
 

@@ -7,24 +7,21 @@ import {
 } from './portalLaunch';
 
 describe('portal launch surface', () => {
-  it('hides unfinished and mock-backed dashboard modules', () => {
-    expect(PORTAL_LAUNCH_HIDDEN_HREFS).toEqual(
-      expect.arrayContaining([
-        '/dashboard/custom-reports',
-        '/dashboard/cdp/consent',
-        '/dashboard/cdp/predictive-churn',
-        '/dashboard/knowledge-graph/insights',
-        '/dashboard/knowledge-graph/journeys',
-        '/test-page',
-      ])
-    );
+  it('only hides debug remnants after unfinished modules are wired', () => {
+    expect(PORTAL_LAUNCH_HIDDEN_HREFS).toEqual(['/test-page']);
   });
 
   it('matches tenant-prefixed and query-stripped paths', () => {
-    expect(isHiddenInPortalLaunch('/dashboard/cdp/predictive-churn')).toBe(true);
-    expect(isHiddenInPortalLaunch('/dashboard/cdp/predictive-churn?tab=risk')).toBe(true);
-    expect(isHiddenInPortalLaunch('/t/acme/dashboard/custom-reports')).toBe(true);
+    expect(isHiddenInPortalLaunch('/test-page')).toBe(true);
+    expect(isHiddenInPortalLaunch('/test-page?x=1')).toBe(true);
+    expect(isHiddenInPortalLaunch('/t/acme/test-page')).toBe(true);
     expect(isHiddenInPortalLaunch('/dashboard/campaigns')).toBe(false);
+    expect(isHiddenInPortalLaunch('/dashboard/custom-reports')).toBe(false);
+    expect(isHiddenInPortalLaunch('/dashboard/cdp/consent')).toBe(false);
+    expect(isHiddenInPortalLaunch('/dashboard/cdp/predictive-churn')).toBe(false);
+    expect(isHiddenInPortalLaunch('/dashboard/cdp/predictive-churn?tab=risk')).toBe(false);
+    expect(isHiddenInPortalLaunch('/dashboard/knowledge-graph/insights')).toBe(false);
+    expect(isHiddenInPortalLaunch('/dashboard/knowledge-graph/journeys')).toBe(false);
     expect(isHiddenInPortalLaunch('/dashboard/custom-autopilot-rules')).toBe(false);
   });
 

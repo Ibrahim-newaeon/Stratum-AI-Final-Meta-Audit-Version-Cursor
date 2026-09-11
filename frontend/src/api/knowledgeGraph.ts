@@ -1,17 +1,9 @@
 /**
- * Stratum AI - Knowledge Graph API Hooks
- *
- * React Query hooks for Knowledge Graph features:
- * - Problem Detection (severity filter, resolve action)
- * - Revenue Attribution (period-based, channel breakdown)
+ * Knowledge Graph API hooks — real endpoints only (no mock placeholderData).
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from './client';
-
-// =============================================================================
-// Types
-// =============================================================================
 
 export type ProblemSeverity = 'critical' | 'warning' | 'info';
 
@@ -59,132 +51,150 @@ export interface KGChannelBreakdown {
   color: string;
 }
 
-// =============================================================================
-// Hooks
-// =============================================================================
+function unwrap<T>(body: unknown): T {
+  if (body && typeof body === 'object' && 'data' in body) {
+    const nested = (body as { data: unknown }).data;
+    if (nested !== undefined) return nested as T;
+  }
+  return body as T;
+}
+
+function periodToDays(period: string): number {
+  if (period.endsWith('d')) return Number(period.replace('d', '')) || 30;
+  if (period.endsWith('w')) return (Number(period.replace('w', '')) || 4) * 7;
+  return 30;
+}
+
+const CHANNEL_COLORS = ['#0866FF', '#E4405F', '#34A853', '#25D366', '#8B5CF6', '#6B7280'];
+
+function mapSeverity(raw: string): ProblemSeverity {
+  const s = (raw || '').toLowerCase();
+  if (s === 'critical') return 'critical';
+  if (s === 'high' || s === 'medium' || s === 'warning') return 'warning';
+  return 'info';
+}
 
 export function useKGProblems(filters?: { severity?: ProblemSeverity; status?: string }) {
   return useQuery({
     queryKey: ['kg', 'problems', filters],
-    queryFn: async () => {
+    queryFn: async (): Promise<KGProblemsData> => {
       const params = new URLSearchParams();
-      if (filters?.severity) params.append('severity', filters.severity);
-      if (filters?.status) params.append('status', filters.status);
+      if (filters?.severity) params.set('severity', filters.severity);
+      const response = await apiClient.get(`/knowledge-graph/insights/problems?${params}`);
+      const payload = unwrap<{
+        problems?: any[];
+        total?: number;
+        by_severity?: Record<string, number>;
+      }>(response.data);
 
-      const response = await apiClient.get<{ data: KGProblemsData }>(
-        `/knowledge-graph/problems?${params}`
+      const problems: KGProblem[] = (payload?.problems || []).map((p: any) => ({
+        id: String(p.id),
+        severity: mapSeverity(String(p.severity || '')),
+        title: p.title || 'Detected issue',
+        description: p.description || '',
+        impact: String(p.metrics?.impact_label || p.estimated_impact || 'Unknown impact'),
+        impactAmount: Number(p.metrics?.revenue_at_risk || p.metrics?.impact_amount || 0),
+        affectedCampaigns: Number(p.affected_nodes?.length || p.metrics?.affected_campaigns || 0),
+        platform: String(p.metrics?.platform || 'Meta'),
+        detectedAt: String(p.detected_at || ''),
+        status: 'active' as const,
+      }));
+
+      const bySeverity = payload?.by_severity || {};
+      const critical = Number(
+        bySeverity.critical ?? problems.filter((p) => p.severity === 'critical').length
       );
-      return response.data.data;
+      const warnings = Number(
+        (bySeverity.high || 0) +
+          (bySeverity.medium || 0) +
+          problems.filter((p) => p.severity === 'warning').length
+      );
+
+      return {
+        problems,
+        summary: {
+          critical,
+          warnings,
+          resolved30d: 0,
+          revenueAtRisk: problems.reduce((sum, p) => sum + (p.impactAmount || 0), 0),
+        },
+      };
     },
     staleTime: 60 * 1000,
-    placeholderData: {
-      problems: [
-        {
-          id: '1',
-          severity: 'critical' as const,
-          title: 'Creative Fatigue Detected',
-          description:
-            'Ad creative performance has dropped 34% in the last 7 days across 12 campaigns.',
-          impact: '-$3,400/week',
-          impactAmount: 3400,
-          affectedCampaigns: 12,
-          platform: 'Meta',
-          detectedAt: '2024-12-08',
-          status: 'active' as const,
-        },
-        {
-          id: '2',
-          severity: 'warning' as const,
-          title: 'Budget Pacing Issue',
-          description: 'Instagram campaigns are under-spending by 28% against daily targets.',
-          impact: '-$1,800/week',
-          impactAmount: 1800,
-          affectedCampaigns: 5,
-          platform: 'Instagram',
-          detectedAt: '2024-12-09',
-          status: 'active' as const,
-        },
-        {
-          id: '3',
-          severity: 'warning' as const,
-          title: 'Audience Overlap',
-          description: '3 Meta ad sets share 45% audience overlap, causing self-competition.',
-          impact: '-$1,000/week',
-          impactAmount: 1000,
-          affectedCampaigns: 3,
-          platform: 'Meta',
-          detectedAt: '2024-12-10',
-          status: 'active' as const,
-        },
-      ],
-      summary: {
-        critical: 1,
-        warnings: 2,
-        resolved30d: 8,
-        revenueAtRisk: 6200,
-      },
-    },
   });
 }
 
+/** Backend has no resolve endpoint yet — keep UI callable without faking success. */
 export function useResolveKGProblem() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (problemId: string) => {
-      const response = await apiClient.post(`/knowledge-graph/problems/${problemId}/resolve`);
-      return response.data;
+  return {
+    mutate: (_problemId: string) => {
+      // Intentionally no-op until a real resolve API exists.
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['kg', 'problems'] });
-    },
-  });
+    isPending: false,
+  };
 }
 
 export function useKGRevenueAttribution(period: string = '30d') {
   return useQuery({
     queryKey: ['kg', 'revenue', period],
-    queryFn: async () => {
-      const response = await apiClient.get<{ data: KGRevenueData }>(
-        `/knowledge-graph/revenue?period=${period}`
+    queryFn: async (): Promise<KGRevenueData> => {
+      const days = periodToDays(period);
+      const response = await apiClient.get(
+        `/knowledge-graph/analytics/revenue/by-channel?days=${days}`
       );
-      return response.data.data;
+      const rows = unwrap<any[]>(response.data);
+      const list = Array.isArray(rows) ? rows : [];
+      const channels = list.map((r) => ({
+        channel: String(r.channel || 'Unknown'),
+        revenue: Number(r.revenue_cents || 0) / 100,
+        transactions: Number(r.transactions || 0),
+      }));
+      const totalRevenue = channels.reduce((s, c) => s + c.revenue, 0);
+      const denom = totalRevenue || 1;
+
+      return {
+        attributedRevenue: totalRevenue,
+        touchpointsTracked: channels.reduce((s, c) => s + c.transactions, 0),
+        avgPathLength: 0,
+        conversionWindow: `${days} days`,
+        modelComparison: channels.map((c) => {
+          const pct = Math.round((c.revenue / denom) * 100);
+          return {
+            channel: c.channel,
+            firstTouch: pct,
+            lastTouch: pct,
+            linear: pct,
+            dataDriven: pct,
+          };
+        }),
+      };
     },
     staleTime: 5 * 60 * 1000,
-    placeholderData: {
-      attributedRevenue: 284500,
-      touchpointsTracked: 45200,
-      avgPathLength: 4.2,
-      conversionWindow: '7 days',
-      modelComparison: [
-        { channel: 'Facebook', firstTouch: 42, lastTouch: 38, linear: 35, dataDriven: 37 },
-        { channel: 'Instagram', firstTouch: 28, lastTouch: 32, linear: 30, dataDriven: 31 },
-        { channel: 'Meta Audience Network', firstTouch: 12, lastTouch: 8, linear: 14, dataDriven: 13 },
-        { channel: 'WhatsApp', firstTouch: 10, lastTouch: 12, linear: 11, dataDriven: 11 },
-        { channel: 'Messenger', firstTouch: 5, lastTouch: 6, linear: 6, dataDriven: 5 },
-        { channel: 'Organic', firstTouch: 3, lastTouch: 4, linear: 4, dataDriven: 3 },
-      ],
-    },
   });
 }
 
 export function useKGChannelBreakdown(period: string = '30d') {
   return useQuery({
     queryKey: ['kg', 'channels', period],
-    queryFn: async () => {
-      const response = await apiClient.get<{ data: KGChannelBreakdown[] }>(
-        `/knowledge-graph/channels?period=${period}`
+    queryFn: async (): Promise<KGChannelBreakdown[]> => {
+      const days = periodToDays(period);
+      const response = await apiClient.get(
+        `/knowledge-graph/analytics/revenue/by-channel?days=${days}`
       );
-      return response.data.data;
+      const rows = unwrap<any[]>(response.data);
+      const list = Array.isArray(rows) ? rows : [];
+      const mapped = list.map((r, idx) => ({
+        channel: String(r.channel || 'Unknown'),
+        revenue: Number(r.revenue_cents || 0) / 100,
+        percentage: 0,
+        color: CHANNEL_COLORS[idx % CHANNEL_COLORS.length],
+      }));
+      const total = mapped.reduce((s, c) => s + c.revenue, 0) || 1;
+      return mapped.map((c) => ({
+        ...c,
+        percentage: Math.round((c.revenue / total) * 100),
+      }));
     },
     staleTime: 5 * 60 * 1000,
-    placeholderData: [
-      { channel: 'Facebook', revenue: 105000, percentage: 37, color: '#0866FF' },
-      { channel: 'Instagram', revenue: 88000, percentage: 31, color: '#E4405F' },
-      { channel: 'Meta Audience Network', revenue: 37000, percentage: 13, color: '#34A853' },
-      { channel: 'WhatsApp', revenue: 31000, percentage: 11, color: '#25D366' },
-      { channel: 'Messenger', revenue: 14000, percentage: 5, color: '#8B5CF6' },
-      { channel: 'Organic', revenue: 9500, percentage: 3, color: '#6B7280' },
-    ],
   });
 }

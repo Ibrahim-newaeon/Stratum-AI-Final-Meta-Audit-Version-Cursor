@@ -95,7 +95,7 @@ const features = [
     icon: DocumentChartBarIcon,
     title: 'Custom Reporting',
     description:
-      'Build custom reports and dashboards with drag-and-drop widgets and scheduled exports.',
+      'Create automated reports from live tenant metrics with scheduling and export.',
     color: '#f43f5e',
   },
   {

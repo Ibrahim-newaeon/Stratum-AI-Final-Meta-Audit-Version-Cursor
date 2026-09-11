@@ -42,8 +42,9 @@ def _batched(iterable: list, n: int) -> Iterator[list]:
         yield batch
 
 import structlog
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
-from sqlalchemy import String, delete, func, literal_column, or_, select
+from sqlalchemy import String, case, delete, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -4773,4 +4774,216 @@ async def get_profile_funnel_journeys(
     return ProfileFunnelJourneysResponse(
         profile_id=str(profile_id),
         journeys=journeys,
+    )
+
+
+# =============================================================================
+# Consent listing (read-only compliance surface)
+# =============================================================================
+
+
+class ConsentStatItem(BaseModel):
+    consent_type: str
+    total_profiles: int
+    granted: int
+    revoked: int
+    grant_rate: float
+
+
+class ConsentProfileItem(BaseModel):
+    profile_id: str
+    email: Optional[str] = None
+    consent_type: str
+    granted: bool
+    granted_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    source: Optional[str] = None
+
+
+class ConsentProfileListResponse(BaseModel):
+    profiles: list[ConsentProfileItem]
+    total: int
+
+
+class ChurnRiskItem(BaseModel):
+    profile_id: str
+    email: Optional[str] = None
+    lifecycle_stage: str
+    churn_probability: float
+    risk_level: str
+    revenue_at_risk: float
+    lifetime_value: float
+    last_activity_date: Optional[datetime] = None
+    days_inactive: int
+    top_factors: list[dict[str, Any]]
+
+
+class ChurnRiskListResponse(BaseModel):
+    items: list[ChurnRiskItem]
+    total: int
+    high_risk: int
+    medium_risk: int
+    low_risk: int
+    revenue_at_risk: float
+    scoring_method: str = "heuristic_v1"
+
+
+def _churn_score(profile: CDPProfile, now: datetime) -> tuple[float, int, list[dict[str, Any]]]:
+    """Heuristic churn probability from recency + lifecycle (no Meta writes)."""
+    from app.services.cdp.churn_heuristic import score_churn_risk
+
+    return score_churn_risk(
+        last_seen_at=profile.last_seen_at,
+        lifecycle_stage=profile.lifecycle_stage,
+        total_purchases=profile.total_purchases,
+        now=now,
+    )
+
+
+
+@router.get("/consents/stats", response_model=list[ConsentStatItem])
+async def get_consent_stats(
+    db: AsyncSession = Depends(get_async_session),
+    current_user=Depends(get_current_user),
+):
+    """Aggregate consent grant rates by type for the current tenant."""
+    tenant_id = current_user.tenant_id
+    result = await db.execute(
+        select(
+            CDPConsent.consent_type,
+            func.count().label("total"),
+            func.sum(case((CDPConsent.granted.is_(True), 1), else_=0)).label("granted"),
+        )
+        .where(CDPConsent.tenant_id == tenant_id)
+        .group_by(CDPConsent.consent_type)
+    )
+    rows = result.all()
+    stats: list[ConsentStatItem] = []
+    for consent_type, total, granted in rows:
+        total_i = int(total or 0)
+        granted_i = int(granted or 0)
+        revoked_i = max(0, total_i - granted_i)
+        stats.append(
+            ConsentStatItem(
+                consent_type=str(consent_type),
+                total_profiles=total_i,
+                granted=granted_i,
+                revoked=revoked_i,
+                grant_rate=(granted_i / total_i * 100.0) if total_i else 0.0,
+            )
+        )
+    return stats
+
+
+@router.get("/consents", response_model=ConsentProfileListResponse)
+async def list_consents(
+    consent_type: Optional[str] = Query(None),
+    granted: Optional[bool] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_async_session),
+    current_user=Depends(get_current_user),
+):
+    """List consent records with optional profile email."""
+    tenant_id = current_user.tenant_id
+    filters = [CDPConsent.tenant_id == tenant_id]
+    if consent_type:
+        filters.append(CDPConsent.consent_type == consent_type)
+    if granted is not None:
+        filters.append(CDPConsent.granted.is_(granted))
+
+    count_result = await db.execute(select(func.count()).select_from(CDPConsent).where(*filters))
+    total = int(count_result.scalar() or 0)
+
+    result = await db.execute(
+        select(CDPConsent, CDPProfile)
+        .join(CDPProfile, CDPProfile.id == CDPConsent.profile_id)
+        .where(*filters)
+        .order_by(CDPConsent.granted_at.desc().nullslast())
+        .offset(offset)
+        .limit(limit)
+    )
+    profiles: list[ConsentProfileItem] = []
+    for consent, profile in result.all():
+        email = None
+        try:
+            email = profile.get_primary_email()
+        except Exception:
+            email = None
+        profiles.append(
+            ConsentProfileItem(
+                profile_id=str(consent.profile_id),
+                email=email,
+                consent_type=consent.consent_type,
+                granted=consent.granted,
+                granted_at=consent.granted_at,
+                revoked_at=consent.revoked_at,
+                source=consent.source,
+            )
+        )
+    return ConsentProfileListResponse(profiles=profiles, total=total)
+
+
+@router.get("/churn/risks", response_model=ChurnRiskListResponse)
+async def list_churn_risks(
+    min_probability: float = Query(0.0, ge=0.0, le=1.0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_async_session),
+    current_user=Depends(get_current_user),
+):
+    """
+    Heuristic churn-risk list from CDP profiles.
+
+    Uses recency and lifecycle only. Does not call Meta write APIs.
+    """
+    tenant_id = current_user.tenant_id
+    now = datetime.now(UTC)
+    result = await db.execute(
+        select(CDPProfile)
+        .where(CDPProfile.tenant_id == tenant_id)
+        .order_by(CDPProfile.last_seen_at.asc())
+        .limit(500)
+    )
+    profiles = list(result.scalars().all())
+    items: list[ChurnRiskItem] = []
+    for profile in profiles:
+        score, days_inactive, factors = _churn_score(profile, now)
+        if score < min_probability:
+            continue
+        if score >= 0.7:
+            risk = "high"
+        elif score >= 0.4:
+            risk = "medium"
+        else:
+            risk = "low"
+        ltv = float(profile.total_revenue or 0)
+        email = None
+        try:
+            email = profile.get_primary_email()
+        except Exception:
+            email = None
+        items.append(
+            ChurnRiskItem(
+                profile_id=str(profile.id),
+                email=email,
+                lifecycle_stage=profile.lifecycle_stage,
+                churn_probability=round(score, 4),
+                risk_level=risk,
+                revenue_at_risk=round(ltv * score, 2),
+                lifetime_value=ltv,
+                last_activity_date=profile.last_seen_at,
+                days_inactive=days_inactive,
+                top_factors=factors[:5],
+            )
+        )
+    items.sort(key=lambda x: x.churn_probability, reverse=True)
+    items = items[:limit]
+    return ChurnRiskListResponse(
+        items=items,
+        total=len(items),
+        high_risk=sum(1 for i in items if i.risk_level == "high"),
+        medium_risk=sum(1 for i in items if i.risk_level == "medium"),
+        low_risk=sum(1 for i in items if i.risk_level == "low"),
+        revenue_at_risk=round(sum(i.revenue_at_risk for i in items), 2),
+        scoring_method="heuristic_v1",
     )
