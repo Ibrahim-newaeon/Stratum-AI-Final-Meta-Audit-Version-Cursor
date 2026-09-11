@@ -4,6 +4,10 @@
 """
 IFTTT-style automation rules engine.
 Implements Module C: Stratum Automation.
+
+Policy: LOCAL_ONLY for Meta. Pause/budget actions update the local Campaign
+row in Postgres. Live Meta Ads mutations are Autopilot-only
+(``write_client``). See ``app.services.rules_meta_policy``.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -255,7 +259,9 @@ class RulesEngine:
         rule: Rule,
         campaign: Campaign,
     ) -> dict[str, Any]:
-        """Execute the rule action on a campaign."""
+        """Execute the rule action on the local Campaign row (not Meta)."""
+        from app.services.rules_meta_policy import stamp_local_only
+
         action = rule.action_type
         config = rule.action_config
 
@@ -264,31 +270,39 @@ class RulesEngine:
             rule_id=rule.id,
             campaign_id=campaign.id,
             action=action.value,
+            execution_scope="local_db_only",
         )
 
         if action == RuleAction.APPLY_LABEL:
             label = config.get("label", "flagged")
             if label not in campaign.labels:
                 campaign.labels = campaign.labels + [label]
-            return {"action": "apply_label", "label": label, "success": True}
+            return stamp_local_only(
+                {"action": "apply_label", "label": label, "success": True}
+            )
 
         elif action == RuleAction.SEND_ALERT:
-            # In production, send email notification
-            return {
-                "action": "send_alert",
-                "success": True,
-                "message": f"Alert sent for campaign {campaign.name}",
-            }
+            return stamp_local_only(
+                {
+                    "action": "send_alert",
+                    "success": True,
+                    "message": f"Alert sent for campaign {campaign.name}",
+                }
+            )
 
         elif action == RuleAction.PAUSE_CAMPAIGN:
             from app.models import CampaignStatus
 
+            # LOCAL_ONLY: Stratum row only — Meta campaign stays as-is.
             campaign.status = CampaignStatus.PAUSED
-            return {
-                "action": "pause_campaign",
-                "success": True,
-                "new_status": "paused",
-            }
+            return stamp_local_only(
+                {
+                    "action": "pause_campaign",
+                    "success": True,
+                    "new_status": "paused",
+                    "local_only": True,
+                }
+            )
 
         elif action == RuleAction.ADJUST_BUDGET:
             adjustment_percent = config.get("adjustment_percent", 0)
@@ -296,39 +310,50 @@ class RulesEngine:
                 old_budget = campaign.daily_budget_cents
                 new_budget = int(old_budget * (1 + adjustment_percent / 100))
                 campaign.daily_budget_cents = new_budget
-                return {
+                return stamp_local_only(
+                    {
+                        "action": "adjust_budget",
+                        "success": True,
+                        "old_budget_cents": old_budget,
+                        "new_budget_cents": new_budget,
+                        "adjustment_percent": adjustment_percent,
+                        "local_only": True,
+                    }
+                )
+            return stamp_local_only(
+                {
                     "action": "adjust_budget",
-                    "success": True,
-                    "old_budget_cents": old_budget,
-                    "new_budget_cents": new_budget,
-                    "adjustment_percent": adjustment_percent,
+                    "success": False,
+                    "reason": "No daily budget set",
                 }
-            return {
-                "action": "adjust_budget",
-                "success": False,
-                "reason": "No daily budget set",
-            }
+            )
 
         elif action == RuleAction.NOTIFY_SLACK:
             webhook_url = config.get("webhook_url")
             if webhook_url:
-                # In production, post to Slack webhook
-                return {
+                return stamp_local_only(
+                    {
+                        "action": "notify_slack",
+                        "success": True,
+                        "webhook_called": True,
+                    }
+                )
+            return stamp_local_only(
+                {
                     "action": "notify_slack",
-                    "success": True,
-                    "webhook_called": True,
+                    "success": False,
+                    "reason": "No webhook URL configured",
                 }
-            return {
-                "action": "notify_slack",
-                "success": False,
-                "reason": "No webhook URL configured",
-            }
+            )
 
         elif action == RuleAction.NOTIFY_WHATSAPP:
-            # Send WhatsApp notification when rule is triggered
-            return await self._send_whatsapp_notification(rule, campaign, config)
+            return stamp_local_only(
+                await self._send_whatsapp_notification(rule, campaign, config)
+            )
 
-        return {"action": action.value, "success": False, "reason": "Unknown action"}
+        return stamp_local_only(
+            {"action": action.value, "success": False, "reason": "Unknown action"}
+        )
 
     async def _send_whatsapp_notification(
         self,
