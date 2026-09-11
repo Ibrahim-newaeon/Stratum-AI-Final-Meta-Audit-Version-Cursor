@@ -11,7 +11,7 @@ immediate kickoff**.
 
 | Do now | Do later (after Meta go-live + backend gaps) |
 |--------|-----------------------------------------------|
-| Meta activation smoke (OAuth, discovery, insights, CAPI) when unpaused | Rebuild landing + dashboard UX / IA / visual system |
+| Meta activation smoke — `docs/05-operations/meta-activation-smoke.md` | Rebuild landing + dashboard UX / IA / visual system |
 | Harden LOCAL_ONLY Rules, Autopilot defaults, trust gate | Polish or deep-refactor current Campaigns / Overview / CDP screens |
 | Thin API clients the **new** FE can call | Large dashboard UI features the redesign will replace |
 
