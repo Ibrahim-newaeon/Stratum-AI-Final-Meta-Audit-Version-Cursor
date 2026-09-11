@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
 import { dropdownVariants } from '@/lib/animations';
 import {
-  AdjustmentsHorizontalIcon,
   ArrowRightOnRectangleIcon,
   ArrowUpOnSquareIcon,
   Bars3Icon,
@@ -27,28 +26,25 @@ import {
   ClockIcon,
   CogIcon,
   CpuChipIcon,
-  DocumentChartBarIcon,
   DocumentTextIcon,
   EyeIcon,
   FolderIcon,
   FunnelIcon,
   GiftIcon,
   HomeIcon,
+  LinkIcon,
   PhotoIcon,
   PresentationChartBarIcon,
   ShareIcon,
   ShieldCheckIcon,
-  ShieldExclamationIcon,
   SignalIcon,
   Squares2X2Icon,
   TagIcon,
   TrophyIcon,
   UserGroupIcon,
-  UserMinusIcon,
   XMarkIcon,
   SparklesIcon,
   ExclamationTriangleIcon,
-  MapIcon,
   CurrencyDollarIcon,
 } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
@@ -105,6 +101,12 @@ const navigation = [
     icon: ChartBarIcon,
     tourId: 'nav-campaigns',
   },
+  {
+    name: 'nav.connectPlatforms',
+    href: '/dashboard/campaigns/connect',
+    icon: LinkIcon,
+    tourId: 'nav-connect',
+  },
   { name: 'nav.stratum', href: '/dashboard/stratum', icon: TrophyIcon, tourId: 'nav-stratum' },
   {
     name: 'nav.benchmarks',
@@ -120,18 +122,6 @@ const navigation = [
   },
   { name: 'nav.assets', href: '/dashboard/assets', icon: PhotoIcon, tourId: 'nav-assets' },
   { name: 'nav.rules', href: '/dashboard/rules', icon: BoltIcon, tourId: 'nav-rules' },
-  {
-    name: 'Custom Autopilot',
-    href: '/dashboard/custom-autopilot-rules',
-    icon: AdjustmentsHorizontalIcon,
-    tourId: 'nav-custom-autopilot',
-  },
-  {
-    name: 'Custom Reports',
-    href: '/dashboard/custom-reports',
-    icon: DocumentChartBarIcon,
-    tourId: 'nav-custom-reports',
-  },
   {
     name: 'nav.whatsapp',
     href: '/dashboard/whatsapp',
@@ -149,8 +139,6 @@ const cdpNavigation = [
   { name: 'RFM Analysis', href: '/dashboard/cdp/rfm', icon: PresentationChartBarIcon },
   { name: 'Funnels', href: '/dashboard/cdp/funnels', icon: FunnelIcon },
   { name: 'Computed Traits', href: '/dashboard/cdp/computed-traits', icon: CalculatorIcon },
-  { name: 'Consent', href: '/dashboard/cdp/consent', icon: ShieldExclamationIcon },
-  { name: 'Predictive Churn', href: '/dashboard/cdp/predictive-churn', icon: UserMinusIcon },
   { name: 'Audience Sync', href: '/dashboard/cdp/audience-sync', icon: ArrowUpOnSquareIcon },
 ];
 
@@ -158,7 +146,6 @@ const kgNavigation = [
   { name: 'Insights', href: '/dashboard/knowledge-graph/insights', icon: SparklesIcon },
   { name: 'Problem Detection', href: '/dashboard/knowledge-graph/problems', icon: ExclamationTriangleIcon },
   { name: 'Revenue Attribution', href: '/dashboard/knowledge-graph/revenue', icon: CurrencyDollarIcon },
-  { name: 'Journey Explorer', href: '/dashboard/knowledge-graph/journeys', icon: MapIcon },
 ];
 
 export default function DashboardLayout() {
@@ -699,7 +686,7 @@ export default function DashboardLayout() {
                 )}
               </button>
 
-              <NotificationBell onClick={() => setNotificationsOpen(true)} unreadCount={3} />
+              <NotificationBell onClick={() => setNotificationsOpen(true)} unreadCount={0} />
 
               {/* User menu */}
               <div className="relative">

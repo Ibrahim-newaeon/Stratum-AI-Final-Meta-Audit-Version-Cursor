@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_WS_URL?: string;
   readonly VITE_SENTRY_DSN?: string;
   readonly VITE_SENTRY_DEBUG?: string;
+  readonly VITE_GIT_SHA?: string;
   /** Optional Paddle environment override ('sandbox' | 'production'); normally comes from GET /billing/config */
   readonly VITE_PADDLE_ENVIRONMENT?: string;
   readonly MODE: string;

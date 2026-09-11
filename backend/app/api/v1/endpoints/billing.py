@@ -96,6 +96,7 @@ BILLING_ADMIN_ROLES: tuple[UserRole, ...] = (UserRole.ADMIN, UserRole.SUPERADMIN
 require_billing_admin = require_role(*BILLING_ADMIN_ROLES)
 
 _NOT_CONFIGURED_DETAIL = "Billing is not configured for this environment"
+_PAYMENTS_DISABLED_DETAIL = "This portal does not take payments"
 _NO_TENANT_CONTEXT_DETAIL = "Billing requires a tenant context"
 _NO_BILLING_ACCOUNT_DETAIL = "No billing account found. Please subscribe to a plan first."
 
@@ -140,8 +141,18 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
+def _payments_live() -> bool:
+    """Checkout is on only when payments are enabled and Paddle keys exist."""
+    return bool(settings.billing_payments_enabled) and paddle_service.is_configured()
+
+
 def _require_configured() -> None:
-    """Raise 503 when Paddle is not configured."""
+    """Raise 503 when this portal does not take payments or Paddle is not configured."""
+    if not settings.billing_payments_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PAYMENTS_DISABLED_DETAIL,
+        )
     if not paddle_service.is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -345,7 +356,7 @@ async def get_billing_config() -> APIResponse[BillingConfigResponse]:
     Works even when Paddle is not configured: ``paddle_configured`` is False and
     ``client_token`` is null so the UI can render the catalogue read-only.
     """
-    configured = paddle_service.is_configured()
+    configured = _payments_live()
     tiers: list[TierPriceInfo] = []
     for tier, raw_pricing in TIER_PRICING.items():
         pricing = cast(dict[str, Any], raw_pricing)
@@ -361,6 +372,7 @@ async def get_billing_config() -> APIResponse[BillingConfigResponse]:
         )
     return APIResponse(
         data=BillingConfigResponse(
+            payments_enabled=bool(settings.billing_payments_enabled),
             paddle_configured=configured,
             environment=settings.paddle_environment,
             client_token=settings.paddle_client_token if configured else None,
@@ -387,7 +399,7 @@ async def get_subscription(
     exists.
     """
     tenant = await get_tenant_for_user(current_user, db)
-    configured = paddle_service.is_configured()
+    configured = _payments_live()
     if not configured or not tenant.paddle_customer_id:
         return APIResponse(data=_subscription_response(tenant, None, configured))
 
@@ -578,7 +590,7 @@ async def list_transactions(
 ) -> APIResponse[list[BillingTransactionResponse]]:
     """Billing history for the tenant (empty when not configured or no customer)."""
     tenant = await get_tenant_for_user(current_user, db)
-    if not paddle_service.is_configured() or not tenant.paddle_customer_id:
+    if not _payments_live() or not tenant.paddle_customer_id:
         return APIResponse(data=[])
 
     limit = max(1, min(limit, 100))

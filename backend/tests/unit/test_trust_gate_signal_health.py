@@ -25,6 +25,7 @@ from app.models.autopilot import EnforcementMode, TenantEnforcementSettings
 from app.models.trust_layer import FactSignalHealthDaily, SignalHealthStatus
 from app.tasks.apply_actions_queue import (
     GateDecision,
+    _decision_for_score,
     check_signal_health,
     evaluate_signal_health,
 )
@@ -543,3 +544,29 @@ class TestFutureDatedRows:
         )
         assert result.health_date == YESTERDAY
         assert result.decision is GateDecision.BLOCK
+
+
+class TestExactScoreBoundaries:
+    """Pin 69 / 70 / 71 and 39 / 40 against the documented >= contract.
+
+    Banded component fixtures in TestDocumentedThresholds prove the bands in
+    general; these tests pin the integer edges the launch gate requires.
+    """
+
+    def test_score_none_blocks(self):
+        assert _decision_for_score(None) is GateDecision.BLOCK
+
+    def test_score_39_blocks(self):
+        assert _decision_for_score(39.0) is GateDecision.BLOCK
+
+    def test_score_40_holds(self):
+        assert _decision_for_score(40.0) is GateDecision.HOLD
+
+    def test_score_69_holds(self):
+        assert _decision_for_score(69.0) is GateDecision.HOLD
+
+    def test_score_70_passes(self):
+        assert _decision_for_score(70.0) is GateDecision.PASS
+
+    def test_score_71_passes(self):
+        assert _decision_for_score(71.0) is GateDecision.PASS

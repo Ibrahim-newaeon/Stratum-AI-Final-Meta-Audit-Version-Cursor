@@ -2,9 +2,8 @@
  * AI Pricing Section - Tiered AI Feature Access
  * 2026 Design: Glass cards with gradient accents
  *
- * Marketing only: the CTAs are navigation-only (signup / contact). No payment
- * provider is wired into public pages - subscription checkout happens after
- * signup in Settings > Billing via the Paddle.js overlay.
+ * Marketing only: this portal is a free workspace. CTAs go to signup; there is
+ * no payment overlay.
  */
 
 import { motion, useInView } from 'framer-motion';
@@ -27,13 +26,13 @@ const pricingTiers = [
     name: 'Starter',
     description: 'For growing teams getting started with AI-powered revenue ops',
     icon: RocketLaunchIcon,
-    monthlyPrice: 299,
-    annualPrice: 249,
+    monthlyPrice: 0,
+    annualPrice: 0,
     color: 'from-blue-500 to-cyan-500',
     bgColor: 'from-blue-500/5 to-cyan-500/5',
     borderColor: 'border-blue-500/20',
     popular: false,
-    cta: 'Start Free Trial',
+    cta: 'Create free account',
     limits: {
       profiles: '50K',
       events: '500K/mo',
@@ -46,13 +45,13 @@ const pricingTiers = [
     name: 'Professional',
     description: 'For scaling teams that need full AI capabilities',
     icon: SparklesIcon,
-    monthlyPrice: 799,
-    annualPrice: 649,
+    monthlyPrice: 0,
+    annualPrice: 0,
     color: 'from-purple-500 to-violet-500',
     bgColor: 'from-purple-500/10 to-violet-500/5',
     borderColor: 'border-purple-500/30',
     popular: true,
-    cta: 'Start Free Trial',
+    cta: 'Create free account',
     limits: {
       profiles: '500K',
       events: '5M/mo',
@@ -65,13 +64,13 @@ const pricingTiers = [
     name: 'Enterprise',
     description: 'For large organizations with custom requirements',
     icon: BuildingOffice2Icon,
-    monthlyPrice: null,
-    annualPrice: null,
+    monthlyPrice: 0,
+    annualPrice: 0,
     color: 'from-orange-500 to-amber-500',
     bgColor: 'from-orange-500/5 to-amber-500/5',
     borderColor: 'border-orange-500/20',
     popular: false,
-    cta: 'Contact Sales',
+    cta: 'Create free account',
     limits: {
       profiles: 'Unlimited',
       events: 'Unlimited',
@@ -249,15 +248,15 @@ export default function AIPricing() {
           </div>
 
           <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6 text-center">
-            <span className="text-white">Pay for the AI</span>
+            <span className="text-white">Free for</span>
             <br />
             <span style={{ color: '#34c759' }}>
-              Power You Need
+              everyone
             </span>
           </h2>
 
           <p className="text-lg max-w-2xl mx-auto mb-10 text-center" style={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-            All plans include the core platform. Upgrade for advanced AI models and higher limits.
+            Create an account and use the workspace. There is no checkout or credit card.
           </p>
 
           {/* Billing Toggle */}
@@ -332,7 +331,7 @@ export default function AIPricing() {
 
                   {/* Price */}
                   <div className="mb-6">
-                    {price ? (
+                    {price != null ? (
                       <div className="flex items-baseline gap-2">
                         <span className="text-4xl font-bold text-white">${price}</span>
                         <span className="text-gray-500">/month</span>
@@ -340,7 +339,7 @@ export default function AIPricing() {
                     ) : (
                       <div className="text-2xl font-bold text-white">Custom Pricing</div>
                     )}
-                    {billingCycle === 'annual' && price && (
+                    {billingCycle === 'annual' && price != null && price > 0 && (
                       <div className="text-xs text-gray-500 mt-1">
                         Billed annually (${price * 12}/year)
                       </div>
@@ -349,7 +348,7 @@ export default function AIPricing() {
 
                   {/* CTA Button */}
                   <a
-                    href={tier.id === 'enterprise' ? '/contact' : '/signup'}
+                    href="/signup"
                     className={`block w-full py-3 px-6 rounded-xl text-center font-medium transition-all ${
                       tier.popular
                         ? 'bg-gradient-to-r from-purple-500 to-violet-500 text-white hover:opacity-90'

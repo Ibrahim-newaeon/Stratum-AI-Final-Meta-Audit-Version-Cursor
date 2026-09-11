@@ -156,7 +156,7 @@ export default function AIHero() {
                 boxShadow: '0 0 40px rgba(0, 199, 190, 0.3)',
               }}
             >
-              <span>Start Free Trial</span>
+              <span>Create free account</span>
               <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </a>
 

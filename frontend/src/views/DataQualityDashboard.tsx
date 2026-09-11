@@ -11,19 +11,15 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  CreditCard,
   Database,
-  Eye,
   Info,
   Layers,
   Lightbulb,
   Loader2,
   Lock,
-  Package,
   RefreshCw,
   Server,
   Shield,
-  ShoppingCart,
   TrendingDown,
   TrendingUp,
   XCircle,
@@ -121,134 +117,8 @@ interface Recommendation {
   fixHint: string;
 }
 
-// Mock data.
-//
-// The EMQ constants that used to live here (mockKPIs, mockPlatformEMQ,
-// mockEventEMQ) were removed: they were the *initial state* of this view,
-// so a tenant with no CAPI traffic was shown facebook 82 / instagram 74 /
-// whatsapp 71 and a full per-event EMQ table as their own measurements.
-// The remaining constants below still seed the non-EMQ panels.
-
-
-
-const mockParameterCoverage: ParameterCoverage[] = [
-  { parameter: 'email', facebook: 89, instagram: 85, whatsapp: 78, required: true },
-  { parameter: 'phone', facebook: 76, instagram: 72, whatsapp: 94, required: true },
-  { parameter: 'external_id', facebook: 92, instagram: 88, whatsapp: 71, required: true },
-  { parameter: 'ip_address', facebook: 94, instagram: 96, whatsapp: 88, required: false },
-  { parameter: 'user_agent', facebook: 97, instagram: 98, whatsapp: 93, required: false },
-  { parameter: 'fbp', facebook: 95, instagram: 93, whatsapp: 0, required: false },
-  { parameter: 'fbc', facebook: 88, instagram: 86, whatsapp: 0, required: false },
-  { parameter: 'city', facebook: 72, instagram: 68, whatsapp: 61, required: false },
-  { parameter: 'country', facebook: 96, instagram: 94, whatsapp: 89, required: false },
-];
-
-const mockServerBrowserSplit: ServerBrowserSplit[] = [
-  { platform: 'facebook', serverPercent: 96, browserPercent: 4, trend: 2.1 },
-  { platform: 'instagram', serverPercent: 94, browserPercent: 6, trend: 1.8 },
-  { platform: 'whatsapp', serverPercent: 91, browserPercent: 9, trend: 3.5 },
-];
-
-const mockIntegrityIssues: IntegrityIssue[] = [
-  {
-    type: 'duplicate',
-    count: 1245,
-    severity: 'warning',
-    description: 'Duplicate events detected (same event_id)',
-  },
-  {
-    type: 'missing_id',
-    count: 3420,
-    severity: 'critical',
-    description: 'Events missing event_id parameter',
-  },
-  {
-    type: 'ordering',
-    count: 567,
-    severity: 'info',
-    description: 'Events received out of sequence',
-  },
-  {
-    type: 'timestamp',
-    count: 234,
-    severity: 'warning',
-    description: 'Events with future timestamps',
-  },
-];
-
-const mockPIIViolations: PIIViolation[] = [
-  { field: 'email', violationType: 'Unhashed PII', count: 12, lastSeen: '2 hours ago' },
-  { field: 'phone', violationType: 'Invalid format', count: 45, lastSeen: '30 mins ago' },
-  { field: 'ip_address', violationType: 'Internal IP leaked', count: 3, lastSeen: '1 day ago' },
-];
-
-const mockFunnelSteps: FunnelStep[] = [
-  { name: 'View Content', icon: Eye, emqScore: 71.2, volume: 156780, dropoff: 0 },
-  { name: 'Add to Cart', icon: ShoppingCart, emqScore: 76.8, volume: 45230, dropoff: 71.2 },
-  { name: 'Begin Checkout', icon: CreditCard, emqScore: 79.1, volume: 23100, dropoff: 48.9 },
-  { name: 'Purchase', icon: Package, emqScore: 82.3, volume: 12450, dropoff: 46.1 },
-];
-
-const mockAlerts: Alert[] = [
-  {
-    id: '1',
-    severity: 'critical',
-    title: 'Missing event_id on 3,420 events',
-    description: 'Events without event_id cannot be deduplicated, leading to inflated conversions',
-    timestamp: '15 mins ago',
-    platform: 'facebook',
-  },
-  {
-    id: '2',
-    severity: 'warning',
-    title: 'Phone match rate dropped below 70%',
-    description: 'Instagram phone match rate decreased by 5% in the last 24 hours',
-    timestamp: '2 hours ago',
-    platform: 'instagram',
-  },
-  {
-    id: '3',
-    severity: 'warning',
-    title: 'Unhashed email detected',
-    description: '12 events contained plaintext email addresses',
-    timestamp: '4 hours ago',
-  },
-];
-
-const mockRecommendations: Recommendation[] = [
-  {
-    id: '1',
-    impact: 'high',
-    title: 'Add event_id to all server events',
-    description: 'Missing event_id prevents deduplication and inflates conversion counts',
-    owner: 'Engineering',
-    fixHint: 'Generate UUID for each event before sending to CAPI',
-  },
-  {
-    id: '2',
-    impact: 'high',
-    title: 'Improve phone number collection',
-    description: 'Phone match rate is lowest parameter at 68% average',
-    owner: 'Product',
-    fixHint: 'Add phone field to checkout flow with format validation',
-  },
-  {
-    id: '3',
-    impact: 'medium',
-    title: 'Implement fbp/fbc cookie capture',
-    description: 'Meta pixel cookies improve match quality by 15-20%',
-    owner: 'Engineering',
-    fixHint: 'Read _fbp and _fbc cookies server-side and include in CAPI calls',
-  },
-  {
-    id: '4',
-    impact: 'medium',
-    title: 'Fix timestamp handling',
-    description: '234 events have future timestamps causing attribution issues',
-    owner: 'Engineering',
-    fixHint: 'Ensure event_time uses Unix timestamp in seconds, not milliseconds',
-  },
-];
+// Non-EMQ panels also start empty. Seeded mock tables used to look like
+// measured CAPI coverage for tenants with no traffic.
 
 export function DataQualityDashboard() {
   const { t } = useTranslation();
@@ -272,13 +142,14 @@ export function DataQualityDashboard() {
   const [platformEMQ, setPlatformEMQ] = useState<PlatformEMQ[]>([]);
   const [eventEMQ, _setEventEMQ] = useState<EventEMQ[]>([]);
   const [_parameterCoverage, _setParameterCoverage] =
-    useState<ParameterCoverage[]>(mockParameterCoverage);
+    useState<ParameterCoverage[]>([]);
   const [serverBrowserSplit, _setServerBrowserSplit] =
-    useState<ServerBrowserSplit[]>(mockServerBrowserSplit);
-  const [integrityIssues, _setIntegrityIssues] = useState<IntegrityIssue[]>(mockIntegrityIssues);
-  const [piiViolations, _setPiiViolations] = useState<PIIViolation[]>(mockPIIViolations);
-  const [alerts, setAlerts] = useState<Alert[]>(mockAlerts);
-  const [recommendations, setRecommendations] = useState<Recommendation[]>(mockRecommendations);
+    useState<ServerBrowserSplit[]>([]);
+  const [integrityIssues, _setIntegrityIssues] = useState<IntegrityIssue[]>([]);
+  const [piiViolations, _setPiiViolations] = useState<PIIViolation[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [funnelSteps] = useState<FunnelStep[]>([]);
 
   // State for resolved/dismissed items
   const [resolvedIssues, setResolvedIssues] = useState<string[]>([]);
@@ -394,7 +265,6 @@ export function DataQualityDashboard() {
       }
     } catch (err: any) {
       console.error('Failed to fetch quality data:', err);
-      // Keep mock data as fallback - don't show error for expected 404s
       if (err.response?.status !== 404) {
         setError(err.response?.data?.detail || 'Failed to load quality data');
       }
@@ -892,7 +762,14 @@ export function DataQualityDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {mockParameterCoverage.map((row) => (
+                    {_parameterCoverage.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-4 text-center text-muted-foreground">
+                          No parameter coverage data yet.
+                        </td>
+                      </tr>
+                    )}
+                    {_parameterCoverage.map((row) => (
                       <tr key={row.parameter} className="hover:bg-muted/30">
                         <td className="py-2">
                           <span className="flex items-center gap-2">
@@ -1151,7 +1028,10 @@ export function DataQualityDashboard() {
               Funnel Quality View
             </h3>
             <div className="flex items-center justify-between gap-4 overflow-x-auto pb-4">
-              {mockFunnelSteps.map((step, idx) => (
+              {funnelSteps.length === 0 && (
+                <p className="text-sm text-muted-foreground">No funnel quality data yet.</p>
+              )}
+              {funnelSteps.map((step, idx) => (
                 <div key={step.name} className="flex items-center">
                   <div className="flex flex-col items-center min-w-[140px]">
                     <div
@@ -1179,7 +1059,7 @@ export function DataQualityDashboard() {
                       </span>
                     )}
                   </div>
-                  {idx < mockFunnelSteps.length - 1 && (
+                  {idx < funnelSteps.length - 1 && (
                     <ArrowRight className="w-6 h-6 text-muted-foreground mx-4 flex-shrink-0" />
                   )}
                 </div>

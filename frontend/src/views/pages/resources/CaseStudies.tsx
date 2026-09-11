@@ -313,7 +313,7 @@ export default function CaseStudiesPage() {
                     boxShadow: '0 4px 20px rgba(139, 92, 246, 0.3)',
                   }}
                 >
-                  Start Free Trial
+                  Create free account
                 </Link>
                 <Link
                   to="/contact"

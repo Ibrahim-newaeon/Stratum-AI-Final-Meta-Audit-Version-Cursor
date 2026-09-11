@@ -64,8 +64,7 @@ export default function KnowledgeGraphInsights() {
           <p className="text-sm text-muted-foreground">
             Stratum builds a live graph of your Meta ad entities (campaigns, ad sets, ads,
             audiences, creatives) and connects them to CDP profiles and revenue events. Insights
-            surfaced here feed the Trust Engine so Autopilot decisions stay explainable and
-            auditable.
+            here are for operators. This portal release does not feed executing Autopilot writes.
           </p>
         </div>
       </div>

@@ -1,0 +1,50 @@
+{
+  "recommendation": "NO-GO",
+  "needs_human_review": true,
+  "human_review_decisions": [
+    "Classify https://meta.stratumai.app as production vs staging (APP_ENV, SEED_DEMO, PADDLE_ENVIRONMENT, presence of demo users).",
+    "Decide whether advertised Trust-Gated Autopilot / Custom Autopilot is in this launch given AUTOPILOT_EXECUTION_ENABLED=false and the Custom Autopilot mock.",
+    "Decide whether Automation Rules may mutate local Campaign budget/status in the launch build.",
+    "Accept stdout-only trust-gate audit or require TrustGateAuditLog writes before launch.",
+    "Supply two isolated test tenants (roles + plans) and Meta/Paddle/WhatsApp sandboxes, or accept remaining BLOCKED coverage as launch risk.",
+    "Remove or keep demo Super/admin/user login on the customer-facing host; rotate credentials if those users exist."
+  ],
+  "commit": "ccc97a6cdde6d293df30bba265e672ce747aa41a",
+  "deployed_version": "spa-index-DqB9HH_Q.js; html-last-modified-2026-09-09T17:27:05Z; railway+cloudflare; APP_ENV-unknown",
+  "deployed_matches_tested": false,
+  "environment": "mixed",
+  "audit_timestamp_utc": "2026-09-10T13:45:00Z",
+  "spend_automation_in_scope": true,
+  "trust_gate_verified": false,
+  "duplicate_execution_protection_verified": false,
+  "counts": {
+    "total": 114,
+    "pass": 33,
+    "fail": 30,
+    "blocked": 49,
+    "not_run": 0,
+    "not_applicable": 2
+  },
+  "blockers": [
+    "DEF-001 demo login on live host",
+    "DEF-002 TrustGateAuditLog not written by worker",
+    "DEF-006 Custom Autopilot mock advertised as live",
+    "DEF-007 ROAS consecutive-days vs days_running",
+    "DEF-009 Rules empty-state mock",
+    "DEF-010 rules beat has no cooldown",
+    "DEF-013 no product emergency stop for rules+queue",
+    "AUTH-009 / ENV-005 tenant isolation integration unverified",
+    "ONB-002 onboarding UI unverified",
+    "DEF-020 Journey Explorer missing route",
+    "ENV-002 deployed index hash does not match local build of audited SHA",
+    "ENV-003 live APP_ENV unclassified"
+  ],
+  "confidence": "medium",
+  "confidence_reasons": [
+    "Mocks, FAQ copy, demo login, status page, and /test-page were observed on the live host or in source with screenshots.",
+    "2236 backend unit tests passed including fail-closed trust gate, Meta executor idempotency, and 69/70/71 boundaries.",
+    "49 authenticated module checks are BLOCKED without test tenants; integration isolation tests errored without Postgres.",
+    "Meta spend writes are off by default, but marketing and Custom Autopilot UI claim live trust-gated automation.",
+    "Index bundle hash differs from a Node 24 local build; vendor chunks match, so lineage is likely but not proven."
+  ]
+}

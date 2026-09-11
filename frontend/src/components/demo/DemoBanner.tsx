@@ -58,7 +58,7 @@ export function DemoBanner({ variant = 'top' }: DemoBannerProps) {
               onClick={() => navigate('/signup')}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
             >
-              Start Free Trial
+              Create free account
               <ArrowRight className="h-4 w-4" />
             </button>
             <button
@@ -92,7 +92,7 @@ export function DemoBanner({ variant = 'top' }: DemoBannerProps) {
             onClick={() => navigate('/signup')}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-white text-purple-600 text-sm font-semibold hover:bg-white/90 transition-colors"
           >
-            Start Free Trial
+            Create free account
             <ArrowRight className="h-4 w-4" />
           </button>
           <button

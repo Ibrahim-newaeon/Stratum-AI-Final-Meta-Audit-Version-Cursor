@@ -1,6 +1,7 @@
 # =============================================================================
 # Stratum AI - Production Docker Compose Override
 # =============================================================================
+# Self-hosted go-live stack for this repository. No Railway or Cloudflare.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 # =============================================================================
 
@@ -59,6 +60,11 @@ services:
       # metrics must never reach a real tenant, and the settings validator
       # refuses to start with this true while APP_ENV=production.
       - USE_MOCK_AD_DATA=false
+      - SEED_DEMO=false
+      - SERVICE_ROLE=api
+      - AUTOPILOT_EXECUTION_ENABLED=false
+      - AUTOPILOT_EXECUTION_DRY_RUN=true
+      - RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
@@ -71,9 +77,9 @@ services:
       - LOG_LEVEL=WARNING
       - LOG_FORMAT=json
       - SENTRY_DSN=${SENTRY_DSN:-}
-      # Paddle Billing (optional). Set PADDLE_ENVIRONMENT=production together with
-      # production keys; the app refuses to boot in production with an API key still
-      # pointed at the sandbox.
+      # Payments are off. Signup creates a free full-access workspace; do not
+      # set BILLING_PAYMENTS_ENABLED=true or Paddle keys for this go-live.
+      - BILLING_PAYMENTS_ENABLED=${BILLING_PAYMENTS_ENABLED:-false}
       - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
       - PADDLE_API_KEY=${PADDLE_API_KEY:-}
       - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
@@ -83,8 +89,7 @@ services:
       - PADDLE_ENTERPRISE_PRICE_ID=${PADDLE_ENTERPRISE_PRICE_ID:-}
     volumes:
       - ./ml_service/models:/app/ml_service/models:ro
-    command: >
-      sh -c "python scripts_create_schema.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    command: ["/app/docker-entrypoint.sh"]
     deploy:
       resources:
         limits:
@@ -109,6 +114,9 @@ services:
       # metrics must never reach a real tenant, and the settings validator
       # refuses to start with this true while APP_ENV=production.
       - USE_MOCK_AD_DATA=false
+      - AUTOPILOT_EXECUTION_ENABLED=false
+      - AUTOPILOT_EXECUTION_DRY_RUN=true
+      - RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
@@ -116,7 +124,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
       - LOG_LEVEL=WARNING
       - SENTRY_DSN=${SENTRY_DSN:-}
-      # Paddle Billing (optional)
+      # Payments off for this portal.
+      - BILLING_PAYMENTS_ENABLED=${BILLING_PAYMENTS_ENABLED:-false}
       - PADDLE_ENVIRONMENT=${PADDLE_ENVIRONMENT:-sandbox}
       - PADDLE_API_KEY=${PADDLE_API_KEY:-}
       - PADDLE_CLIENT_TOKEN=${PADDLE_CLIENT_TOKEN:-}
@@ -154,6 +163,9 @@ services:
       # metrics must never reach a real tenant, and the settings validator
       # refuses to start with this true while APP_ENV=production.
       - USE_MOCK_AD_DATA=false
+      - AUTOPILOT_EXECUTION_ENABLED=false
+      - AUTOPILOT_EXECUTION_DRY_RUN=true
+      - RULES_LOCAL_CAMPAIGN_MUTATIONS_ENABLED=false
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-stratum_ai}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
@@ -180,6 +192,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: production
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     restart: always
     environment:
       - NODE_ENV=production
@@ -188,7 +202,7 @@ services:
       - "80:8080"
     command: ["nginx", "-g", "daemon off;"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3

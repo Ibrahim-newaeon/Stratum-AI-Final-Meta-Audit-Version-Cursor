@@ -151,7 +151,7 @@ export default function AudienceSyncLaunch() {
                 boxShadow: '0 4px 20px rgba(168, 85, 247, 0.4)',
               }}
             >
-              Start Free Trial
+              Create free account
               <ArrowRightIcon className="w-5 h-5" />
             </Link>
             <Link
@@ -306,7 +306,7 @@ export default function AudienceSyncLaunch() {
               Ready to Supercharge Your Targeting?
             </h2>
             <p className="text-lg mb-8" style={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              Start your 14-day free trial and sync your first audience in minutes.
+              Start with a free account and sync your first audience in minutes.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
@@ -317,7 +317,7 @@ export default function AudienceSyncLaunch() {
                   boxShadow: '0 4px 20px rgba(168, 85, 247, 0.4)',
                 }}
               >
-                Start Free Trial
+                Create free account
                 <ArrowRightIcon className="w-5 h-5" />
               </Link>
               <Link

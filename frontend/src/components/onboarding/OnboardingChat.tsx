@@ -6,6 +6,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChatBubbleLeftRightIcon,
@@ -56,6 +57,7 @@ export default function OnboardingChat({
   initialEmail,
   language = 'en',
 }: OnboardingChatProps) {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -199,10 +201,9 @@ export default function OnboardingChat({
     }
   };
 
-  const handleOAuthRedirect = (platform: string) => {
-    // Open OAuth popup or redirect
-    const oauthUrl = `${API_BASE}/oauth/${platform}/authorize`;
-    window.open(oauthUrl, '_blank', 'width=600,height=700');
+  const handleOAuthRedirect = (_platform: string) => {
+    onClose();
+    navigate('/dashboard/campaigns/connect');
   };
 
   const handleQuickReply = (reply: string) => {

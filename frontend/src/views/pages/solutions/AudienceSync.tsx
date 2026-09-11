@@ -107,7 +107,7 @@ export default function AudienceSyncSolution() {
               boxShadow: '0 4px 20px rgba(249, 115, 22, 0.4)',
             }}
           >
-            Start Free Trial
+            Create free account
           </Link>
         </div>
       </section>
@@ -227,7 +227,7 @@ export default function AudienceSyncSolution() {
           >
             <h2 className="text-3xl font-bold text-white mb-4">Start Syncing Audiences Today</h2>
             <p className="text-lg mb-8" style={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-              Free 14-day trial. No credit card required.
+              Free account. No credit card required.
             </p>
             <Link
               to="/signup"

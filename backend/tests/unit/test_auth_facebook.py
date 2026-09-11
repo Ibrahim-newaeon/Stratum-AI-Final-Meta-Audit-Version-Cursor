@@ -373,6 +373,8 @@ class TestFacebookSignIn:
         users = [o for o in session.added if isinstance(o, User)]
         assert len(tenants) == 1
         assert len(users) == 1
+        assert tenants[0].plan == "enterprise"
+        assert tenants[0].plan_expires_at is None
         assert users[0].is_verified is True  # Meta supplied a confirmed email
 
     def test_a_provisioned_account_has_no_usable_password(self):

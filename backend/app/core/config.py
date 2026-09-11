@@ -522,6 +522,15 @@ class Settings(BaseSettings):
             "intended change without calling any Meta write endpoint."
         ),
     )
+    rules_local_campaign_mutations_enabled: bool = Field(
+        default=False,
+        description=(
+            "When true, the rules beat may pause campaigns and change "
+            "daily_budget_cents in Postgres after a PASS. That is not a Meta "
+            "write, but it still mutates operator-visible campaign state. "
+            "Off by default for the portal release."
+        ),
+    )
     meta_write_request_timeout_seconds: float = Field(
         default=30.0,
         gt=0,
@@ -861,6 +870,13 @@ class Settings(BaseSettings):
     paddle_enterprise_price_id: Optional[str] = Field(
         default=None, description="Paddle Price ID for Enterprise tier (pri_...)"
     )
+    billing_payments_enabled: bool = Field(
+        default=False,
+        description=(
+            "When false, checkout, portal, cancel, and upgrade stay off even if "
+            "Paddle keys are present. This portal ships as a free workspace."
+        ),
+    )
 
     @field_validator("paddle_environment", mode="before")
     @classmethod
@@ -904,6 +920,25 @@ class Settings(BaseSettings):
     aws_secret_access_key: Optional[str] = Field(default=None, description="AWS secret access key")
     aws_region: str = Field(default="us-east-1", description="AWS region")
     aws_s3_bucket: Optional[str] = Field(default=None, description="S3 bucket name for file storage")
+
+    @property
+    def smtp_configured(self) -> bool:
+        """True when SMTP credentials look real enough to send mail."""
+        user = (self.smtp_user or "").strip()
+        password = (self.smtp_password or "").strip()
+        if not user or not password:
+            return False
+        return password.lower() not in {
+            "changeme",
+            "password",
+            "secret",
+            "your_smtp_password_here",
+        }
+
+    @property
+    def email_verification_enforced(self) -> bool:
+        """Require a verified inbox only when a verification email can be sent."""
+        return self.smtp_configured
 
     @property
     def is_development(self) -> bool:
