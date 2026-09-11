@@ -660,6 +660,58 @@ export interface SyncHistoryResponse {
   total?: number;
 }
 
+export interface ConsentStatItem {
+  consent_type: string;
+  total_profiles: number;
+  granted: number;
+  revoked: number;
+  grant_rate: number;
+}
+
+export interface ConsentProfileItem {
+  profile_id: string;
+  email?: string | null;
+  consent_type: string;
+  granted: boolean;
+  granted_at?: string | null;
+  revoked_at?: string | null;
+  source?: string | null;
+}
+
+export interface ConsentProfileListResponse {
+  profiles: ConsentProfileItem[];
+  total: number;
+}
+
+export interface ChurnRiskItem {
+  profile_id: string;
+  email?: string | null;
+  lifecycle_stage: string;
+  churn_probability: number;
+  risk_level: 'high' | 'medium' | 'low' | string;
+  revenue_at_risk: number;
+  lifetime_value: number;
+  last_activity_date?: string | null;
+  days_inactive: number;
+  top_factors: Array<{
+    name?: string;
+    impact?: number;
+    direction?: string;
+    value?: string;
+    [key: string]: unknown;
+  }>;
+}
+
+export interface ChurnRiskListResponse {
+  items: ChurnRiskItem[];
+  total: number;
+  high_risk: number;
+  medium_risk: number;
+  low_risk: number;
+  revenue_at_risk: number;
+  scoring_method: string;
+}
+
 // =============================================================================
 // Query keys
 // =============================================================================
@@ -713,6 +765,11 @@ export const cdpQueryKeys = {
     [...cdpQueryKeys.all, 'audience-sync', 'audiences', params] as const,
   syncHistory: (audienceId: string, limit?: number) =>
     [...cdpQueryKeys.all, 'audience-sync', 'audiences', audienceId, 'history', limit] as const,
+  consentStats: () => [...cdpQueryKeys.all, 'consent-stats'] as const,
+  consents: (params?: Record<string, unknown>) =>
+    [...cdpQueryKeys.all, 'consents', params] as const,
+  churnRisks: (params?: Record<string, unknown>) =>
+    [...cdpQueryKeys.all, 'churn-risks', params] as const,
 };
 
 // =============================================================================
@@ -722,6 +779,16 @@ export const cdpQueryKeys = {
 async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   const response = await apiClient.get<ApiResponse<T>>(url, { params });
   return response.data.data;
+}
+
+/** Unwrap either APIResponse envelope or raw FastAPI body. */
+async function getRaw<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+  const response = await apiClient.get(url, { params });
+  const body = response.data;
+  if (body && typeof body === 'object' && 'data' in body && body.data !== undefined) {
+    return body.data as T;
+  }
+  return body as T;
 }
 
 async function post<T>(url: string, body?: unknown): Promise<T> {
@@ -882,6 +949,19 @@ export const cdpApi = {
     post<SyncJob>(`/cdp/audience-sync/audiences/${audienceId}/sync`, { operation }),
   getSyncHistory: (audienceId: string, limit?: number) =>
     get<SyncHistoryResponse>(`/cdp/audience-sync/audiences/${audienceId}/history`, { limit }),
+
+  // Consent (read-only compliance)
+  getConsentStats: () => getRaw<ConsentStatItem[]>('/cdp/consents/stats'),
+  listConsents: (params?: {
+    consent_type?: string;
+    granted?: boolean;
+    limit?: number;
+    offset?: number;
+  }) => getRaw<ConsentProfileListResponse>('/cdp/consents', params),
+
+  // Heuristic churn risks (no Meta writes)
+  listChurnRisks: (params?: { min_probability?: number; limit?: number }) =>
+    getRaw<ChurnRiskListResponse>('/cdp/churn/risks', params),
 };
 
 // =============================================================================
@@ -1540,5 +1620,34 @@ export function useSyncHistory(audienceId: string, limit?: number) {
     queryKey: cdpQueryKeys.syncHistory(audienceId, limit),
     queryFn: () => cdpApi.getSyncHistory(audienceId, limit),
     enabled: !!audienceId,
+  });
+}
+
+export function useConsentStats() {
+  return useQuery({
+    queryKey: cdpQueryKeys.consentStats(),
+    queryFn: () => cdpApi.getConsentStats(),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useConsentProfiles(filters: {
+  consent_type?: string;
+  granted?: boolean;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery({
+    queryKey: cdpQueryKeys.consents(filters),
+    queryFn: () => cdpApi.listConsents(filters),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useChurnRisks(params?: { min_probability?: number; limit?: number }) {
+  return useQuery({
+    queryKey: cdpQueryKeys.churnRisks(params),
+    queryFn: () => cdpApi.listChurnRisks(params),
+    staleTime: 60 * 1000,
   });
 }

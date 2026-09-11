@@ -29,7 +29,7 @@ const featureTooltips: Record<string, string> = {
   'Meta Custom Audiences': 'Push CDP segments directly to Meta Ads for targeting.',
   'WhatsApp Audiences': 'Sync customer lists to WhatsApp campaigns for personalized outreach.',
   'Funnel Builder': 'Create step-by-step conversion funnels to track drop-off points.',
-  'Predictive Churn Modeling': 'ML model that identifies customers likely to stop purchasing.',
+  'Predictive Churn Modeling': 'Heuristic risk scoring from CDP inactivity and lifecycle signals.',
   'Identity Graph': 'Visual map of how anonymous and known identities connect.',
   'Custom Autopilot Rules': 'Define your own automation logic with if/then conditions.',
   'API Access': 'REST API for integrating Stratum data into your own systems.',

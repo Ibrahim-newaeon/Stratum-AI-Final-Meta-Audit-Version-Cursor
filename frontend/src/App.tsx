@@ -68,12 +68,16 @@ const CDPAudienceSync = lazy(() => import('./views/cdp/CDPAudienceSync'));
 const CDPRfm = lazy(() => import('./views/cdp/CDPRfm'));
 const CDPFunnels = lazy(() => import('./views/cdp/CDPFunnels'));
 const CDPComputedTraits = lazy(() => import('./views/cdp/CDPComputedTraits'));
+const CDPConsent = lazy(() => import('./views/cdp/CDPConsent'));
+const CDPPredictiveChurn = lazy(() => import('./views/cdp/CDPPredictiveChurn'));
 const CustomAutopilotRules = lazy(() => import('./views/CustomAutopilotRules'));
 const LaunchUnavailable = lazy(() => import('./views/LaunchUnavailable'));
 
 // Knowledge Graph views
 const KGProblemDetection = lazy(() => import('./views/knowledge-graph/KGProblemDetection'));
 const KGRevenueAttribution = lazy(() => import('./views/knowledge-graph/KGRevenueAttribution'));
+const KGInsights = lazy(() => import('./components/knowledge-graph/KGInsights'));
+const JourneyExplorer = lazy(() => import('./views/knowledge-graph/JourneyExplorer'));
 
 // Super Admin views
 const ControlTower = lazy(() => import('./views/superadmin/ControlTower'));
@@ -890,10 +894,7 @@ function App() {
                         path="cdp/consent"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Consent"
-                              reason="Consent management is not included in this portal release. It previously showed simulated tenant data."
-                            />
+                            <CDPConsent />
                           </Suspense>
                         }
                       />
@@ -901,10 +902,7 @@ function App() {
                         path="cdp/predictive-churn"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Predictive Churn"
-                              reason="Churn scoring is not included in this portal release. It previously rendered mock risk lists."
-                            />
+                            <CDPPredictiveChurn />
                           </Suspense>
                         }
                       />
@@ -922,10 +920,7 @@ function App() {
                         path="knowledge-graph/insights"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Knowledge Graph Insights"
-                              reason="This module was a placeholder under construction and is not included in this portal release."
-                            />
+                            <KGInsights />
                           </Suspense>
                         }
                       />
@@ -949,10 +944,7 @@ function App() {
                         path="knowledge-graph/journeys"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Journey Explorer"
-                              reason="This page is not in the portal release. The previous nav link had no matching route."
-                            />
+                            <JourneyExplorer />
                           </Suspense>
                         }
                       />
@@ -970,10 +962,7 @@ function App() {
                         path="custom-reports"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <LaunchUnavailable
-                              title="Custom Reports"
-                              reason="The custom report builder is not included in this portal release."
-                            />
+                            <Reporting />
                           </Suspense>
                         }
                       />

@@ -1,17 +1,11 @@
 /**
  * Portal launch surface: modules that still ship mock or unfinished UX.
  *
- * They stay in the repo so they can be finished later, but production
- * navigation, the command palette, and the dashboard routes must not
- * present them as live product.
+ * Finished modules must be removed from this list when they are wired to
+ * real APIs. Keep `/test-page` hidden — it is a debug remnant.
  */
 
 export const PORTAL_LAUNCH_HIDDEN_HREFS = [
-  '/dashboard/custom-reports',
-  '/dashboard/cdp/consent',
-  '/dashboard/cdp/predictive-churn',
-  '/dashboard/knowledge-graph/insights',
-  '/dashboard/knowledge-graph/journeys',
   '/test-page',
 ] as const;
 
@@ -29,5 +23,5 @@ export function isDemoLoginEnabled(): boolean {
   return import.meta.env.DEV;
 }
 
-/** This portal does not load a payment overlay or take cards. */
+/** This portal does not take payments in this portal release. */
 export const PORTAL_PAYMENTS_ENABLED = false;

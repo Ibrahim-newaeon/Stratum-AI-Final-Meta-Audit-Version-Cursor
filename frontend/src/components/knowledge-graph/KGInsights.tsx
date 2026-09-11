@@ -24,7 +24,7 @@ import {
   Sparkles,
   RefreshCw,
 } from 'lucide-react';
-import api from '@/lib/api';
+import { apiClient } from '@/api/client';
 
 // Types
 interface Solution {
@@ -346,8 +346,9 @@ export function KGInsights() {
   const { data: health, isLoading: healthLoading, refetch: refetchHealth } = useQuery<HealthSummary>({
     queryKey: ['kg-health'],
     queryFn: async () => {
-      const res = await api.get('/knowledge-graph/insights/health');
-      return res.data as any;
+      const res = await apiClient.get('/knowledge-graph/insights/health');
+      const body = res.data;
+      return (body?.data ?? body) as any;
     },
     refetchInterval: 60000, // Refresh every minute
   });
@@ -358,8 +359,9 @@ export function KGInsights() {
     queryFn: async () => {
       const params = new URLSearchParams();
       if (severityFilter) params.set('severity', severityFilter);
-      const res = await api.get(`/knowledge-graph/insights/problems?${params}`);
-      return res.data as any;
+      const res = await apiClient.get(`/knowledge-graph/insights/problems?${params}`);
+      const body = res.data;
+      return (body?.data ?? body) as any;
     },
     refetchInterval: 60000,
   });
@@ -381,7 +383,7 @@ export function KGInsights() {
             Knowledge Graph Insights
           </h2>
           <p className="text-sm text-gray-400 mt-1">
-            AI-powered problem detection with suggested solutions
+            Problem detection from the knowledge graph with suggested solutions
           </p>
         </div>
         <button
