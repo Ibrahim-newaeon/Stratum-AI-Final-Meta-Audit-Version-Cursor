@@ -113,6 +113,7 @@ from app.schemas.cdp import (
     WebhookTestResult,
     WebhookUpdate,
 )
+from app.services.cdp.capi_fanout import fanout_cdp_events_to_capi
 from app.services.cdp.computed_traits_service import ComputedTraitsService, RFMAnalysisService
 from app.services.cdp.funnel_service import FunnelService
 from app.services.cdp.identity_resolution import IdentityResolutionService
@@ -734,6 +735,7 @@ async def _process_event_batch(
     rejected = 0
     duplicates = 0
     source_id = source.id if source else None
+    accepted_events: list = []
 
     logger.info(
         "cdp_event_ingestion_started",
@@ -849,6 +851,7 @@ async def _process_event_batch(
                 await db.flush()
 
                 accepted += 1
+                accepted_events.append(event)
                 results.append(
                     EventIngestResult(
                         event_id=db_event.id,
@@ -878,6 +881,16 @@ async def _process_event_batch(
         del event_chunk
 
     await db.commit()
+
+    # Fan out accepted events to tenant Meta CAPI so EMQ / signal-health
+    # receive attributed capi_delivery_logs. Soft-fail; never undo CDP ingest.
+    if accepted_events:
+        await fanout_cdp_events_to_capi(
+            db,
+            tenant_id=tenant_id,
+            events=accepted_events,
+            platforms=["meta"],
+        )
 
     logger.info(
         "cdp_event_ingestion_completed",
