@@ -2,7 +2,8 @@
  * CDP Segments - Segment builder and manager
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ArrowPathIcon,
   CheckIcon,
@@ -509,16 +510,27 @@ function SegmentCard({
 }
 
 export default function CDPSegments() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingSegment, setEditingSegment] = useState<CDPSegment | undefined>();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = useSegments();
   const createMutation = useCreateSegment();
   const updateMutation = useUpdateSegment();
   const deleteMutation = useDeleteSegment();
   const computeMutation = useComputeSegment();
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'create') {
+      setEditingSegment(undefined);
+      setShowBuilder(true);
+      setSaveError(null);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const filteredSegments =
     data?.segments.filter(
@@ -528,17 +540,20 @@ export default function CDPSegments() {
     ) || [];
 
   const handleCreate = async (segmentData: SegmentCreate) => {
+    setSaveError(null);
     try {
       await createMutation.mutateAsync(segmentData);
       setShowBuilder(false);
       refetch();
     } catch (error) {
       console.error('Create failed:', error);
+      setSaveError(error instanceof Error ? error.message : 'Failed to create segment');
     }
   };
 
   const handleUpdate = async (segmentData: SegmentCreate) => {
     if (!editingSegment) return;
+    setSaveError(null);
     try {
       await updateMutation.mutateAsync({
         segmentId: editingSegment.id,
@@ -548,6 +563,7 @@ export default function CDPSegments() {
       refetch();
     } catch (error) {
       console.error('Update failed:', error);
+      setSaveError(error instanceof Error ? error.message : 'Failed to update segment');
     }
   };
 
@@ -579,7 +595,10 @@ export default function CDPSegments() {
           <p className="text-muted-foreground mt-1">{data?.total || 0} segments</p>
         </div>
         <button
-          onClick={() => setShowBuilder(true)}
+          onClick={() => {
+            setSaveError(null);
+            setShowBuilder(true);
+          }}
           className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
         >
           <PlusIcon className="h-4 w-4" />
@@ -598,6 +617,13 @@ export default function CDPSegments() {
           className="w-full pl-10 pr-4 py-2 border rounded-lg bg-background focus:ring-2 focus:ring-primary focus:outline-none"
         />
       </div>
+
+      {saveError && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+          <ExclamationTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
 
       {/* Segments Grid */}
       {isLoading ? (
@@ -645,6 +671,7 @@ export default function CDPSegments() {
         <SegmentBuilderModal
           segment={editingSegment}
           onClose={() => {
+            setSaveError(null);
             setShowBuilder(false);
             setEditingSegment(undefined);
           }}
