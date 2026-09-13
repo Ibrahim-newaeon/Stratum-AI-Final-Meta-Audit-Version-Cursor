@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Platform, useAdAccounts } from '@/api/campaignBuilder';
+import { apiClient } from '@/api/client';
 import { FRONTEND_CONNECT_PATH } from '@/api/oauth';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -308,22 +309,28 @@ export function CampaignCreateModal({ open, onClose, onSuccess }: CampaignCreate
         saved_audiences: formData.saved_audiences.length > 0 ? formData.saved_audiences : null,
       };
 
-      const response = await fetch('/api/v1/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      // Must use apiClient so the auth interceptor attaches the bearer token.
+      // Raw fetch() hits tenant middleware with no Authorization header and
+      // returns "Please provide a valid authentication token".
+      const { data } = await apiClient.post('/campaigns', payload);
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (data?.success) {
         onSuccess?.(data.data);
         handleClose();
       } else {
-        setSubmitError(data.message || t('campaigns.create.errors.submitFailed'));
+        setSubmitError(
+          data?.message || data?.detail || t('campaigns.create.errors.submitFailed')
+        );
       }
-    } catch (err) {
-      setSubmitError(t('campaigns.create.errors.submitFailed'));
+    } catch (err: unknown) {
+      const axiosMessage =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string; detail?: string } } }).response?.data
+              ?.message ||
+            (err as { response?: { data?: { message?: string; detail?: string } } }).response?.data
+              ?.detail
+          : null;
+      setSubmitError(axiosMessage || t('campaigns.create.errors.submitFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -352,9 +359,9 @@ export function CampaignCreateModal({ open, onClose, onSuccess }: CampaignCreate
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleClose} />
 
       {/* Modal */}
-      <div className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-card border shadow-xl mx-4">
+      <div className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-card border shadow-xl mx-4 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
+        <div className="flex items-center justify-between p-6 border-b flex-shrink-0">
           <div>
             <h2 className="text-xl font-bold text-foreground">{t('campaigns.create.title')}</h2>
             <p className="text-sm text-muted-foreground mt-1">{t('campaigns.create.subtitle')}</p>
@@ -365,7 +372,7 @@ export function CampaignCreateModal({ open, onClose, onSuccess }: CampaignCreate
         </div>
 
         {/* Step Indicator */}
-        <div className="px-6 py-4 border-b bg-muted/30">
+        <div className="px-6 py-4 border-b bg-muted/30 flex-shrink-0">
           <div className="flex items-center justify-between">
             {STEPS.map((step, index) => (
               <div key={step} className="flex items-center">
@@ -403,7 +410,7 @@ export function CampaignCreateModal({ open, onClose, onSuccess }: CampaignCreate
         </div>
 
         {/* Content */}
-        <div className="p-8 overflow-y-auto max-h-[60vh]">
+        <div className="p-8 overflow-y-auto flex-1 min-h-0">
           {/* Platform Selection Step */}
           {currentStep === 'platform' && (
             <div className="space-y-6">
@@ -1005,8 +1012,8 @@ export function CampaignCreateModal({ open, onClose, onSuccess }: CampaignCreate
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between p-6 border-t bg-muted/30">
+        {/* Footer — keep pinned; body above scrolls */}
+        <div className="flex items-center justify-between p-6 border-t bg-muted/30 flex-shrink-0">
           <button
             onClick={currentStepIndex === 0 ? handleClose : handleBack}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border hover:bg-muted transition-colors"

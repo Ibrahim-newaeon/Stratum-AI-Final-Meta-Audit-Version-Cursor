@@ -18,12 +18,14 @@ interface CampaignPerformanceTableProps {
   campaigns: CampaignSummaryItem[];
   loading?: boolean;
   onViewAll?: () => void;
+  onCampaignClick?: (campaignId: number | string) => void;
 }
 
 export function CampaignPerformanceTable({
   campaigns,
   loading = false,
   onViewAll,
+  onCampaignClick,
 }: CampaignPerformanceTableProps) {
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -130,7 +132,14 @@ export function CampaignPerformanceTable({
             </thead>
             <tbody className="divide-y">
               {campaigns.map((campaign) => (
-                <tr key={campaign.id} className="hover:bg-muted/50 transition-colors">
+                <tr
+                  key={campaign.id}
+                  className={cn(
+                    'hover:bg-muted/50 transition-colors',
+                    onCampaignClick && 'cursor-pointer'
+                  )}
+                  onClick={() => onCampaignClick?.(campaign.id)}
+                >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       {getTrendIcon(campaign.trend)}

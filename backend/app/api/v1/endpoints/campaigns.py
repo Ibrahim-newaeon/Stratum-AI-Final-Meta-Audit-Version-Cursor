@@ -72,6 +72,7 @@ async def list_campaigns(
     platform: Optional[AdPlatform] = None,
     status: Optional[CampaignStatus] = None,
     search: Optional[str] = None,
+    account_id: Optional[str] = Query(None, description="Filter by Meta ad account id"),
     labels: Optional[list[str]] = Query(None),
 ):
     """
@@ -83,6 +84,7 @@ async def list_campaigns(
         platform: Filter by ad platform
         status: Filter by campaign status
         search: Search by name
+        account_id: Filter by ad account id
         labels: Filter by labels
     """
     tenant_id = getattr(request.state, "tenant_id", None)
@@ -100,6 +102,8 @@ async def list_campaigns(
         query = query.where(Campaign.status == status)
     if search:
         query = query.where(Campaign.name.ilike(f"%{search}%"))
+    if account_id:
+        query = query.where(Campaign.account_id == account_id)
     if labels:
         # PostgreSQL JSONB contains any of the labels
         for label in labels:
@@ -126,7 +130,10 @@ async def list_campaigns(
                     name=c.name,
                     platform=c.platform,
                     status=c.status,
+                    account_id=c.account_id,
                     total_spend_cents=c.total_spend_cents,
+                    revenue_cents=c.revenue_cents or 0,
+                    daily_budget_cents=c.daily_budget_cents,
                     impressions=c.impressions,
                     clicks=c.clicks,
                     conversions=c.conversions,

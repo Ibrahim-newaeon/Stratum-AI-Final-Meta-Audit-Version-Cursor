@@ -185,10 +185,10 @@ export function RecommendationsCard({
                                 ? 'bg-yellow-500'
                                 : 'bg-orange-500'
                           )}
-                          style={{ width: `${rec.confidence}%` }}
+                          style={{ width: `${Math.round((rec.confidence <= 1 ? rec.confidence * 100 : rec.confidence))}%` }}
                         />
                       </div>
-                      <span className="text-xs text-muted-foreground">{rec.confidence}%</span>
+                      <span className="text-xs text-muted-foreground">{Math.round(rec.confidence <= 1 ? rec.confidence * 100 : rec.confidence)}%</span>
                     </div>
                   </div>
 

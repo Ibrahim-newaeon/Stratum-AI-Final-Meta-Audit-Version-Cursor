@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useToast } from '@/components/ui/use-toast';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,7 +21,7 @@ import {
   Video,
 } from 'lucide-react';
 import { cn, formatCompactNumber, formatPercent } from '@/lib/utils';
-import { useAssets, useBulkArchiveAssets, useDeleteAsset } from '@/api/hooks';
+import { useAssets, useBulkArchiveAssets, useDeleteAsset, useUploadAsset } from '@/api/hooks';
 import { useTenantStore } from '@/stores/tenantStore';
 
 type AssetType = 'image' | 'video' | 'copy';
@@ -41,105 +42,29 @@ interface Asset {
   duration?: string;
 }
 
-const mockAssets: Asset[] = [
-  {
-    id: 1,
-    name: 'Summer_Banner_v3',
-    type: 'image',
-    status: 'fatigued',
-    thumbnail: 'https://placehold.co/300x250/0ea5e9/white?text=Summer+Sale',
-    impressions: 2300000,
-    ctr: 1.8,
-    fatigueScore: 78,
-    campaigns: ['Summer Sale 2024', 'Brand Awareness Q4'],
-    createdAt: '2024-06-15',
-    dimensions: '300x250',
-  },
-  {
-    id: 2,
-    name: 'Product_Hero_Widget',
-    type: 'image',
-    status: 'active',
-    thumbnail: 'https://placehold.co/1200x628/10b981/white?text=Widget+Pro',
-    impressions: 890000,
-    ctr: 3.2,
-    fatigueScore: 23,
-    campaigns: ['Product Launch - Widget Pro'],
-    createdAt: '2024-09-01',
-    dimensions: '1200x628',
-  },
-  {
-    id: 3,
-    name: 'Brand_Video_30s',
-    type: 'video',
-    status: 'active',
-    thumbnail: 'https://placehold.co/1920x1080/8b5cf6/white?text=Brand+Video',
-    impressions: 1560000,
-    ctr: 2.9,
-    fatigueScore: 35,
-    campaigns: ['Brand Awareness Q4', 'Instagram Influencer Collab'],
-    createdAt: '2024-08-20',
-    duration: '0:30',
-  },
-  {
-    id: 4,
-    name: 'Retargeting_Carousel',
-    type: 'image',
-    status: 'active',
-    thumbnail: 'https://placehold.co/1080x1080/f59e0b/white?text=Carousel',
-    impressions: 670000,
-    ctr: 4.1,
-    fatigueScore: 15,
-    campaigns: ['Retargeting - Cart Abandoners'],
-    createdAt: '2024-10-05',
-    dimensions: '1080x1080',
-  },
-  {
-    id: 5,
-    name: 'Holiday_Promo_Copy',
-    type: 'copy',
-    status: 'draft',
-    thumbnail: 'https://placehold.co/400x200/6b7280/white?text=Ad+Copy',
-    impressions: 0,
-    ctr: 0,
-    fatigueScore: 0,
-    campaigns: [],
-    createdAt: '2024-11-28',
-  },
-  {
-    id: 6,
-    name: 'Flash_Sale_Banner',
-    type: 'image',
-    status: 'paused',
-    thumbnail: 'https://placehold.co/728x90/ef4444/white?text=Flash+Sale',
-    impressions: 450000,
-    ctr: 2.1,
-    fatigueScore: 52,
-    campaigns: ['Summer Sale 2024'],
-    createdAt: '2024-07-10',
-    dimensions: '728x90',
-  },
-];
-
 type ViewMode = 'grid' | 'list';
 
 export function Assets() {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedAssets, setSelectedAssets] = useState<number[]>([]);
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
 
   // Use tenant store for context (reserved for API calls)
   useTenantStore((state) => state.tenantId);
 
   // Fetch assets from API
-  const { data: assetsData } = useAssets();
+  const { data: assetsData, refetch } = useAssets();
   useDeleteAsset(); // Prefetch delete mutation
   const bulkArchive = useBulkArchiveAssets();
+  const uploadAsset = useUploadAsset();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Transform API data or fall back to mock
+  // Transform API data; empty list when library has no assets yet
   const assets = useMemo((): Asset[] => {
     if (assetsData?.items && assetsData.items.length > 0) {
       return assetsData.items.map((a: any) => ({
@@ -160,7 +85,7 @@ export function Assets() {
         duration: a.duration,
       }));
     }
-    return mockAssets;
+    return [];
   }, [assetsData]);
 
   // Handle bulk delete
@@ -236,10 +161,47 @@ export function Assets() {
           <p className="text-muted-foreground">{t('assets.subtitle')}</p>
         </div>
 
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-          <Upload className="w-4 h-4" />
-          <span>{t('assets.upload')}</span>
-        </button>
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*,.txt,.csv,.json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                await uploadAsset.mutateAsync({ file });
+                toast({
+                  title: 'Asset uploaded',
+                  description: `"${file.name}" is now in your library.`,
+                });
+                void refetch();
+              } catch (err) {
+                toast({
+                  title: 'Upload failed',
+                  description: err instanceof Error ? err.message : 'Could not upload asset',
+                  variant: 'destructive',
+                });
+              } finally {
+                e.target.value = '';
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadAsset.isPending}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {uploadAsset.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Upload className="w-4 h-4" />
+            )}
+            <span>{t('assets.upload')}</span>
+          </button>
+        </>
       </div>
 
       {/* Filters & Controls */}
@@ -345,7 +307,15 @@ export function Assets() {
               )}
             >
               {/* Thumbnail */}
-              <div className="relative aspect-video bg-muted">
+              <div
+                className="relative aspect-video bg-muted cursor-pointer"
+                onClick={() => setPreviewAsset(asset)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') setPreviewAsset(asset);
+                }}
+                role="button"
+                tabIndex={0}
+              >
                 <img
                   src={asset.thumbnail}
                   alt={asset.name}
@@ -409,15 +379,43 @@ export function Assets() {
                 {/* Actions */}
                 <div className="flex items-center justify-between mt-4 pt-3 border-t">
                   <div className="flex gap-1">
-                    <button className="p-1.5 rounded hover:bg-muted transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewAsset(asset)}
+                      className="p-1.5 rounded hover:bg-muted transition-colors"
+                      title="View asset"
+                    >
                       <Eye className="w-4 h-4" />
                     </button>
-                    <button className="p-1.5 rounded hover:bg-muted transition-colors">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(asset.thumbnail);
+                          toast({ title: 'Copied', description: 'Asset URL copied to clipboard.' });
+                        } catch {
+                          toast({
+                            title: 'Copy failed',
+                            description: 'Could not copy asset URL.',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="p-1.5 rounded hover:bg-muted transition-colors"
+                      title="Copy URL"
+                    >
                       <Copy className="w-4 h-4" />
                     </button>
-                    <button className="p-1.5 rounded hover:bg-muted transition-colors">
+                    <a
+                      href={asset.thumbnail}
+                      download={asset.name}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1.5 rounded hover:bg-muted transition-colors"
+                      title="Download / open"
+                    >
                       <Download className="w-4 h-4" />
-                    </button>
+                    </a>
                   </div>
                   <button className="p-1.5 rounded hover:bg-muted transition-colors">
                     <MoreHorizontal className="w-4 h-4" />
@@ -536,6 +534,43 @@ export function Assets() {
           <p className="text-muted-foreground">{t('assets.noResults')}</p>
         </div>
       )}
+      {previewAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setPreviewAsset(null)}
+          />
+          <div className="relative z-10 w-full max-w-3xl mx-4 rounded-2xl border bg-card shadow-xl overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h2 className="font-semibold">{previewAsset.name}</h2>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {previewAsset.type} · {previewAsset.status}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewAsset(null)}
+                className="px-3 py-1.5 rounded-lg border hover:bg-muted text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <div className="bg-muted flex items-center justify-center min-h-[280px]">
+              {previewAsset.type === 'video' ? (
+                <video src={previewAsset.thumbnail} controls className="max-h-[70vh] w-full" />
+              ) : (
+                <img
+                  src={previewAsset.thumbnail}
+                  alt={previewAsset.name}
+                  className="max-h-[70vh] w-full object-contain"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

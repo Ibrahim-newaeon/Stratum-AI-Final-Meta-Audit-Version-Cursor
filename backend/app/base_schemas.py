@@ -342,7 +342,10 @@ class CampaignListResponse(BaseSchema):
     name: str
     platform: AdPlatform
     status: CampaignStatus
+    account_id: str
     total_spend_cents: int
+    revenue_cents: int = 0
+    daily_budget_cents: Optional[int] = None
     impressions: int
     clicks: int
     conversions: int
