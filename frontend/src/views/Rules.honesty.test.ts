@@ -7,10 +7,7 @@ import { resolve } from 'node:path';
 
 describe('Rules view honesty', () => {
   it('does not ship a mockRules fallback catalogue', () => {
-    const source = readFileSync(
-      resolve(__dirname, '../views/Rules.tsx'),
-      'utf8'
-    );
+    const source = readFileSync(resolve(__dirname, './Rules.tsx'), 'utf8');
     expect(source).not.toMatch(/\bmockRules\b/);
     expect(source).toMatch(/no mock active rules/i);
   });
