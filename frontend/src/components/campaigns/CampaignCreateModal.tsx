@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Platform, useAdAccounts } from '@/api/campaignBuilder';
+import { FRONTEND_CONNECT_PATH } from '@/api/oauth';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface CampaignCreateModalProps {
@@ -30,35 +32,14 @@ interface CampaignCreateModalProps {
   onSuccess?: (campaign: any) => void;
 }
 
-// Platform configurations
+// Platform configurations — backend AdPlatform is Meta-only (FB/IG/WA Ads share one OAuth).
 const PLATFORMS = [
   {
-    id: 'meta',
-    name: 'Meta',
-    description: 'Facebook & Instagram Ads',
+    id: 'meta' as Platform,
+    name: 'Meta Ads',
+    description: 'Facebook, Instagram & WhatsApp Ads (one Meta Business connection)',
     color: 'bg-blue-600',
     objectives: ['AWARENESS', 'TRAFFIC', 'ENGAGEMENT', 'LEADS', 'APP_PROMOTION', 'SALES'],
-  },
-  {
-    id: 'facebook',
-    name: 'Facebook',
-    description: 'Facebook Feed, Stories & Reels',
-    color: 'bg-blue-500',
-    objectives: ['AWARENESS', 'TRAFFIC', 'ENGAGEMENT', 'LEADS', 'CONVERSIONS', 'SALES'],
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    description: 'Instagram Feed, Stories & Reels',
-    color: 'bg-pink-500',
-    objectives: ['AWARENESS', 'TRAFFIC', 'ENGAGEMENT', 'LEADS', 'CONVERSIONS', 'SALES'],
-  },
-  {
-    id: 'whatsapp',
-    name: 'WhatsApp',
-    description: 'Click-to-WhatsApp Ads',
-    color: 'bg-green-500',
-    objectives: ['MESSAGES', 'TRAFFIC', 'ENGAGEMENT', 'LEADS', 'CONVERSIONS'],
   },
 ];
 
@@ -529,18 +510,27 @@ export function CampaignCreateModal({ open, onClose, onSuccess }: CampaignCreate
                     <span className="text-sm text-muted-foreground">Loading accounts...</span>
                   </div>
                 ) : adAccounts.length === 0 ? (
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-dashed bg-muted/30">
+                  <div className="flex flex-col gap-3 p-4 rounded-lg border border-dashed bg-muted/30">
                     <div className="flex items-center gap-3">
-                      <Settings className="w-5 h-5 text-muted-foreground" />
+                      <Settings className="w-5 h-5 text-muted-foreground shrink-0" />
                       <div>
                         <p className="text-sm font-medium text-foreground">
-                          No ad accounts connected
+                          No Meta ad accounts yet
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Connect your {selectedPlatform?.name} account in Settings → Integrations
+                          CAPI / WhatsApp messaging credentials do not unlock ad accounts. Connect
+                          Meta Ads via OAuth, then sync accounts.
                         </p>
                       </div>
                     </div>
+                    <Link
+                      to={FRONTEND_CONNECT_PATH}
+                      onClick={onClose}
+                      className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Connect Meta Ads
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
                   </div>
                 ) : (
                   <select

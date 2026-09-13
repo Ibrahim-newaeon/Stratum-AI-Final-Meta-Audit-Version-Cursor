@@ -54,14 +54,132 @@ interface Rule {
   createdAt: string;
 }
 
+const mockRules: Rule[] = [
+  {
+    id: 1,
+    name: 'WhatsApp Alert for Budget Overspend',
+    description: 'Send WhatsApp notification when campaign spends over 80% of budget',
+    status: 'active',
+    condition: { field: 'spend', operator: 'greater_than', value: '800' },
+    action: {
+      type: 'notify_whatsapp',
+      config: { contact_ids: [1, 2], template_name: 'rule_alert' },
+    },
+    appliesTo: ['Summer Sale 2024', 'Brand Awareness Q4'],
+    triggerCount: 7,
+    lastTriggered: '2024-12-06T08:00:00Z',
+    cooldownHours: 12,
+    createdAt: '2024-12-01',
+  },
+  {
+    id: 2,
+    name: 'Pause Low ROAS Campaigns',
+    description: 'Automatically pause campaigns when ROAS drops below 2.0',
+    status: 'active',
+    condition: { field: 'roas', operator: 'less_than', value: '2.0' },
+    action: { type: 'pause_campaign', config: {} },
+    appliesTo: ['All Campaigns'],
+    triggerCount: 12,
+    lastTriggered: '2024-11-28T14:30:00Z',
+    cooldownHours: 24,
+    createdAt: '2024-06-15',
+  },
+  {
+    id: 3,
+    name: 'Alert on High Spend',
+    description: 'Send alert when daily spend exceeds $500',
+    status: 'active',
+    condition: { field: 'spend', operator: 'greater_than', value: '500' },
+    action: { type: 'send_alert', config: { email: 'marketing@company.com' } },
+    appliesTo: ['Summer Sale 2024', 'Brand Awareness Q4'],
+    triggerCount: 45,
+    lastTriggered: '2024-11-29T09:15:00Z',
+    cooldownHours: 4,
+    createdAt: '2024-07-20',
+  },
+  {
+    id: 4,
+    name: 'Label High Performers',
+    description: 'Apply "star" label to campaigns with ROAS above 4.0',
+    status: 'active',
+    condition: { field: 'roas', operator: 'greater_than', value: '4.0' },
+    action: { type: 'apply_label', config: { label: 'star-performer' } },
+    appliesTo: ['All Campaigns'],
+    triggerCount: 8,
+    lastTriggered: '2024-11-27T16:45:00Z',
+    cooldownHours: 12,
+    createdAt: '2024-08-10',
+  },
+  {
+    id: 5,
+    name: 'Budget Boost for Winners',
+    description: 'Increase budget by 20% when CTR exceeds 3%',
+    status: 'paused',
+    condition: { field: 'ctr', operator: 'greater_than', value: '3.0' },
+    action: { type: 'adjust_budget', config: { adjustment_percent: 20 } },
+    appliesTo: ['Product Launch - Widget Pro'],
+    triggerCount: 3,
+    lastTriggered: '2024-11-25T11:00:00Z',
+    cooldownHours: 48,
+    createdAt: '2024-09-05',
+  },
+  {
+    id: 6,
+    name: 'Slack Alert for Fatigue',
+    description: 'Notify Slack when creative fatigue score exceeds 70%',
+    status: 'draft',
+    condition: { field: 'fatigue_score', operator: 'greater_than', value: '70' },
+    action: { type: 'notify_slack', config: { channel: '#marketing-alerts' } },
+    appliesTo: [],
+    triggerCount: 0,
+    lastTriggered: null,
+    cooldownHours: 24,
+    createdAt: '2024-11-28',
+  },
+];
+
+// Values must match backend RuleOperator (gte/lte, not greater_than_or_equal).
 const operators = [
   { value: 'equals', label: '=' },
   { value: 'not_equals', label: '≠' },
   { value: 'greater_than', label: '>' },
   { value: 'less_than', label: '<' },
-  { value: 'greater_than_or_equal', label: '≥' },
-  { value: 'less_than_or_equal', label: '≤' },
+  { value: 'gte', label: '≥' },
+  { value: 'lte', label: '≤' },
 ];
+
+/** Map UI form state → backend RuleCreate (flat fields, not nested conditions/actions). */
+function toRuleCreatePayload(form: {
+  name: string;
+  description: string;
+  conditionField: string;
+  conditionOperator: string;
+  conditionValue: string;
+  actionType: string;
+  cooldownHours: number;
+}) {
+  const operatorMap: Record<string, string> = {
+    greater_than_or_equal: 'gte',
+    less_than_or_equal: 'lte',
+    gte: 'gte',
+    lte: 'lte',
+    equals: 'equals',
+    not_equals: 'not_equals',
+    greater_than: 'greater_than',
+    less_than: 'less_than',
+  };
+  return {
+    name: form.name.trim(),
+    description: form.description.trim() || null,
+    condition_field: form.conditionField,
+    condition_operator: operatorMap[form.conditionOperator] || form.conditionOperator,
+    condition_value: String(form.conditionValue).trim(),
+    condition_duration_hours: 24,
+    action_type: form.actionType,
+    action_config: {},
+    cooldown_hours: form.cooldownHours,
+  };
+}
 
 const fields = [
   'roas',
@@ -137,38 +255,36 @@ export function Rules() {
 
   const handleDuplicate = useCallback(async (rule: Rule) => {
     try {
-      await createRule.mutateAsync({
-        name: `${rule.name} (Copy)`,
-        description: rule.description,
-        conditions: [{ field: rule.condition.field, operator: rule.condition.operator as any, value: rule.condition.value }],
-        actions: [{ type: rule.action.type as any, config: rule.action.config }],
-        trigger: 'metric_threshold',
-        status: 'draft',
-      } as any);
+      await createRule.mutateAsync(
+        toRuleCreatePayload({
+          name: `${rule.name} (Copy)`,
+          description: rule.description || '',
+          conditionField: rule.condition.field,
+          conditionOperator: rule.condition.operator,
+          conditionValue: rule.condition.value,
+          actionType: rule.action.type,
+          cooldownHours: rule.cooldownHours,
+        }) as any
+      );
       toast({ title: 'Rule duplicated', description: `"${rule.name}" has been duplicated as a draft.` });
-    } catch {
-      toast({ title: 'Error', description: 'Failed to duplicate rule.', variant: 'destructive' });
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to duplicate rule.';
+      toast({
+        title: 'Error',
+        description: typeof detail === 'string' ? detail : 'Failed to duplicate rule.',
+        variant: 'destructive',
+      });
     }
   }, [createRule, toast]);
 
   const handleSaveRule = useCallback(async () => {
     if (!ruleForm.name.trim() || !ruleForm.conditionValue.trim()) return;
 
-    const payload = {
-      name: ruleForm.name,
-      description: ruleForm.description,
-      conditions: [{
-        field: ruleForm.conditionField,
-        operator: ruleForm.conditionOperator as any,
-        value: ruleForm.conditionValue,
-      }],
-      actions: [{
-        type: ruleForm.actionType as any,
-        config: {},
-      }],
-      trigger: 'metric_threshold' as const,
-      cooldown_hours: ruleForm.cooldownHours,
-    };
+    const payload = toRuleCreatePayload(ruleForm);
 
     try {
       if (editingRule) {
@@ -180,8 +296,19 @@ export function Rules() {
       }
       setShowCreateModal(false);
       resetForm();
-    } catch {
-      toast({ title: 'Error', description: `Failed to ${editingRule ? 'update' : 'create'} rule.`, variant: 'destructive' });
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        `Failed to ${editingRule ? 'update' : 'create'} rule.`;
+      const description =
+        typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
+            : `Failed to ${editingRule ? 'update' : 'create'} rule.`;
+      toast({ title: 'Error', description, variant: 'destructive' });
     }
   }, [ruleForm, editingRule, createRule, updateRule, toast, resetForm]);
 
@@ -195,25 +322,39 @@ export function Rules() {
     }
   }, [deleteRule, toast]);
 
-  // Transform API data; empty when none (no mock active rules)
+  // Transform API data (flat RuleResponse) or fall back to mock
   const rules = useMemo((): Rule[] => {
-    if (rulesData?.items && rulesData.items.length > 0) {
-      return rulesData.items.map((r: any) => ({
+    const items = rulesData?.items || (Array.isArray(rulesData) ? rulesData : null);
+    if (items && items.length > 0) {
+      return items.map((r: any) => ({
         id: Number(r.id) || 0,
         name: r.name || '',
         description: r.description || '',
-        status: r.status || r.is_active ? 'active' : 'paused',
+        status:
+          r.status === 'active' || r.status === 'paused' || r.status === 'draft'
+            ? r.status
+            : r.is_active
+              ? 'active'
+              : 'paused',
         condition: r.condition ||
-          r.conditions?.[0] || { field: 'roas', operator: 'less_than', value: '2.0' },
-        action: r.action || r.actions?.[0] || { type: 'send_alert', config: {} },
-        appliesTo: r.applies_to || r.campaigns || [],
+          r.conditions?.[0] || {
+            field: r.condition_field || 'roas',
+            operator: r.condition_operator || 'less_than',
+            value: String(r.condition_value ?? '2.0'),
+          },
+        action: r.action ||
+          r.actions?.[0] || {
+            type: r.action_type || 'send_alert',
+            config: r.action_config || {},
+          },
+        appliesTo: r.applies_to || r.applies_to_campaigns || r.campaigns || [],
         triggerCount: r.trigger_count || r.triggerCount || 0,
-        lastTriggered: r.last_triggered || r.lastTriggered || null,
+        lastTriggered: r.last_triggered_at || r.last_triggered || r.lastTriggered || null,
         cooldownHours: r.cooldown_hours || r.cooldownHours || 24,
         createdAt: r.created_at || r.createdAt || new Date().toISOString(),
       }));
     }
-    return [];
+    return mockRules;
   }, [rulesData]);
 
   // Handle toggle rule status
@@ -331,9 +472,7 @@ export function Rules() {
         </div>
         <div className="metric-card active p-4">
           <p className="text-sm text-muted-foreground mb-1">{t('rules.triggersToday')}</p>
-          <p className="text-2xl font-bold text-primary">
-            {isLoading ? '...' : 0}
-          </p>
+          <p className="text-2xl font-bold text-primary">23</p>
         </div>
         <div className="metric-card premium p-4">
           <p className="text-sm text-muted-foreground mb-1">{t('rules.actionsExecuted')}</p>

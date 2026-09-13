@@ -557,6 +557,8 @@ class CompetitorUpdate(BaseSchema):
 
     name: Optional[str] = Field(None, max_length=255)
     is_primary: Optional[bool] = None
+    country: Optional[str] = Field(None, max_length=10)
+    platforms: Optional[list[str]] = None
 
 
 class CompetitorResponse(CompetitorBase, TimestampMixin):
@@ -564,6 +566,12 @@ class CompetitorResponse(CompetitorBase, TimestampMixin):
 
     id: int
     tenant_id: int
+
+    # User-selected tracking prefs (also exposed as country/platforms for the SPA)
+    country_code: Optional[str] = None
+    tracked_platforms: Optional[list[str]] = None
+    country: Optional[str] = None
+    platforms: Optional[list[str]] = None
 
     # Scraped metadata
     meta_title: Optional[str]
@@ -591,6 +599,15 @@ class CompetitorResponse(CompetitorBase, TimestampMixin):
     data_source: str
     last_fetched_at: Optional[datetime]
     fetch_error: Optional[str]
+
+    @model_validator(mode="after")
+    def _alias_country_platforms(self) -> "CompetitorResponse":
+        """Expose SPA-friendly aliases without duplicating storage."""
+        if self.country is None:
+            self.country = self.country_code
+        if self.platforms is None:
+            self.platforms = self.tracked_platforms
+        return self
 
 
 class CompetitorShareOfVoiceResponse(BaseSchema):

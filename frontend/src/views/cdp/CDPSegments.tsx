@@ -248,16 +248,28 @@ function SegmentBuilderModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      role="presentation"
+      // Only dismiss when the backdrop itself is pressed. Native <select>
+      // option clicks can target the overlay behind the popup; treating those
+      // as outside-clicks closed the modal before the form could be filled.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="segment-builder-title"
+        data-testid="segment-builder-modal"
         className="bg-card rounded-xl border shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="text-lg font-semibold">{segment ? 'Edit Segment' : 'Create Segment'}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-muted rounded-lg">
+          <h3 id="segment-builder-title" className="text-lg font-semibold">
+            {segment ? 'Edit Segment' : 'Create Segment'}
+          </h3>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-muted rounded-lg">
             <XMarkIcon className="h-5 w-5" />
           </button>
         </div>
@@ -397,12 +409,15 @@ function SegmentBuilderModal({
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 p-4 border-t">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
+            type="button"
+            data-testid="segment-builder-save"
             onClick={handleSave}
             disabled={!name.trim()}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
@@ -595,8 +610,11 @@ export default function CDPSegments() {
           <p className="text-muted-foreground mt-1">{data?.total || 0} segments</p>
         </div>
         <button
+          type="button"
+          data-testid="create-segment-button"
           onClick={() => {
             setSaveError(null);
+            setEditingSegment(undefined);
             setShowBuilder(true);
           }}
           className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
@@ -645,7 +663,13 @@ export default function CDPSegments() {
           </p>
           {!search && (
             <button
-              onClick={() => setShowBuilder(true)}
+              type="button"
+              data-testid="create-segment-empty"
+              onClick={() => {
+                setSaveError(null);
+                setEditingSegment(undefined);
+                setShowBuilder(true);
+              }}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90"
             >
               Create Segment

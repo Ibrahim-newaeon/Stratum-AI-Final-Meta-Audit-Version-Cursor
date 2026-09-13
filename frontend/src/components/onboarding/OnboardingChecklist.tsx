@@ -217,32 +217,46 @@ export function OnboardingChecklist({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowCelebration(false)}
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowCelebration(false);
+              dismiss();
+            }
+          }}
         >
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.8, opacity: 0 }}
-            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboarding-celebration-title"
+            data-testid="onboarding-celebration-modal"
+            onMouseDown={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-card rounded-2xl border shadow-2xl overflow-hidden"
           >
             <div className="relative p-8 text-center">
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-600/20 via-cyan-600/10 to-transparent" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-purple-600/20 via-cyan-600/10 to-transparent" />
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.2, type: 'spring' }}
-                className="relative w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center"
+                className="relative z-10 w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center"
               >
                 <PartyPopper className="h-10 w-10 text-white" />
               </motion.div>
-              <h2 className="text-2xl font-bold mb-2">You're All Set!</h2>
-              <p className="text-muted-foreground mb-6">
+              <h2 id="onboarding-celebration-title" className="relative z-10 text-2xl font-bold mb-2">
+                You're All Set!
+              </h2>
+              <p className="relative z-10 text-muted-foreground mb-6">
                 You've completed the essential setup. Stratum AI is now ready to optimize your
                 campaigns with trust-gated automation.
               </p>
-              <div className="flex gap-3 justify-center">
+              <div className="relative z-10 flex gap-3 justify-center">
                 <button
+                  type="button"
+                  data-testid="onboarding-celebration-dismiss"
                   onClick={() => {
                     setShowCelebration(false);
                     dismiss();

@@ -26,7 +26,7 @@ interface AdAccount {
   id: string;
   platformAccountId: string;
   name: string;
-  platform: 'meta' | 'facebook' | 'instagram' | 'whatsapp';
+  platform: Platform;
   currency: string;
   timezone: string;
   enabled: boolean;
@@ -35,11 +35,8 @@ interface AdAccount {
 }
 
 
-const platformLabels = {
+const platformLabels: Record<Platform, string> = {
   meta: 'Meta Ads',
-  facebook: 'Facebook',
-  instagram: 'Instagram',
-  whatsapp: 'WhatsApp',
 };
 
 export default function AdAccounts() {
@@ -52,36 +49,25 @@ export default function AdAccounts() {
     /* setSelectedPlatform */
   ] = useState<Platform>('meta');
 
-  // API hooks for all platforms
+  // API: only Meta is a valid AdPlatform
   const { data: metaAccounts } = useAdAccounts(tid, 'meta');
-  const { data: facebookAccounts } = useAdAccounts(tid, 'facebook');
-  const { data: instagramAccounts } = useAdAccounts(tid, 'instagram');
-  const { data: whatsappAccounts } = useAdAccounts(tid, 'whatsapp');
   const syncAccounts = useSyncAdAccounts(tid);
   const updateAccount = useUpdateAdAccount(tid);
 
   // Combine all accounts with fallback to mock data
   const accounts: AdAccount[] = useMemo(() => {
-    const apiAccounts = [
-      ...(metaAccounts || []),
-      ...(facebookAccounts || []),
-      ...(instagramAccounts || []),
-      ...(whatsappAccounts || []),
-    ].map((acc) => ({
+    return (metaAccounts || []).map((acc) => ({
       id: acc.id,
       platformAccountId: acc.platform_account_id,
       name: acc.name,
-      platform: acc.platform as AdAccount['platform'],
+      platform: 'meta' as Platform,
       currency: acc.currency,
       timezone: acc.timezone,
       enabled: acc.is_enabled,
       spendCap: acc.daily_budget_cap,
       lastSyncAt: acc.last_synced_at || new Date().toISOString(),
     }));
-
-    // Return API data if available, otherwise fall back to mock
-    return apiAccounts;
-  }, [metaAccounts, facebookAccounts, instagramAccounts, whatsappAccounts]);
+  }, [metaAccounts]);
 
   const handleToggleAccount = async (account: AdAccount) => {
     try {
@@ -99,12 +85,7 @@ export default function AdAccounts() {
   const handleSyncAccounts = async () => {
     try {
       // Sync all platforms
-      await Promise.all([
-        syncAccounts.mutateAsync('meta'),
-        syncAccounts.mutateAsync('facebook'),
-        syncAccounts.mutateAsync('instagram'),
-        syncAccounts.mutateAsync('whatsapp'),
-      ]);
+      await syncAccounts.mutateAsync('meta');
     } catch (error) {
       console.error('Failed to sync accounts:', error);
     }

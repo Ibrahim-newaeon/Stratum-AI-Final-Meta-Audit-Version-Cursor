@@ -2,8 +2,8 @@ import * as React from 'react';
 import { ChevronDownIcon } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
 
-// Common country codes with flags
-const COUNTRY_CODES = [
+// Common country codes with flags (shared by WhatsApp contact forms)
+export const COUNTRY_CODES = [
   { code: '+1', country: 'US', flag: '🇺🇸', name: 'United States' },
   { code: '+1', country: 'CA', flag: '🇨🇦', name: 'Canada' },
   { code: '+44', country: 'GB', flag: '🇬🇧', name: 'United Kingdom' },
@@ -27,6 +27,12 @@ const COUNTRY_CODES = [
   { code: '+7', country: 'RU', flag: '🇷🇺', name: 'Russia' },
   { code: '+971', country: 'AE', flag: '🇦🇪', name: 'UAE' },
   { code: '+966', country: 'SA', flag: '🇸🇦', name: 'Saudi Arabia' },
+  { code: '+965', country: 'KW', flag: '🇰🇼', name: 'Kuwait' },
+  { code: '+974', country: 'QA', flag: '🇶🇦', name: 'Qatar' },
+  { code: '+973', country: 'BH', flag: '🇧🇭', name: 'Bahrain' },
+  { code: '+968', country: 'OM', flag: '🇴🇲', name: 'Oman' },
+  { code: '+961', country: 'LB', flag: '🇱🇧', name: 'Lebanon' },
+  { code: '+964', country: 'IQ', flag: '🇮🇶', name: 'Iraq' },
   { code: '+27', country: 'ZA', flag: '🇿🇦', name: 'South Africa' },
   { code: '+234', country: 'NG', flag: '🇳🇬', name: 'Nigeria' },
   { code: '+254', country: 'KE', flag: '🇰🇪', name: 'Kenya' },

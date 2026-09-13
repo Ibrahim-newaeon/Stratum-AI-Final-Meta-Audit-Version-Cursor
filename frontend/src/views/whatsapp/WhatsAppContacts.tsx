@@ -21,6 +21,7 @@ import {
   DocumentArrowDownIcon,
 } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
+import { COUNTRY_CODES } from '@/components/ui/phone-input';
 
 interface Contact {
   id: number;
@@ -461,12 +462,11 @@ function AddContactModal({
               onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
               className="w-full px-4 py-3 bg-[#0b1215] border border-white/10 rounded-xl focus:border-[#25D366]/50 focus:outline-none"
             >
-              <option value="US">United States (+1)</option>
-              <option value="GB">United Kingdom (+44)</option>
-              <option value="AE">UAE (+971)</option>
-              <option value="SA">Saudi Arabia (+966)</option>
-              <option value="FR">France (+33)</option>
-              <option value="DE">Germany (+49)</option>
+              {COUNTRY_CODES.map((c) => (
+                <option key={`${c.country}-${c.code}`} value={c.country}>
+                  {c.flag} {c.name} ({c.code})
+                </option>
+              ))}
             </select>
           </div>
           <div>
