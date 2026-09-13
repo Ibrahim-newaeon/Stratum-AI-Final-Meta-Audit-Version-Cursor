@@ -1103,35 +1103,37 @@ async def get_quick_actions(
     campaign_count = campaigns_result.scalar() or 0
 
     if campaign_count == 0 and len(connected) > 0:
+        # SPA route: Campaigns page auto-queues Meta discovery when discover=1.
+        # Do not use /campaigns/sync — that path is not a frontend route (404).
         actions.append(
             QuickAction(
                 id="sync_campaigns",
                 label="Sync Campaigns",
                 icon="refresh",
-                action="/campaigns/sync",
+                action="/dashboard/campaigns?discover=1",
             )
         )
 
-    # Standard actions
+    # Standard actions — paths must match App.tsx dashboard routes
     actions.extend(
         [
             QuickAction(
                 id="create_campaign",
                 label="New Campaign",
                 icon="plus",
-                action="/campaigns/new",
+                action="/dashboard/campaigns?create=1",
             ),
             QuickAction(
                 id="view_reports",
                 label="Reports",
                 icon="chart",
-                action="/reports",
+                action="/dashboard/custom-reports",
             ),
             QuickAction(
                 id="manage_rules",
                 label="Automation",
                 icon="zap",
-                action="/automation",
+                action="/dashboard/rules",
             ),
         ]
     )
