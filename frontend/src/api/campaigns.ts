@@ -166,7 +166,7 @@ export const campaignsApi = {
   },
 
   /**
-   * Pause a campaign
+   * Pause a campaign locally in Stratum (does not write to Meta Ads Manager).
    */
   pauseCampaign: async (id: string): Promise<Campaign> => {
     const response = await apiClient.post<ApiResponse<Campaign>>(`/campaigns/${id}/pause`);
@@ -174,7 +174,7 @@ export const campaignsApi = {
   },
 
   /**
-   * Activate a campaign
+   * Activate a campaign locally in Stratum (does not write to Meta Ads Manager).
    */
   activateCampaign: async (id: string): Promise<Campaign> => {
     const response = await apiClient.post<ApiResponse<Campaign>>(`/campaigns/${id}/activate`);

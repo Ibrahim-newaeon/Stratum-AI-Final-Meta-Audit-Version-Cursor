@@ -291,6 +291,96 @@ async def update_campaign(
     )
 
 
+async def _set_local_campaign_status(
+    *,
+    request: Request,
+    campaign_id: int,
+    new_status: CampaignStatus,
+    db: AsyncSession,
+) -> Campaign:
+    """
+    Update local Campaign.status only.
+
+    These routes intentionally do **not** call Meta write clients. A later
+    Meta discovery/insights sync can overwrite status from Ads Manager.
+    """
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tenant context required",
+        )
+
+    result = await db.execute(
+        select(Campaign).where(
+            Campaign.id == campaign_id,
+            Campaign.tenant_id == tenant_id,
+            Campaign.is_deleted == False,
+        )
+    )
+    campaign = result.scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found",
+        )
+
+    campaign.status = new_status
+    await db.commit()
+    await db.refresh(campaign)
+    return campaign
+
+
+@router.post("/{campaign_id}/pause", response_model=APIResponse[CampaignResponse])
+async def pause_campaign(
+    request: Request,
+    campaign_id: int,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Pause a campaign in Stratum only (local status; not a Meta Ads write)."""
+    campaign = await _set_local_campaign_status(
+        request=request,
+        campaign_id=campaign_id,
+        new_status=CampaignStatus.PAUSED,
+        db=db,
+    )
+    logger.info(
+        "campaign_paused_local",
+        campaign_id=campaign_id,
+        tenant_id=campaign.tenant_id,
+    )
+    return APIResponse(
+        success=True,
+        data=CampaignResponse.model_validate(campaign),
+        message="Campaign paused locally (Meta Ads status unchanged)",
+    )
+
+
+@router.post("/{campaign_id}/activate", response_model=APIResponse[CampaignResponse])
+async def activate_campaign(
+    request: Request,
+    campaign_id: int,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Activate a campaign in Stratum only (local status; not a Meta Ads write)."""
+    campaign = await _set_local_campaign_status(
+        request=request,
+        campaign_id=campaign_id,
+        new_status=CampaignStatus.ACTIVE,
+        db=db,
+    )
+    logger.info(
+        "campaign_activated_local",
+        campaign_id=campaign_id,
+        tenant_id=campaign.tenant_id,
+    )
+    return APIResponse(
+        success=True,
+        data=CampaignResponse.model_validate(campaign),
+        message="Campaign activated locally (Meta Ads status unchanged)",
+    )
+
+
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_campaign(
     request: Request,
