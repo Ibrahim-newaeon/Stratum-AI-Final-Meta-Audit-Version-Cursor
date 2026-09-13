@@ -82,6 +82,8 @@ from app.services.meta.write_client import (
     meta_minor_to_major,
 )
 from app.tasks.apply_actions_queue import PLATFORM_EXECUTORS, record_outcome
+from app.services.signal_health.model import SignalHealthThresholds
+from app.stratum.core.trust_gate import GateDecision
 
 pytestmark = pytest.mark.unit
 
@@ -194,6 +196,7 @@ class FakeAsyncSession:
         self.tokens = list(tokens or [])
         self.applied_actions = list(applied_actions or [])
         self.deleted: list[Any] = []
+        self.added: list[Any] = []
         self.commits = 0
         self.flushes = 0
         #: Queue rows this session knows about, for the conditional pre-write
@@ -295,6 +298,10 @@ class FakeAsyncSession:
             row.platform_response = params["platform_response"]
             return _UpdateResult(1)
         return _UpdateResult(self.claim_rowcount)
+
+    def add(self, obj: Any) -> None:
+        """Accept ORM objects staged for insert (e.g. TrustGateAuditLog)."""
+        self.added.append(obj)
 
     async def delete(self, obj: Any) -> None:
         """Really remove a row, so a consumed token cannot be reused."""
@@ -420,10 +427,22 @@ def make_action(
 
 
 class PassingGate:
-    """A trust gate result that permits execution."""
+    """A trust gate result that permits execution.
+
+    Duck-types ``SignalHealthGateResult`` fields the apply-queue audit path
+    reads after a successful Meta write (``decision``, ``score``, ``bands``).
+    """
 
     reason = "Signal health 91.0 >= 70 on every channel."
     may_execute = True
+    decision = GateDecision.PASS
+    score = 91.0
+    thresholds: SignalHealthThresholds | None = None
+
+    @property
+    def bands(self) -> SignalHealthThresholds:
+        """Threshold bands the durable audit row records."""
+        return self.thresholds or SignalHealthThresholds.from_settings()
 
     def to_audit_dict(self) -> dict[str, Any]:
         """The gate payload the audit record carries."""
@@ -435,6 +454,8 @@ class BlockingGate(PassingGate):
 
     reason = "No signal health data for this tenant; the gate fails closed."
     may_execute = False
+    decision = GateDecision.BLOCK
+    score = None
 
 
 def session(**kwargs: Any) -> FakeAsyncSession:

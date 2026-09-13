@@ -688,7 +688,7 @@ export interface ChurnRiskItem {
   email?: string | null;
   lifecycle_stage: string;
   churn_probability: number;
-  risk_level: 'high' | 'medium' | 'low' | string;
+  risk_level: 'high' | 'medium' | 'low';
   revenue_at_risk: number;
   lifetime_value: number;
   last_activity_date?: string | null;

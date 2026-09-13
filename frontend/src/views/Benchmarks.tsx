@@ -92,9 +92,9 @@ export function Benchmarks() {
     { name: 'Your Brand', roas: 3.5, ctr: 2.8, cpc: 1.2, share: 18, color: '#0ea5e9', isYou: true },
     // Add real competitors from API
     ...(competitorsData?.items || []).slice(0, 5).map((comp, index) => ({
-      name: comp.name,
+      name: comp.name || comp.domain,
       domain: comp.domain,
-      country: comp.country || 'SA',
+      country: comp.country || comp.country_code || 'SA',
       roas: 2.5 + Math.random() * 2, // Simulated data - would come from real metrics
       ctr: 1.8 + Math.random() * 1.5,
       cpc: 0.8 + Math.random() * 1,
@@ -184,7 +184,8 @@ export function Benchmarks() {
         String(Number(c.share).toFixed(1)),
       ]),
     ];
-    const escape = (cell: string) => `"${String(cell).replace(/"/g, '""')}"`;
+    const escape = (cell: string | null | undefined) =>
+      `"${String(cell ?? '').replace(/"/g, '""')}"`;
     const csv = [...metricRows, [], ...competitorRows]
       .map((row) => (row.length ? row.map(escape).join(',') : ''))
       .join('\n');
@@ -364,7 +365,10 @@ export function Benchmarks() {
                 </div>
                 <div className="flex items-center gap-2">
                   <a
-                    href={getMetaAdsLibraryUrl(competitor.name, competitor.country || 'SA')}
+                    href={getMetaAdsLibraryUrl(
+                      competitor.name || competitor.domain || 'competitor',
+                      competitor.country || competitor.country_code || 'SA'
+                    )}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"

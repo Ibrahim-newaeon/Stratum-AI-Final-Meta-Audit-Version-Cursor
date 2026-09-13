@@ -47,6 +47,17 @@ router = APIRouter(prefix="/oauth", tags=["oauth"])
 FRONTEND_CONNECT_PATH = "/dashboard/campaigns/connect"
 
 
+def _as_str(value: object) -> str:
+    """Normalize enum-or-string columns to a plain string.
+
+    ``TenantPlatformConnection.platform`` / ``.status`` are String columns in
+    the ORM, but older call sites (and some tests) treat them as enums with a
+    ``.value`` attribute. Accessing ``.value`` on a bare string 500s the
+    Connect Platforms status endpoints after a seed/connect row exists.
+    """
+    return str(getattr(value, "value", value))
+
+
 def frontend_connect_url(
     *,
     platform: str,
@@ -451,8 +462,8 @@ async def get_connection_status(
     return APIResponse(
         success=True,
         data=ConnectionStatusResponse(
-            platform=connection.platform.value,
-            status=connection.status.value,
+            platform=_as_str(connection.platform),
+            status=_as_str(connection.status),
             connected_at=connection.connected_at,
             token_expires_at=connection.token_expires_at,
             last_refreshed_at=connection.last_refreshed_at,
@@ -493,8 +504,8 @@ async def get_all_connection_statuses(
 
         statuses.append(
             ConnectionStatusResponse(
-                platform=connection.platform.value,
-                status=connection.status.value,
+                platform=_as_str(connection.platform),
+                status=_as_str(connection.status),
                 connected_at=connection.connected_at,
                 token_expires_at=connection.token_expires_at,
                 last_refreshed_at=connection.last_refreshed_at,
