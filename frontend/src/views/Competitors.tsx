@@ -229,19 +229,39 @@ export function Competitors() {
     },
   ];
 
-  // Share of Voice data - handle API response shape
+  // Share of Voice data - map API shape (competitors/total_market) onto the UI chart shape.
   type ShareOfVoiceData = { you: number; competitors: { name: string; share: number }[] };
-  const shareOfVoice: ShareOfVoiceData = (sovData && !Array.isArray(sovData)
-    ? (sovData as ShareOfVoiceData)
-    : null) ?? {
-    you: 15,
-    competitors: [
-      { name: 'MarketLeader Inc', share: 35 },
-      { name: 'CompetitorOne', share: 24 },
-      { name: 'OldPlayer Ltd', share: 18 },
-      { name: 'NewEntrant Co', share: 8 },
-    ],
-  };
+  const shareOfVoice: ShareOfVoiceData = (() => {
+    if (!sovData || Array.isArray(sovData)) {
+      return {
+        you: 15,
+        competitors: [
+          { name: 'MarketLeader Inc', share: 35 },
+          { name: 'CompetitorOne', share: 24 },
+          { name: 'OldPlayer Ltd', share: 18 },
+          { name: 'NewEntrant Co', share: 8 },
+        ],
+      };
+    }
+    const rows = sovData.competitors || [];
+    const primary = rows.find((c) => c.is_primary);
+    const others = rows.filter((c) => !c.is_primary);
+    const total = sovData.total_market || rows.reduce((sum, c) => sum + (c.estimated_traffic || 0), 0) || 1;
+    const youShare =
+      primary?.share_of_voice ??
+      (primary?.estimated_traffic != null ? (primary.estimated_traffic / total) * 100 : 15);
+    return {
+      you: Number(youShare) || 0,
+      competitors: others.map((c) => ({
+        name: c.name || c.domain,
+        share:
+          Number(
+            c.share_of_voice ??
+              (c.estimated_traffic != null ? (c.estimated_traffic / total) * 100 : 0)
+          ) || 0,
+      })),
+    };
+  })();
 
   const filteredCompetitors = competitors.filter(
     (c) =>

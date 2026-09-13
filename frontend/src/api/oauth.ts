@@ -13,7 +13,7 @@ export type OAuthPlatform = 'meta';
 
 export interface OAuthConnectionStatus {
   platform: string;
-  status: 'connected' | 'disconnected' | 'expired' | 'error' | string;
+  status: 'connected' | 'disconnected' | 'expired' | 'error';
   connected_at?: string | null;
   token_expires_at?: string | null;
   last_refreshed_at?: string | null;

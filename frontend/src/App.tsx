@@ -71,7 +71,6 @@ const CDPComputedTraits = lazy(() => import('./views/cdp/CDPComputedTraits'));
 const CDPConsent = lazy(() => import('./views/cdp/CDPConsent'));
 const CDPPredictiveChurn = lazy(() => import('./views/cdp/CDPPredictiveChurn'));
 const CustomAutopilotRules = lazy(() => import('./views/CustomAutopilotRules'));
-const LaunchUnavailable = lazy(() => import('./views/LaunchUnavailable'));
 
 // Knowledge Graph views
 const KGProblemDetection = lazy(() => import('./views/knowledge-graph/KGProblemDetection'));
@@ -799,6 +798,10 @@ function App() {
                             <CAPISetup />
                           </Suspense>
                         }
+                      />
+                      <Route
+                        path="capi"
+                        element={<Navigate to="/dashboard/capi-setup" replace />}
                       />
                       <Route
                         path="data-quality"

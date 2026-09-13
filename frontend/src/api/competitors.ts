@@ -37,6 +37,11 @@ export interface Competitor {
   estimated_ad_spend_cents?: number | null;
   detected_ad_platforms?: string[] | null;
   ad_creatives_count?: number | null;
+  /** ISO-ish Ads Library country (also aliased as ``country``). */
+  country_code?: string | null;
+  tracked_platforms?: string[] | null;
+  country?: string | null;
+  platforms?: string[] | null;
   data_source: string;
   last_fetched_at?: string | null;
   fetch_error?: string | null;

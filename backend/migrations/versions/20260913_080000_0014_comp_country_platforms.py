@@ -1,12 +1,16 @@
 """Add country_code and tracked_platforms to competitor_benchmarks.
 
-Revision ID: 0012_competitor_country_platforms
-Revises: 0011_aud_sync_sched
+Revision ID: 0014_comp_country_platforms
+Revises: 0013_custom_autopilot_rules
 Create Date: 2026-09-13
 
 The Add Competitor UI already collects country + platforms, but
 ``add_competitor`` only persisted name/domain. Persist the filter
 inputs so Meta Ads Library links and cards use the saved country.
+
+Revision id kept at <= 32 chars for ``alembic_version.version_num``.
+Linearized under ``0013_custom_autopilot_rules`` (was a branched head
+off ``0011_aud_sync_sched`` as ``0012_competitor_country_platforms``).
 Inspector-guarded for idempotent re-runs.
 """
 
@@ -16,8 +20,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0012_competitor_country_platforms"
-down_revision = "0011_aud_sync_sched"
+revision = "0014_comp_country_platforms"
+down_revision = "0013_custom_autopilot_rules"
 branch_labels = None
 depends_on = None
 
