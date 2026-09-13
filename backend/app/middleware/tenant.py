@@ -120,7 +120,15 @@ def is_public_endpoint(path: str) -> bool:
     Returns:
         True when the path is public, False when it requires authentication
     """
-    return path in PUBLIC_ENDPOINTS or path.startswith(PUBLIC_ENDPOINT_PREFIXES)
+    if path in PUBLIC_ENDPOINTS or path.startswith(PUBLIC_ENDPOINT_PREFIXES):
+        return True
+    # Meta (and any future platform) OAuth browser callback. Meta redirects the
+    # user-agent here with ?code=&state= and no Authorization header. Tenant
+    # context is recovered from the signed ``state`` blob inside the handler;
+    # authorize/status/disconnect stay authenticated.
+    if path.startswith("/api/v1/oauth/") and path.endswith("/callback"):
+        return True
+    return False
 
 
 def decode_access_token(token: str) -> dict[str, Any] | None:
