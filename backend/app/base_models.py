@@ -727,6 +727,10 @@ class CompetitorBenchmark(Base, TimestampMixin, TenantMixin):
     domain: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)  # Primary competitor flag
+    # User-selected Ads Library country filter (ISO-ish code, e.g. SA, AE, US)
+    country_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    # User-selected platforms to track (facebook / instagram / whatsapp)
+    tracked_platforms: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 
     # Scraped Metadata (Safe)
     meta_title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

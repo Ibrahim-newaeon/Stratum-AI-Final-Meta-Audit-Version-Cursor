@@ -125,7 +125,11 @@ const categoryConfig = {
   AUTHENTICATION: { label: 'Authentication', color: 'text-orange-400', bg: 'bg-orange-500/10' },
 };
 
-export default function WhatsAppTemplates() {
+export default function WhatsAppTemplates({
+  onUseTemplate,
+}: {
+  onUseTemplate?: (template: Template) => void;
+} = {}) {
   const [templates, setTemplates] = useState<Template[]>(mockTemplates);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState<Template | null>(null);
@@ -283,7 +287,21 @@ export default function WhatsAppTemplates() {
                   Preview
                 </button>
                 {template.status === 'approved' && (
-                  <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-[#25D366]/20 text-[#25D366] rounded-lg hover:bg-[#25D366]/30 transition-colors text-sm">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onUseTemplate) {
+                        onUseTemplate(template);
+                      } else {
+                        // Fallback: copy template name so the marketer can paste into Broadcast
+                        void navigator.clipboard?.writeText(template.name);
+                        window.alert(
+                          `Template "${template.name}" is ready. Open the Broadcast tab and select it to send.`
+                        );
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-[#25D366]/20 text-[#25D366] rounded-lg hover:bg-[#25D366]/30 transition-colors text-sm"
+                  >
                     <PaperAirplaneIcon className="w-4 h-4" />
                     Use
                   </button>

@@ -20,13 +20,14 @@ import {
 } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
 import {
+  type Platform,
   useAdAccounts,
   useCampaignDraft,
   useCreateCampaignDraft,
   useSubmitDraft,
 } from '@/api/campaignBuilder';
+import { FRONTEND_CONNECT_PATH } from '@/api/oauth';
 
-type Platform = 'meta' | 'facebook' | 'instagram' | 'whatsapp';
 type BudgetType = 'daily' | 'lifetime';
 type Objective = 'sales' | 'leads' | 'traffic' | 'awareness' | 'engagement';
 type AssetType = 'image' | 'video' | 'carousel';
@@ -98,12 +99,6 @@ const objectives: { value: Objective; label: string; description: string }[] = [
   { value: 'engagement', label: 'Engagement', description: 'Get more interactions' },
 ];
 
-const mockAdAccounts = [
-  { id: 'act_123', name: 'Main Business Account', platform: 'meta' as Platform },
-  { id: 'act_456', name: 'E-commerce Store', platform: 'meta' as Platform },
-  { id: 'ig_789', name: 'Instagram Business Account', platform: 'instagram' as Platform },
-];
-
 export default function CampaignBuilder() {
   const { tenantId, draftId } = useParams<{ tenantId: string; draftId?: string }>();
   const tid = parseInt(tenantId || '1', 10);
@@ -137,43 +132,23 @@ export default function CampaignBuilder() {
 
   const isEditing = !!draftId;
 
-  // API hooks for ad accounts per platform
+  // Only Meta is a valid AdPlatform on the API (FB/IG/WA Ads share that OAuth).
   const { data: metaAccounts } = useAdAccounts(tid, 'meta', true);
-  const { data: facebookAccounts } = useAdAccounts(tid, 'facebook', true);
-  const { data: instagramAccounts } = useAdAccounts(tid, 'instagram', true);
-  const { data: whatsappAccounts } = useAdAccounts(tid, 'whatsapp', true);
 
   // API mutation hooks
   const createDraft = useCreateCampaignDraft(tid);
   const submitDraft = useSubmitDraft(tid);
   useCampaignDraft(tid, draftId || ''); // Prefetch existing draft
 
-  // Combine ad accounts with fallback to mock
-  const adAccounts = useMemo(() => {
-    const apiAccounts = [
-      ...(metaAccounts || []).map((acc) => ({
+  const adAccounts = useMemo(
+    () =>
+      (metaAccounts || []).map((acc) => ({
         id: acc.id,
         name: acc.name,
         platform: 'meta' as Platform,
       })),
-      ...(facebookAccounts || []).map((acc) => ({
-        id: acc.id,
-        name: acc.name,
-        platform: 'facebook' as Platform,
-      })),
-      ...(instagramAccounts || []).map((acc) => ({
-        id: acc.id,
-        name: acc.name,
-        platform: 'instagram' as Platform,
-      })),
-      ...(whatsappAccounts || []).map((acc) => ({
-        id: acc.id,
-        name: acc.name,
-        platform: 'whatsapp' as Platform,
-      })),
-    ];
-    return apiAccounts.length > 0 ? apiAccounts : mockAdAccounts;
-  }, [metaAccounts, facebookAccounts, instagramAccounts, whatsappAccounts]);
+    [metaAccounts]
+  );
 
   const updateDraft = <K extends keyof CampaignDraft>(field: K, value: CampaignDraft[K]) => {
     setDraft((prev) => ({ ...prev, [field]: value }));
@@ -363,7 +338,7 @@ export default function CampaignBuilder() {
             <div>
               <h3 className="text-lg font-semibold mb-4">Select Platform</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {(['facebook', 'instagram', 'whatsapp'] as Platform[]).map((p) => (
+                {(['meta'] as Platform[]).map((p) => (
                   <button
                     key={p}
                     onClick={() => updateDraft('platform', p)}
@@ -387,8 +362,16 @@ export default function CampaignBuilder() {
               <div>
                 <h3 className="text-lg font-semibold mb-4">Select Ad Account</h3>
                 <div className="space-y-2">
+                  {adAccounts.length === 0 && (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      No Meta ad accounts synced yet. Connect Meta Ads OAuth first — CAPI credentials alone are not enough.
+                      <a href={FRONTEND_CONNECT_PATH} className="ml-1 text-primary underline">
+                        Connect Meta Ads
+                      </a>
+                    </div>
+                  )}
                   {adAccounts
-                    .filter((acc) => acc.platform === draft.platform)
+                    .filter((acc) => !draft.platform || acc.platform === draft.platform)
                     .map((acc) => (
                       <button
                         key={acc.id}
@@ -788,27 +771,8 @@ export default function CampaignBuilder() {
                     <li>- Image: 1080x1080px (1:1) or 1200x628px (1.91:1)</li>
                     <li>- Video: 15-60 seconds, vertical (9:16) performs best</li>
                     <li>- Keep text overlay under 20% of image area</li>
-                  </>
-                )}
-                {draft.platform === 'facebook' && (
-                  <>
-                    <li>- Image: 1080x1080px (1:1) or 1200x628px (1.91:1)</li>
-                    <li>- Video: 15-60 seconds, vertical (9:16) performs best</li>
-                    <li>- Keep text overlay under 20% of image area</li>
-                  </>
-                )}
-                {draft.platform === 'instagram' && (
-                  <>
-                    <li>- Reels: 9:16 aspect ratio, 9-15 seconds optimal</li>
-                    <li>- Use native-looking content for better engagement</li>
-                    <li>- Add captions as most users watch without sound</li>
-                  </>
-                )}
-                {draft.platform === 'whatsapp' && (
-                  <>
-                    <li>- Click-to-WhatsApp ads work best with clear CTAs</li>
-                    <li>- Pair with approved message templates for follow-up</li>
-                    <li>- Keep opening messages short and personal</li>
+                    <li>- Reels/Stories: 9:16; add captions (many watch muted)</li>
+                    <li>- Click-to-WhatsApp: clear CTA + approved message templates</li>
                   </>
                 )}
                 {!draft.platform && <li>- Select a platform to see specific recommendations</li>}

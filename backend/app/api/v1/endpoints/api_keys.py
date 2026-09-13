@@ -88,10 +88,16 @@ def generate_api_key(key_type: str = "live") -> tuple[str, str, str]:
     """
     Generate a new API key.
     Returns: (full_key, key_hash, key_prefix)
+
+    key_prefix must fit api_keys.key_prefix VARCHAR(10). Prefer sk_live_ / sk_test_
+    (8 chars) over strat_live_ (11), which truncates and 500s on insert.
     """
     # Generate random key
     random_part = secrets.token_urlsafe(32)
-    prefix = f"strat_{key_type}_"
+    normalized = "test" if key_type == "test" else "live"
+    prefix = f"sk_{normalized}_"
+    if len(prefix) > 10:
+        prefix = prefix[:10]
     full_key = f"{prefix}{random_part}"
 
     # Hash for storage

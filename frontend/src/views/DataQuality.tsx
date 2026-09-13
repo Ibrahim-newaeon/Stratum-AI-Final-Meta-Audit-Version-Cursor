@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -11,6 +12,7 @@ import {
   CheckCircle,
   ChevronRight,
   Lightbulb,
+  Plug,
   RefreshCw,
   Target,
   TrendingDown,
@@ -18,6 +20,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { apiClient } from '@/api/client';
 
 interface DataGap {
   field: string;
@@ -106,29 +109,67 @@ const getSeverityStyle = (severity: string) => {
   return styles[severity] || styles.medium;
 };
 
+type EmptyStateKind = 'connect' | 'waiting_for_events' | null;
+
 export function DataQuality() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [report, setReport] = useState<QualityReport | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
-  const [_error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [emptyState, setEmptyState] = useState<EmptyStateKind>(null);
+  const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
 
   const fetchReport = async () => {
     try {
       setRefreshing(true);
-      const response = await fetch('/api/v1/capi/quality/report');
-      const data = await response.json();
+      setError(null);
 
-      if (data.success && data.data) {
-        setReport(data.data);
-        if (!selectedPlatform && Object.keys(data.data.platform_scores || {}).length > 0) {
-          setSelectedPlatform(Object.keys(data.data.platform_scores)[0]);
+      const statusResponse = await apiClient.get('/capi/platforms/status');
+      const connected = Object.keys(
+        statusResponse.data?.data?.connected_platforms || {}
+      );
+      setConnectedPlatforms(connected);
+
+      const response = await apiClient.get('/capi/quality/report');
+      const raw = response.data?.data ?? {};
+      // Backend emits overall_score / platform_scores.
+      const overall = Number(raw.overall_score ?? 0);
+      const platformScores = (raw.platform_scores || {}) as Record<
+        string,
+        PlatformScore
+      >;
+      const data: QualityReport | null =
+        overall > 0
+          ? {
+              overall_score: overall,
+              estimated_roas_improvement: raw.estimated_roas_improvement ?? 0,
+              data_gaps_summary: raw.data_gaps_summary || {
+                critical: 0,
+                high: 0,
+                medium: 0,
+                low: 0,
+              },
+              trend: raw.trend || 'stable',
+              platform_scores: platformScores,
+              top_recommendations: raw.top_recommendations || [],
+            }
+          : null;
+
+      if (data && data.overall_score > 0 && Object.keys(data.platform_scores).length > 0) {
+        setReport(data);
+        setEmptyState(null);
+        if (!selectedPlatform) {
+          setSelectedPlatform(Object.keys(data.platform_scores)[0]);
         }
       } else {
         setReport(null);
+        setEmptyState(connected.length > 0 ? 'waiting_for_events' : 'connect');
       }
     } catch (err) {
       console.error('Failed to fetch report:', err);
+      setReport(null);
+      setEmptyState(null);
       setError('Failed to load data quality report');
     } finally {
       setLoading(false);
@@ -161,6 +202,10 @@ export function DataQuality() {
   }
 
   if (!report || report.overall_score === 0) {
+    const platformLabels = connectedPlatforms.map(
+      (platform) => PLATFORM_NAMES[platform] || platform
+    );
+
     return (
       <div className="space-y-6">
         <div>
@@ -168,19 +213,60 @@ export function DataQuality() {
           <p className="text-muted-foreground mt-1">Monitor and improve your Event Match Quality</p>
         </div>
 
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Activity className="w-16 h-16 text-muted-foreground/50 mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">No Data Yet</h2>
-          <p className="text-muted-foreground max-w-md">
-            Connect platforms and stream conversion events to see your data quality analysis.
-          </p>
-          <a
-            href="/dashboard/capi-setup"
-            className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Connect Platforms
-            <ChevronRight className="w-4 h-4" />
-          </a>
+          {emptyState === 'waiting_for_events' ? (
+            <>
+              <h2 className="text-xl font-semibold text-foreground mb-2">Waiting for Events</h2>
+              <p className="text-muted-foreground max-w-md">
+                {platformLabels.length > 0
+                  ? `${platformLabels.join(', ')} ${platformLabels.length === 1 ? 'is' : 'are'} connected. Stream conversion events through CAPI to see match quality scores here.`
+                  : 'Your platforms are connected. Stream conversion events through CAPI to see match quality scores here.'}
+              </p>
+              {platformLabels.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                  {platformLabels.map((label) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-3 py-1 text-xs font-medium text-green-600"
+                    >
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      {label} connected
+                    </span>
+                  ))}
+                </div>
+              )}
+              <Link
+                to="/dashboard/capi-setup"
+                className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Open CAPI Setup
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </>
+          ) : (
+            <>
+              <h2 className="text-xl font-semibold text-foreground mb-2">No Data Yet</h2>
+              <p className="text-muted-foreground max-w-md">
+                Connect Meta or WhatsApp in CAPI Setup, then stream conversion events to see your
+                data quality analysis.
+              </p>
+              <Link
+                to="/dashboard/capi-setup"
+                className="mt-6 inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                <Plug className="w-4 h-4" />
+                Connect Platforms
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </>
+          )}
         </div>
       </div>
     );

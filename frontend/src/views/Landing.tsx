@@ -4,12 +4,14 @@
  * Includes Voice Greeting and Chat Widget for visitor engagement
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { OnboardingChat, OnboardingChatButton, VoiceGreeting } from '@/components/onboarding';
 
 export default function Landing() {
-  // Cache-busting: append timestamp to prevent stale content
-  const cacheBuster = `?v=${Date.now()}`;
+  // Cache-bust once per mount. Recreating this on every render changes the iframe
+  // src and reloads landing.html — which feels like "closing the chat redirected home"
+  // (especially when Sign In was opened inside the iframe).
+  const cacheBusterRef = useRef(`?v=${Date.now()}`);
   const [chatOpen, setChatOpen] = useState(false);
   const [greetingDismissed, setGreetingDismissed] = useState(false);
   const [greetingShown, setGreetingShown] = useState(false);
@@ -32,7 +34,7 @@ export default function Landing() {
   return (
     <>
       <iframe
-        src={`/landing.html${cacheBuster}`}
+        src={`/landing.html${cacheBusterRef.current}`}
         title="Stratum AI - Revenue Intelligence + Trust Layer"
         style={{
           position: 'fixed',

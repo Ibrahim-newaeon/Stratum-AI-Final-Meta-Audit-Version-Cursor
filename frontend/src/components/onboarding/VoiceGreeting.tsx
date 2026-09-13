@@ -185,7 +185,13 @@ export default function VoiceGreeting({
 
             {/* Close button */}
             <button
-              onClick={handleDismiss}
+              type="button"
+              aria-label="Dismiss greeting"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleDismiss();
+              }}
               className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors z-10"
             >
               <XMarkIcon className="w-4 h-4" />
@@ -254,6 +260,7 @@ export default function VoiceGreeting({
               {/* Action buttons */}
               <div className="flex gap-3">
                 <button
+                  type="button"
                   onClick={handleStartChat}
                   className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-medium rounded-xl hover:opacity-90 transition-opacity"
                 >
@@ -261,7 +268,12 @@ export default function VoiceGreeting({
                   {texts.ctaText}
                 </button>
                 <button
-                  onClick={handleDismiss}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleDismiss();
+                  }}
                   className="py-3 px-4 bg-white/5 text-gray-400 font-medium rounded-xl hover:bg-white/10 hover:text-white transition-colors"
                 >
                   {texts.dismissText}

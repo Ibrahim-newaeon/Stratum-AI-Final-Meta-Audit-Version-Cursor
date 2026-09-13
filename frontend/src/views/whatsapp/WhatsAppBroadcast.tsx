@@ -3,7 +3,7 @@
  * Send approved templates to multiple contacts with scheduling
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MegaphoneIcon,
@@ -132,9 +132,27 @@ const mockHistory: BroadcastHistory[] = [
   },
 ];
 
-export default function WhatsAppBroadcast() {
-  const [showCreateModal, setShowCreateModal] = useState(false);
+export default function WhatsAppBroadcast({
+  initialTemplateName = null,
+  onInitialTemplateConsumed,
+}: {
+  initialTemplateName?: string | null;
+  onInitialTemplateConsumed?: () => void;
+} = {}) {
+  const [showCreateModal, setShowCreateModal] = useState(Boolean(initialTemplateName));
   const [history, setHistory] = useState<BroadcastHistory[]>(mockHistory);
+  const [preselectedTemplateName, setPreselectedTemplateName] = useState<string | null>(
+    initialTemplateName
+  );
+
+  // When "Use" is clicked on a template, open the create modal with that template selected
+  useEffect(() => {
+    if (initialTemplateName) {
+      setPreselectedTemplateName(initialTemplateName);
+      setShowCreateModal(true);
+      onInitialTemplateConsumed?.();
+    }
+  }, [initialTemplateName, onInitialTemplateConsumed]);
 
   const totalSent = history.reduce((acc, h) => acc + h.sent, 0);
   const totalDelivered = history.reduce((acc, h) => acc + h.delivered, 0);
@@ -279,10 +297,15 @@ export default function WhatsAppBroadcast() {
           <CreateBroadcastModal
             templates={mockTemplates}
             segments={mockSegments}
-            onClose={() => setShowCreateModal(false)}
+            initialTemplateName={preselectedTemplateName}
+            onClose={() => {
+              setShowCreateModal(false);
+              setPreselectedTemplateName(null);
+            }}
             onCreate={(broadcast) => {
               setHistory((prev) => [{ ...broadcast, id: prev.length + 1 }, ...prev]);
               setShowCreateModal(false);
+              setPreselectedTemplateName(null);
             }}
           />
         )}
@@ -365,16 +388,20 @@ function StatusBadge({ status }: { status: BroadcastHistory['status'] }) {
 function CreateBroadcastModal({
   templates,
   segments,
+  initialTemplateName,
   onClose,
   onCreate,
 }: {
   templates: Template[];
   segments: Segment[];
+  initialTemplateName?: string | null;
   onClose: () => void;
   onCreate: (broadcast: Omit<BroadcastHistory, 'id'>) => void;
 }) {
   const [step, setStep] = useState(1);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
+    () => templates.find((t) => t.name === initialTemplateName) || null
+  );
   const [selectedSegments, setSelectedSegments] = useState<number[]>([]);
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [scheduleType, setScheduleType] = useState<'now' | 'scheduled'>('now');

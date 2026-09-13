@@ -7,11 +7,8 @@ import {
   Building,
   Check,
   ChevronRight,
-  Copy,
   CreditCard,
   Download,
-  Eye,
-  EyeOff,
   Gauge,
   Link2,
   Loader2,
@@ -27,6 +24,7 @@ import { useTenantStore } from '@/stores/tenantStore';
 import { useExportData, useRequestDeletion } from '@/api/hooks';
 import { useCurrentUser, useUpdatePreferences } from '@/api/auth';
 import { useToast } from '@/components/ui/use-toast';
+import { apiClient } from '@/api/client';
 import GA4Integration from '@/components/settings/GA4Integration';
 import GTMIntegration from '@/components/settings/GTMIntegration';
 
@@ -617,190 +615,385 @@ function NotificationSettings() {
 }
 
 function SecuritySettings({
-  showApiKey,
-  setShowApiKey,
+  showApiKey: _showApiKey,
+  setShowApiKey: _setShowApiKey,
 }: {
   showApiKey: boolean;
   setShowApiKey: (show: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [showTestKey, setShowTestKey] = useState(false);
+  const { toast } = useToast();
+
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [mfaLoading, setMfaLoading] = useState(true);
+  const [mfaSetup, setMfaSetup] = useState<{
+    secret: string;
+    qr_code_base64: string;
+  } | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [mfaBusy, setMfaBusy] = useState(false);
+
+  type ApiKeyRow = {
+    id: number;
+    name: string;
+    key_prefix: string;
+    masked_key: string;
+    scopes: string[];
+    is_active: boolean;
+    last_used_at?: string | null;
+    created_at: string;
+  };
+  const [apiKeys, setApiKeys] = useState<ApiKeyRow[]>([]);
+  const [keysLoading, setKeysLoading] = useState(true);
+  const [creatingKey, setCreatingKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('Production API Key');
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [regenerating, setRegenerating] = useState<string | null>(null);
 
-  // API Keys data
-  const apiKeys = [
-    {
-      id: 'production',
-      name: 'Production API Key',
-      key: 'strat_live_' + '•'.repeat(28) + 'abc',
-      fullKey: 'strat_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxx_abc',
-      type: 'live' as const,
-      status: 'active' as const,
-      created: 'Jan 15, 2024',
-      lastUsed: '2 minutes ago',
-    },
-    {
-      id: 'test',
-      name: 'Test API Key',
-      key: 'strat_test_' + '•'.repeat(28) + 'xyz',
-      fullKey: 'strat_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxx_xyz',
-      type: 'test' as const,
-      status: 'active' as const,
-      created: 'Jan 10, 2024',
-      lastUsed: '3 days ago',
-    },
-  ];
+  const loadMfa = useCallback(async () => {
+    setMfaLoading(true);
+    try {
+      const res = await apiClient.get('/mfa/status');
+      const data = res.data?.data ?? res.data;
+      setMfaEnabled(Boolean(data?.enabled));
+    } catch (err) {
+      console.error('Failed to load MFA status', err);
+    } finally {
+      setMfaLoading(false);
+    }
+  }, []);
 
-  const copyToClipboard = (key: string, keyId: string) => {
-    navigator.clipboard.writeText(key);
-    setCopiedKey(keyId);
-    setTimeout(() => setCopiedKey(null), 2000);
+  const loadKeys = useCallback(async () => {
+    setKeysLoading(true);
+    try {
+      const res = await apiClient.get('/api-keys');
+      const data = res.data?.data ?? res.data ?? [];
+      setApiKeys(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load API keys', err);
+      setApiKeys([]);
+    } finally {
+      setKeysLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMfa();
+    void loadKeys();
+  }, [loadMfa, loadKeys]);
+
+  const startMfaSetup = async () => {
+    setMfaBusy(true);
+    setBackupCodes([]);
+    try {
+      const res = await apiClient.post('/mfa/setup');
+      const data = res.data?.data ?? res.data;
+      setMfaSetup({
+        secret: data.secret,
+        qr_code_base64: data.qr_code_base64,
+      });
+      setMfaCode('');
+    } catch (err: any) {
+      toast({
+        title: 'Could not start 2FA setup',
+        description: err?.response?.data?.detail || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setMfaBusy(false);
+    }
   };
 
-  const handleRegenerate = async (keyId: string) => {
-    if (
-      !confirm(
-        `Are you sure you want to regenerate the ${keyId} API key? This will invalidate the current key.`
-      )
-    ) {
-      return;
+  const verifyMfa = async () => {
+    if (!mfaCode.trim()) return;
+    setMfaBusy(true);
+    try {
+      const res = await apiClient.post('/mfa/verify', { code: mfaCode.trim() });
+      const data = res.data?.data ?? res.data;
+      if (data?.success) {
+        setMfaEnabled(true);
+        setMfaSetup(null);
+        setBackupCodes(data.backup_codes || []);
+        toast({ title: '2FA enabled', description: 'Store your backup codes securely.' });
+      } else {
+        toast({
+          title: 'Invalid code',
+          description: data?.message || 'Check your authenticator app and try again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Verification failed',
+        description: err?.response?.data?.detail || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setMfaBusy(false);
     }
-    setRegenerating(keyId);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setRegenerating(null);
-    alert(`${keyId} API key has been regenerated. Please update your integrations.`);
+  };
+
+  const disableMfa = async () => {
+    const code = window.prompt('Enter a current 2FA code (or backup code) to disable 2FA');
+    if (!code) return;
+    setMfaBusy(true);
+    try {
+      await apiClient.post('/mfa/disable', { code: code.trim() });
+      setMfaEnabled(false);
+      setBackupCodes([]);
+      toast({ title: '2FA disabled' });
+    } catch (err: any) {
+      toast({
+        title: 'Could not disable 2FA',
+        description: err?.response?.data?.detail || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const createApiKey = async () => {
+    setCreatingKey(true);
+    try {
+      const res = await apiClient.post('/api-keys', {
+        name: newKeyName.trim() || 'API Key',
+        scopes: ['read'],
+      });
+      const data = res.data?.data ?? res.data;
+      setRevealedKey(data?.key || null);
+      toast({
+        title: 'API key created',
+        description: 'Copy it now — it will not be shown again.',
+      });
+      await loadKeys();
+    } catch (err: any) {
+      toast({
+        title: 'Could not create API key',
+        description: err?.response?.data?.detail || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingKey(false);
+    }
+  };
+
+  const regenerateApiKey = async (keyId: number, name: string) => {
+    if (!window.confirm(`Regenerate "${name}"? The current key stops working immediately.`)) return;
+    try {
+      const res = await apiClient.post(`/api-keys/${keyId}/regenerate`);
+      const data = res.data?.data ?? res.data;
+      setRevealedKey(data?.key || null);
+      toast({ title: 'API key regenerated', description: 'Copy the new key now.' });
+      await loadKeys();
+    } catch (err: any) {
+      toast({
+        title: 'Regenerate failed',
+        description: err?.response?.data?.detail || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const deleteApiKey = async (keyId: number, name: string) => {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/api-keys/${keyId}`);
+      toast({ title: 'API key deleted' });
+      await loadKeys();
+    } catch (err: any) {
+      toast({
+        title: 'Delete failed',
+        description: err?.response?.data?.detail || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const copyToClipboard = async (value: string, id: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopiedKey(id);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold">{t('settings.securitySettings')}</h2>
 
-      <div>
-        <h3 className="font-medium mb-3">{t('settings.changePassword')}</h3>
-        <div className="space-y-3">
-          <input
-            type="password"
-            placeholder={t('settings.currentPassword')}
-            className="w-full px-4 py-2 rounded-xl border border-white/10 glass bg-transparent focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <input
-            type="password"
-            placeholder={t('settings.newPassword')}
-            className="w-full px-4 py-2 rounded-xl border border-white/10 glass bg-transparent focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <input
-            type="password"
-            placeholder={t('settings.confirmPassword')}
-            className="w-full px-4 py-2 rounded-xl border border-white/10 glass bg-transparent focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <button className="px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-            {t('settings.updatePassword')}
-          </button>
-        </div>
-      </div>
-
       <div className="border-t border-white/10 pt-6">
         <h3 className="font-medium mb-3">{t('settings.twoFactorAuth')}</h3>
         <div className="flex items-center justify-between p-4 rounded-xl border border-white/10 glass">
           <div>
             <p className="font-medium">{t('settings.enable2FA')}</p>
-            <p className="text-sm text-muted-foreground">{t('settings.enable2FADesc')}</p>
+            <p className="text-sm text-muted-foreground">
+              {mfaLoading
+                ? 'Checking status…'
+                : mfaEnabled
+                  ? '2FA is active on this account.'
+                  : t('settings.enable2FADesc')}
+            </p>
           </div>
-          <button className="px-4 py-2 rounded-xl border border-white/10 hover:bg-white/5 transition-colors">
-            {t('settings.setup')}
-          </button>
+          {mfaEnabled ? (
+            <button
+              type="button"
+              disabled={mfaBusy}
+              onClick={() => void disableMfa()}
+              className="px-4 py-2 rounded-xl border border-white/10 hover:bg-white/5 transition-colors disabled:opacity-50"
+            >
+              Disable
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={mfaBusy || mfaLoading}
+              onClick={() => void startMfaSetup()}
+              className="px-4 py-2 rounded-xl border border-white/10 hover:bg-white/5 transition-colors disabled:opacity-50"
+            >
+              {mfaBusy ? 'Starting…' : t('settings.setup')}
+            </button>
+          )}
         </div>
+
+        {mfaSetup && (
+          <div className="mt-4 space-y-3 p-4 rounded-xl border border-primary/30 bg-primary/5">
+            <p className="text-sm text-muted-foreground">
+              Scan this QR code in your authenticator app, then enter the 6-digit code.
+            </p>
+            {mfaSetup.qr_code_base64 && (
+              <img
+                alt="2FA QR code"
+                className="mx-auto h-40 w-40 rounded-lg bg-white p-2"
+                src={`data:image/png;base64,${mfaSetup.qr_code_base64}`}
+              />
+            )}
+            <p className="text-xs text-center font-mono break-all">Secret: {mfaSetup.secret}</p>
+            <div className="flex gap-2">
+              <input
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                placeholder="123456"
+                className="flex-1 px-3 py-2 rounded-lg border border-white/10 bg-transparent"
+              />
+              <button
+                type="button"
+                disabled={mfaBusy || mfaCode.trim().length < 6}
+                onClick={() => void verifyMfa()}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+              >
+                Verify & Enable
+              </button>
+            </div>
+          </div>
+        )}
+
+        {backupCodes.length > 0 && (
+          <div className="mt-4 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10">
+            <p className="font-medium mb-2">Backup codes (shown once)</p>
+            <ul className="grid grid-cols-2 gap-1 font-mono text-sm">
+              {backupCodes.map((code) => (
+                <li key={code}>{code}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-white/10 pt-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h3 className="font-medium">API Keys</h3>
-          <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-primary hover:bg-primary/10 transition-colors">
-            <span>+ Create New API Key</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              className="px-3 py-1.5 rounded-lg border border-white/10 bg-transparent text-sm"
+              placeholder="Key name"
+            />
+            <button
+              type="button"
+              disabled={creatingKey}
+              onClick={() => void createApiKey()}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+            >
+              {creatingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>+ Create API Key</span>}
+            </button>
+          </div>
         </div>
 
-        <div className="space-y-4">
-          {apiKeys.map((apiKey) => {
-            const isVisible = apiKey.type === 'live' ? showApiKey : showTestKey;
-            const setVisible = apiKey.type === 'live' ? setShowApiKey : setShowTestKey;
+        {revealedKey && (
+          <div className="mb-4 p-4 rounded-xl border border-green-500/30 bg-green-500/10 space-y-2">
+            <p className="text-sm font-medium">New key (copy now — it will not be shown again)</p>
+            <div className="flex gap-2">
+              <code className="flex-1 px-3 py-2 rounded-lg bg-black/30 font-mono text-sm break-all">
+                {revealedKey}
+              </code>
+              <button
+                type="button"
+                onClick={() => void copyToClipboard(revealedKey, 'revealed')}
+                className="px-3 py-2 rounded-lg border border-white/10 text-sm"
+              >
+                {copiedKey === 'revealed' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        )}
 
-            return (
-              <div key={apiKey.id} className="p-4 rounded-xl border border-white/10 glass card-3d">
-                <div className="flex items-center justify-between mb-3">
+        {keysLoading ? (
+          <p className="text-sm text-muted-foreground">Loading API keys…</p>
+        ) : apiKeys.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No API keys yet. Create one to call Stratum APIs programmatically.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {apiKeys.map((apiKey) => (
+              <div key={apiKey.id} className="p-4 rounded-xl border border-white/10 glass">
+                <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                   <div className="flex items-center gap-3">
                     <h4 className="font-medium">{apiKey.name}</h4>
                     <span
                       className={cn(
                         'px-2.5 py-1 rounded-full text-xs font-semibold',
-                        apiKey.type === 'live'
+                        apiKey.is_active
                           ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          : 'bg-muted text-muted-foreground'
                       )}
                     >
-                      {apiKey.type === 'live' ? 'Active' : 'Test'}
+                      {apiKey.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => copyToClipboard(apiKey.fullKey, apiKey.id)}
-                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition-colors text-sm flex items-center gap-1.5"
+                      type="button"
+                      onClick={() => void regenerateApiKey(apiKey.id, apiKey.name)}
+                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-sm"
                     >
-                      {copiedKey === apiKey.id ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-green-500" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          Copy
-                        </>
-                      )}
+                      Regenerate
                     </button>
                     <button
-                      onClick={() => handleRegenerate(apiKey.id)}
-                      disabled={regenerating === apiKey.id}
-                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition-colors text-sm flex items-center gap-1.5 disabled:opacity-50"
+                      type="button"
+                      onClick={() => void deleteApiKey(apiKey.id, apiKey.name)}
+                      className="px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-sm text-red-400"
                     >
-                      {regenerating === apiKey.id ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          Regenerating...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          Regenerate
-                        </>
-                      )}
+                      Delete
                     </button>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 mb-3">
-                  <code className="flex-1 px-3 py-2.5 rounded-lg bg-black/30 border border-white/5 font-mono text-sm">
-                    {isVisible ? apiKey.fullKey : apiKey.key}
-                  </code>
-                  <button
-                    onClick={() => setVisible(!isVisible)}
-                    className="p-2.5 rounded-lg hover:bg-white/5 transition-colors"
-                  >
-                    {isVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <span>Created: {apiKey.created}</span>
+                <code className="block px-3 py-2.5 rounded-lg bg-black/30 border border-white/5 font-mono text-sm">
+                  {apiKey.masked_key || `${apiKey.key_prefix}${'•'.repeat(28)}`}
+                </code>
+                <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
+                  <span>Created: {apiKey.created_at ? new Date(apiKey.created_at).toLocaleDateString() : '—'}</span>
                   <span>|</span>
-                  <span>Last used: {apiKey.lastUsed}</span>
+                  <span>
+                    Last used:{' '}
+                    {apiKey.last_used_at ? new Date(apiKey.last_used_at).toLocaleString() : 'Never'}
+                  </span>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

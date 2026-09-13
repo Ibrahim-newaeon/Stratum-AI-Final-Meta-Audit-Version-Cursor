@@ -11,11 +11,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from './client';
 
+/** Campaign Builder routes are mounted under /campaign-builder (see backend api_router). */
+export function campaignBuilderPath(tenantId: number, suffix: string): string {
+  const path = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  return `/campaign-builder/tenant/${tenantId}${path}`;
+}
+
+
 // =============================================================================
 // Types
 // =============================================================================
 
-export type Platform = 'meta' | 'facebook' | 'instagram' | 'whatsapp';
+/** Backend AdPlatform currently accepts only `meta` (Facebook/Instagram/WhatsApp Ads). */
+export type Platform = 'meta';
+export type LegacyPlatformAlias = 'facebook' | 'instagram' | 'whatsapp';
 export type ConnectionStatus = 'connected' | 'expired' | 'error' | 'disconnected';
 export type DraftStatus =
   | 'draft'
@@ -104,7 +113,7 @@ export function useConnectorStatus(tenantId: number, platform: Platform) {
     queryKey: ['connector-status', tenantId, platform],
     queryFn: async () => {
       const response = await apiClient.get<{ data: ConnectorStatus }>(
-        `/tenant/${tenantId}/connect/${platform}/status`
+        campaignBuilderPath(tenantId, `/connect/${platform}/status`)
       );
       return response.data.data;
     },
@@ -118,7 +127,7 @@ export function useStartConnection(tenantId: number) {
   return useMutation({
     mutationFn: async (platform: Platform) => {
       const response = await apiClient.post<{ data: { oauth_url: string } }>(
-        `/tenant/${tenantId}/connect/${platform}/start`
+        campaignBuilderPath(tenantId, `/connect/${platform}/start`)
       );
       return response.data.data;
     },
@@ -133,7 +142,7 @@ export function useRefreshToken(tenantId: number) {
 
   return useMutation({
     mutationFn: async (platform: Platform) => {
-      const response = await apiClient.post(`/tenant/${tenantId}/connect/${platform}/refresh`);
+      const response = await apiClient.post(campaignBuilderPath(tenantId, `/connect/${platform}/refresh`));
       return response.data;
     },
     onSuccess: (_, platform) => {
@@ -147,7 +156,7 @@ export function useDisconnectPlatform(tenantId: number) {
 
   return useMutation({
     mutationFn: async (platform: Platform) => {
-      const response = await apiClient.delete(`/tenant/${tenantId}/connect/${platform}`);
+      const response = await apiClient.delete(campaignBuilderPath(tenantId, `/connect/${platform}`));
       return response.data;
     },
     onSuccess: (_, platform) => {
@@ -166,12 +175,13 @@ export function useAdAccounts(tenantId: number, platform: Platform, enabledOnly 
     queryKey: ['ad-accounts', tenantId, platform, enabledOnly],
     queryFn: async () => {
       const response = await apiClient.get<{ data: AdAccount[] }>(
-        `/tenant/${tenantId}/ad-accounts/${platform}`,
+        campaignBuilderPath(tenantId, `/ad-accounts/${platform}`),
         { params: { enabled_only: enabledOnly } }
       );
       return response.data.data;
     },
-    enabled: !!tenantId && !!platform,
+    // Only `meta` is a valid AdPlatform on the API; other labels 422.
+    enabled: !!tenantId && platform === 'meta',
   });
 }
 
@@ -180,7 +190,7 @@ export function useSyncAdAccounts(tenantId: number) {
 
   return useMutation({
     mutationFn: async (platform: Platform) => {
-      const response = await apiClient.post(`/tenant/${tenantId}/ad-accounts/${platform}/sync`);
+      const response = await apiClient.post(campaignBuilderPath(tenantId, `/ad-accounts/${platform}/sync`));
       return response.data;
     },
     onSuccess: (_, platform) => {
@@ -206,7 +216,7 @@ export function useUpdateAdAccount(tenantId: number) {
       data: { is_enabled?: boolean; daily_budget_cap?: number };
     }) => {
       const response = await apiClient.put<{ data: AdAccount }>(
-        `/tenant/${tenantId}/ad-accounts/${platform}/${accountId}`,
+        campaignBuilderPath(tenantId, `/ad-accounts/${platform}/${accountId}`),
         data
       );
       return response.data.data;
@@ -233,7 +243,7 @@ export function useCampaignDrafts(
     queryKey: ['campaign-drafts', tenantId, filters],
     queryFn: async () => {
       const response = await apiClient.get<{ data: CampaignDraft[] }>(
-        `/tenant/${tenantId}/campaign-drafts`,
+        campaignBuilderPath(tenantId, `/campaign-drafts`),
         { params: filters }
       );
       return response.data.data;
@@ -247,7 +257,7 @@ export function useCampaignDraft(tenantId: number, draftId: string) {
     queryKey: ['campaign-draft', tenantId, draftId],
     queryFn: async () => {
       const response = await apiClient.get<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts/${draftId}`
+        campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}`)
       );
       return response.data.data;
     },
@@ -261,7 +271,7 @@ export function useCreateCampaignDraft(tenantId: number) {
   return useMutation({
     mutationFn: async (data: CreateDraftPayload) => {
       const response = await apiClient.post<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts`,
+        campaignBuilderPath(tenantId, `/campaign-drafts`),
         data
       );
       return response.data.data;
@@ -278,7 +288,7 @@ export function useUpdateCampaignDraft(tenantId: number, draftId: string) {
   return useMutation({
     mutationFn: async (data: UpdateDraftPayload) => {
       const response = await apiClient.put<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts/${draftId}`,
+        campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}`),
         data
       );
       return response.data.data;
@@ -296,7 +306,7 @@ export function useSubmitDraft(tenantId: number) {
   return useMutation({
     mutationFn: async (draftId: string) => {
       const response = await apiClient.post<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts/${draftId}/submit`
+        campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}/submit`)
       );
       return response.data.data;
     },
@@ -313,7 +323,7 @@ export function useApproveDraft(tenantId: number) {
   return useMutation({
     mutationFn: async (draftId: string) => {
       const response = await apiClient.post<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts/${draftId}/approve`
+        campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}/approve`)
       );
       return response.data.data;
     },
@@ -330,7 +340,7 @@ export function useRejectDraft(tenantId: number) {
   return useMutation({
     mutationFn: async ({ draftId, reason }: { draftId: string; reason: string }) => {
       const response = await apiClient.post<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts/${draftId}/reject`,
+        campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}/reject`),
         null,
         { params: { reason } }
       );
@@ -349,7 +359,7 @@ export function usePublishDraft(tenantId: number) {
   return useMutation({
     mutationFn: async (draftId: string) => {
       const response = await apiClient.post<{ data: CampaignDraft }>(
-        `/tenant/${tenantId}/campaign-drafts/${draftId}/publish`
+        campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}/publish`)
       );
       return response.data.data;
     },
@@ -366,7 +376,7 @@ export function useDeleteCampaignDraft(tenantId: number) {
 
   return useMutation({
     mutationFn: async (draftId: string) => {
-      const response = await apiClient.delete(`/tenant/${tenantId}/campaign-drafts/${draftId}`);
+      const response = await apiClient.delete(campaignBuilderPath(tenantId, `/campaign-drafts/${draftId}`));
       return response.data;
     },
     onSuccess: () => {
@@ -391,7 +401,7 @@ export function usePublishLogs(
     queryKey: ['publish-logs', tenantId, filters],
     queryFn: async () => {
       const response = await apiClient.get<{ data: PublishLog[] }>(
-        `/tenant/${tenantId}/campaign-publish-logs`,
+        campaignBuilderPath(tenantId, `/campaign-publish-logs`),
         { params: filters }
       );
       return response.data.data;
@@ -406,7 +416,7 @@ export function useRetryPublish(tenantId: number) {
   return useMutation({
     mutationFn: async (logId: string) => {
       const response = await apiClient.post(
-        `/tenant/${tenantId}/campaign-publish-logs/${logId}/retry`
+        campaignBuilderPath(tenantId, `/campaign-publish-logs/${logId}/retry`)
       );
       return response.data;
     },
