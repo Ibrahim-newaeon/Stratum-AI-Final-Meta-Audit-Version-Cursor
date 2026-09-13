@@ -51,3 +51,23 @@ export async function refreshOAuth(platform: OAuthPlatform): Promise<void> {
 export async function disconnectOAuth(platform: OAuthPlatform): Promise<void> {
   await apiClient.delete(`/oauth/${platform}/disconnect`);
 }
+
+export interface SyncAdAccountsResult {
+  connected_count: number;
+  accounts: Array<{
+    id?: string | null;
+    platform_account_id: string;
+    name: string;
+    is_enabled: boolean;
+  }>;
+}
+
+/** Fetch Meta ad accounts and enable them locally for discovery/insights. */
+export async function syncOAuthAdAccounts(
+  platform: OAuthPlatform
+): Promise<SyncAdAccountsResult> {
+  const response = await apiClient.post<Envelope<SyncAdAccountsResult>>(
+    `/oauth/${platform}/accounts/sync`
+  );
+  return response.data.data;
+}
