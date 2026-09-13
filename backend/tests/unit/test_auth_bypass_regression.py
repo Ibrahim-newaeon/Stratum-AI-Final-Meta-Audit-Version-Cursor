@@ -1069,6 +1069,17 @@ def test_documented_public_paths_are_exempt() -> None:
     assert not is_public_endpoint("/api/v1/auth/me")
 
 
+def test_oauth_platform_callbacks_are_public() -> None:
+    """Meta redirects to /oauth/{platform}/callback with no bearer token."""
+    assert is_public_endpoint("/api/v1/oauth/meta/callback")
+    # Authorize / status must stay authenticated — only the browser callback
+    # is exempt.
+    assert not is_public_endpoint("/api/v1/oauth/meta/authorize")
+    assert not is_public_endpoint("/api/v1/oauth/meta/status")
+    assert not is_public_endpoint("/api/v1/oauth/status")
+    assert not is_public_endpoint("/api/v1/oauth/meta/callback/extra")
+
+
 # The logged-out marketing surface: the SPA renders /blog, /blog/:slug, /faq,
 # /contact and the landing pricing section without a token, and the CMS
 # handlers behind them are documented "(public endpoint)" and read no tenant
