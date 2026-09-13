@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -58,6 +59,7 @@ type SortDirection = 'asc' | 'desc';
 export function Campaigns() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
@@ -65,6 +67,7 @@ export function Campaigns() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedCampaigns, setSelectedCampaigns] = useState<number[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const handledQueryRef = useRef<string | null>(null);
 
   // Use tenant store for context (reserved for API calls)
   useTenantStore((state) => state.tenantId);
@@ -75,6 +78,46 @@ export function Campaigns() {
   const activateCampaign = useActivateCampaign();
   const deleteCampaign = useDeleteCampaign();
   const discoverCampaigns = useDiscoverCampaigns();
+
+  // Dashboard quick actions deep-link here with ?discover=1 / ?create=1
+  useEffect(() => {
+    const discover = searchParams.get('discover');
+    const create = searchParams.get('create');
+    if (!discover && !create) {
+      return;
+    }
+    const key = searchParams.toString();
+    if (handledQueryRef.current === key) {
+      return;
+    }
+    handledQueryRef.current = key;
+
+    if (create === '1') {
+      setCreateModalOpen(true);
+    }
+    if (discover === '1') {
+      discoverCampaigns.mutate(undefined, {
+        onSuccess: () => {
+          toast({
+            title: 'Discovery queued',
+            description: 'Campaign list refreshes when Meta sync finishes.',
+          });
+        },
+        onError: (err) => {
+          toast({
+            title: 'Discovery failed',
+            description: err instanceof Error ? err.message : 'Could not start discovery',
+            variant: 'destructive',
+          });
+        },
+      });
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('discover');
+    next.delete('create');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, discoverCampaigns, toast]);
 
   // Transform API campaigns; empty list when none discovered yet (no mock catalogue)
   const campaigns = useMemo((): Campaign[] => {

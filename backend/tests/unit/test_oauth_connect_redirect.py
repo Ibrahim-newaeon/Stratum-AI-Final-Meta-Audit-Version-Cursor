@@ -18,6 +18,19 @@ def test_dashboard_quick_action_uses_the_dashboard_connect_path() -> None:
     assert 'action="/connect"' not in source
 
 
+def test_dashboard_quick_actions_use_real_spa_routes() -> None:
+    """Quick-action hrefs are SPA navigations; dead paths render the 404 page."""
+    source = inspect.getsource(dashboard_module)
+    assert 'action="/dashboard/campaigns?discover=1"' in source
+    assert 'action="/dashboard/campaigns?create=1"' in source
+    assert 'action="/dashboard/custom-reports"' in source
+    assert 'action="/dashboard/rules"' in source
+    assert 'action="/campaigns/sync"' not in source
+    assert 'action="/campaigns/new"' not in source
+    assert 'action="/reports"' not in source
+    assert 'action="/automation"' not in source
+
+
 def test_frontend_connect_url_is_dashboard_campaigns_connect(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "frontend_url", "https://app.example.test")
     url = frontend_connect_url(platform="meta", status="success")
