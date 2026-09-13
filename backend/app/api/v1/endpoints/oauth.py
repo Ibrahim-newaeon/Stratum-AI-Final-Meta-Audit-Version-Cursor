@@ -38,6 +38,8 @@ from app.models.campaign_builder import (
 from app.schemas import APIResponse
 from app.services.oauth import (
     get_oauth_service,
+    sync_connection_ad_accounts,
+    upsert_ad_accounts,
 )
 
 logger = get_logger(__name__)
@@ -388,6 +390,7 @@ async def oauth_callback(
             db.add(connection)
 
         await db.commit()
+        await db.refresh(connection)
 
         logger.info(
             "oauth_completed",
@@ -408,6 +411,33 @@ async def oauth_callback(
                 error="storage_failed",
                 message="Failed to save connection",
             )
+        )
+
+    # Best-effort: pull Meta ad accounts and enable them locally. Discovery and
+    # insights require TenantAdAccount rows with is_enabled=True — a platform
+    # connection alone leaves the tenant at "0 accounts connected". Failures
+    # here must not undo a successful OAuth redirect.
+    try:
+        synced = await sync_connection_ad_accounts(
+            db,
+            connection=connection,
+            oauth_service=oauth_service,
+            enable=True,
+        )
+        await db.commit()
+        logger.info(
+            "oauth_ad_accounts_autosynced",
+            platform=platform.value,
+            tenant_id=oauth_state.tenant_id,
+            count=len(synced),
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.warning(
+            "oauth_ad_accounts_autosync_failed",
+            platform=platform.value,
+            tenant_id=oauth_state.tenant_id,
+            error=str(e),
         )
 
     return RedirectResponse(frontend_connect_url(platform=platform.value, status="success"))
@@ -666,7 +696,6 @@ async def connect_ad_accounts(
 
     Creates local records for the selected accounts and enables them.
     """
-    # Get connection
     result = await db.execute(
         select(TenantPlatformConnection).where(
             and_(
@@ -683,88 +712,42 @@ async def connect_ad_accounts(
             detail=f"Platform {platform.value} is not connected",
         )
 
-    # Fetch accounts from platform to validate
     try:
         oauth_service = get_oauth_service(platform.value)
         access_token = oauth_service.decrypt_token(connection.access_token_encrypted)
         platform_accounts = await oauth_service.fetch_ad_accounts(access_token)
+        connected = await upsert_ad_accounts(
+            db,
+            connection=connection,
+            accounts=platform_accounts,
+            enable=True,
+            account_ids=set(request_data.account_ids),
+        )
+        await db.commit()
+        for account in connected:
+            await db.refresh(account)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except Exception as e:
-        logger.error("Failed to fetch ad accounts for validation", error=str(e))
+        logger.error("Failed to connect ad accounts", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to validate accounts"
+        ) from e
+
+    connected_accounts = [
+        AdAccountResponse(
+            id=account.id,
+            platform_account_id=account.platform_account_id,
+            name=account.name,
+            business_name=account.business_name,
+            currency=account.currency,
+            timezone=account.timezone,
+            status=account.account_status or "active",
+            is_connected=True,
+            is_enabled=True,
         )
-
-    platform_accounts_map = {a.account_id: a for a in platform_accounts}
-
-    # Validate requested accounts exist
-    for account_id in request_data.account_ids:
-        if account_id not in platform_accounts_map:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Account {account_id} not found or not accessible",
-            )
-
-    # Connect accounts
-    connected_accounts = []
-    for account_id in request_data.account_ids:
-        platform_acc = platform_accounts_map[account_id]
-
-        # Check if already exists
-        result = await db.execute(
-            select(TenantAdAccount).where(
-                and_(
-                    TenantAdAccount.tenant_id == current_user.tenant_id,
-                    TenantAdAccount.platform == platform,
-                    TenantAdAccount.platform_account_id == account_id,
-                )
-            )
-        )
-        existing = result.scalar_one_or_none()
-
-        if existing:
-            # Update and enable
-            existing.name = platform_acc.name
-            existing.business_name = platform_acc.business_name
-            existing.currency = platform_acc.currency
-            existing.timezone = platform_acc.timezone
-            existing.account_status = platform_acc.status
-            existing.is_enabled = True
-            existing.last_synced_at = datetime.now(UTC)
-            account = existing
-        else:
-            # Create new
-            account = TenantAdAccount(
-                tenant_id=current_user.tenant_id,
-                connection_id=connection.id,
-                platform=platform,
-                platform_account_id=account_id,
-                name=platform_acc.name,
-                business_name=platform_acc.business_name,
-                currency=platform_acc.currency,
-                timezone=platform_acc.timezone,
-                account_status=platform_acc.status,
-                is_enabled=True,
-                last_synced_at=datetime.now(UTC),
-            )
-            db.add(account)
-
-        await db.flush()
-
-        connected_accounts.append(
-            AdAccountResponse(
-                id=account.id,
-                platform_account_id=account.platform_account_id,
-                name=account.name,
-                business_name=account.business_name,
-                currency=account.currency,
-                timezone=account.timezone,
-                status=account.account_status or "active",
-                is_connected=True,
-                is_enabled=True,
-            )
-        )
-
-    await db.commit()
+        for account in connected
+    ]
 
     logger.info(
         "ad_accounts_connected",
@@ -780,6 +763,77 @@ async def connect_ad_accounts(
             accounts=connected_accounts,
         ),
         message=f"Connected {len(connected_accounts)} ad account(s)",
+    )
+
+
+@router.post("/{platform}/accounts/sync", response_model=APIResponse[ConnectAccountsResponse])
+async def sync_ad_accounts(
+    platform: AdPlatform,
+    current_user: VerifiedUserDep,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Fetch all accessible platform ad accounts and enable them locally.
+
+    Use after Connect when the auto-sync missed accounts, or to refresh the
+    catalogue. Does not write to Meta — local ``TenantAdAccount`` rows only.
+    """
+    result = await db.execute(
+        select(TenantPlatformConnection).where(
+            and_(
+                TenantPlatformConnection.tenant_id == current_user.tenant_id,
+                TenantPlatformConnection.platform == platform,
+            )
+        )
+    )
+    connection = result.scalar_one_or_none()
+
+    if not connection or connection.status != ConnectionStatus.CONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Platform {platform.value} is not connected",
+        )
+
+    try:
+        oauth_service = get_oauth_service(platform.value)
+        synced = await sync_connection_ad_accounts(
+            db,
+            connection=connection,
+            oauth_service=oauth_service,
+            enable=True,
+        )
+        await db.commit()
+        for account in synced:
+            await db.refresh(account)
+    except Exception as e:
+        logger.error("Failed to sync ad accounts", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to sync accounts from {platform.value}",
+        ) from e
+
+    accounts = [
+        AdAccountResponse(
+            id=account.id,
+            platform_account_id=account.platform_account_id,
+            name=account.name,
+            business_name=account.business_name,
+            currency=account.currency,
+            timezone=account.timezone,
+            status=account.account_status or "active",
+            is_connected=True,
+            is_enabled=bool(account.is_enabled),
+        )
+        for account in synced
+    ]
+
+    return APIResponse(
+        success=True,
+        data=ConnectAccountsResponse(
+            connected_count=len(accounts),
+            accounts=accounts,
+        ),
+        message=f"Synced {len(accounts)} ad account(s)",
     )
 
 

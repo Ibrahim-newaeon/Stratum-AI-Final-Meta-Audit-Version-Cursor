@@ -20,6 +20,7 @@ import {
   getOAuthStatus,
   refreshOAuth,
   startOAuth,
+  syncOAuthAdAccounts,
   type OAuthConnectionStatus,
 } from '@/api/oauth';
 
@@ -103,8 +104,31 @@ export default function ConnectPlatforms() {
       return;
     }
     if (status === 'success') {
-      setBanner({ kind: 'success', text: 'Meta Ads connected. Ad accounts will appear after sync.' });
+      setBanner({
+        kind: 'success',
+        text: 'Meta Ads connected. Syncing ad accounts…',
+      });
       void queryClient.invalidateQueries({ queryKey: ['oauth-status', 'meta'] });
+      void (async () => {
+        try {
+          const synced = await syncOAuthAdAccounts('meta');
+          await queryClient.invalidateQueries({ queryKey: ['oauth-status', 'meta'] });
+          await queryClient.invalidateQueries({ queryKey: ['ad-accounts'] });
+          const count = synced.connected_count ?? synced.accounts?.length ?? 0;
+          setBanner({
+            kind: 'success',
+            text:
+              count > 0
+                ? `Meta Ads connected. ${count} ad account${count === 1 ? '' : 's'} enabled.`
+                : 'Meta Ads connected, but no ad accounts were returned. Use Sync ad accounts, and confirm the Facebook user can access an ad account.',
+          });
+        } catch {
+          setBanner({
+            kind: 'error',
+            text: 'Meta Ads connected, but ad account sync failed. Click Sync ad accounts to retry.',
+          });
+        }
+      })();
     } else {
       setBanner({
         kind: 'error',
@@ -153,10 +177,36 @@ export default function ConnectPlatforms() {
     },
   });
 
+  const syncAccountsMutation = useMutation({
+    mutationFn: () => syncOAuthAdAccounts('meta'),
+    onSuccess: (synced) => {
+      const count = synced.connected_count ?? synced.accounts?.length ?? 0;
+      setBanner({
+        kind: 'success',
+        text:
+          count > 0
+            ? `Synced ${count} Meta ad account${count === 1 ? '' : 's'}.`
+            : 'Sync finished, but Meta returned no ad accounts for this user.',
+      });
+      void queryClient.invalidateQueries({ queryKey: ['oauth-status', 'meta'] });
+      void queryClient.invalidateQueries({ queryKey: ['ad-accounts'] });
+    },
+    onError: (error) => {
+      setBanner({
+        kind: 'error',
+        text: errorMessage(error, 'Could not sync Meta ad accounts.'),
+      });
+    },
+  });
+
   const meta: OAuthConnectionStatus | undefined = statusQuery.data;
   const uiStatus = asUiStatus(meta?.status);
   const StatusIcon = statusConfig[uiStatus].icon;
-  const busy = connectMutation.isPending || refreshMutation.isPending || disconnectMutation.isPending;
+  const busy =
+    connectMutation.isPending ||
+    refreshMutation.isPending ||
+    disconnectMutation.isPending ||
+    syncAccountsMutation.isPending;
 
   const connectedOn = useMemo(() => formatDay(meta?.connected_at), [meta?.connected_at]);
   const expiresOn = useMemo(() => formatDay(meta?.token_expires_at), [meta?.token_expires_at]);
@@ -244,6 +294,17 @@ export default function ConnectPlatforms() {
         <div className="mt-4 flex flex-wrap gap-2">
           {uiStatus === 'connected' || uiStatus === 'expired' ? (
             <>
+              <button
+                type="button"
+                onClick={() => syncAccountsMutation.mutate()}
+                disabled={busy}
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors disabled:opacity-50"
+              >
+                <ArrowPathIcon
+                  className={cn('h-4 w-4', syncAccountsMutation.isPending && 'animate-spin')}
+                />
+                Sync ad accounts
+              </button>
               <button
                 type="button"
                 onClick={() => refreshMutation.mutate()}

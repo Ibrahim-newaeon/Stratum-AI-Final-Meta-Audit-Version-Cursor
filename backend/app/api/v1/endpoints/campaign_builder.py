@@ -419,11 +419,10 @@ async def sync_ad_accounts(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Trigger ad accounts sync from platform."""
+    """Fetch ad accounts from the connected platform and upsert local rows."""
     if getattr(request.state, "tenant_id", None) != tenant_id:
         raise HTTPException(status_code=403, detail="Access denied to this tenant")
 
-    # Check connection exists and is connected
     result = await db.execute(
         select(TenantPlatformConnection).where(
             and_(
@@ -438,12 +437,36 @@ async def sync_ad_accounts(
     if not connection:
         raise HTTPException(status_code=400, detail=f"Platform {platform.value} is not connected")
 
-    # In production, trigger Celery task
-    # background_tasks.add_task(sync_ad_accounts_task, tenant_id, platform)
+    try:
+        from app.services.oauth import get_oauth_service, sync_connection_ad_accounts
+
+        oauth_service = get_oauth_service(platform.value)
+        synced = await sync_connection_ad_accounts(
+            db,
+            connection=connection,
+            oauth_service=oauth_service,
+            enable=True,
+        )
+        await db.commit()
+    except Exception as e:
+        logger.error(
+            "campaign_builder_ad_account_sync_failed",
+            tenant_id=tenant_id,
+            platform=platform.value,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to sync {platform.value} ad accounts",
+        ) from e
 
     return APIResponse(
         success=True,
-        data={"message": f"Sync started for {platform.value} ad accounts"},
+        data={
+            "message": f"Synced {len(synced)} {platform.value} ad account(s)",
+            "synced_count": len(synced),
+            "account_ids": [account.platform_account_id for account in synced],
+        },
     )
 
 
