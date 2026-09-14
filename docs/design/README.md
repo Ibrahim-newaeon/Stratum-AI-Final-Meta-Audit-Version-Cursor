@@ -1,59 +1,55 @@
 # StratumAI — Design systems
 
-## Active product UI (until Luminous approved)
+## Proposed next — Kinetic Signal Observatory (approval)
 
-**Evidence Room** — bone / oxblood, Instrument Serif + IBM Plex. Live on marketing + dashboard shell.
-
-- Tokens: `frontend/src/theme/evidence-tokens.css`
-- Preview: `/studio-preview/workspace`
-- Detail: see Evidence Room section below
-
-## Proposed — Luminous Control (awaiting approval)
-
-Creative territory: calm command surface for Meta revenue ops. Pearl & Indigo (light) / Navy & Periwinkle (dark). Inter + IBM Plex Mono. ~10px radii.
+Replaces rigid Pearl/Indigo, navy/periwinkle, and beige/oxblood as the **candidate**
+product visual language. Bright, asymmetric, signal-flow first. Trust Gate is the hero.
 
 | Role | Light | Dark |
 |------|-------|------|
-| Canvas | `#F6F7FB` | `#0F1424` |
-| Surface | `#FFFFFF` | `#1B243B` |
-| Text | `#182235` | `#F1F5FF` |
-| Accent | Indigo `#4F46E5` | Periwinkle `#A5B4FC` |
-| Pass | Teal | Teal |
-| Hold | Amber | Amber |
-| Block | Rose | Rose |
+| Canvas | `#F7FAFC` | `#08111F` |
+| Surface | `#FFFFFF` | `#0D1A2D` |
+| Ink | `#101828` | `#F5F8FF` |
+| Cobalt | `#4054F5` | `#6E7CFF` |
+| Cyan | `#00CFE8` | `#39E8FF` |
+| Lime | `#D7F54A` | `#D8FF53` |
+| Coral | `#FF5F6D` | `#FF7785` |
 
-### Signature modules (keep from loved mocks)
+Typography: **Syne** (display) · **DM Sans** (UI) · **IBM Plex Mono** (metadata).
 
-1. **Trust-Gated Autopilot** — Signal Health → Trust Gate → Automation Decision flow
-2. **CDP Identity Graph** — EMQ + identity nodes; light Gen Z “identity strata” chips scoped inside CDP only
-3. **Action Queue** — gate score + status before money moves
-4. **Honest KPIs** — undefined metrics show as `—`, not fake numbers
+### Signature UI
 
-### Implementation (preview only)
+1. Living Trust Gate orbit (EXECUTE / HOLD / MANUAL REQUIRED)
+2. Signal Weather + five health components
+3. Campaign Pulse rows (health strips, not equal cards)
+4. Evidence Stream with reasons + timestamps
+5. Meta act / GA4 verify / GTM tag measurement lanes
 
-- `frontend/src/theme/luminous-tokens.css`
-- `frontend/src/components/luminous/*`
-- `frontend/src/views/luminous/LuminousCommandOverview.tsx`
-- **Preview:** `/studio-preview/luminous` (Pearl / Navy toggle in sidebar)
+### Preview (no auth)
 
-Do **not** migrate home, auth, or full dashboard until this design is approved. Evidence Room remains the live shell.
+- Marketing: `/studio-preview/kinetic`
+- Dashboard: `/studio-preview/kinetic/dashboard`
+- Day panel / Night observatory toggle in header
 
-Reference boards: `docs/design/luminous-control-board.png`, `docs/design/luminous-overview-angled.png`
+Tokens: `frontend/src/theme/kinetic-tokens.css`  
+Components: `frontend/src/components/kinetic/`  
+Views: `frontend/src/views/kinetic/`
+
+**Do not** migrate live marketing/dashboard until Ibrahim approves Kinetic.
+Evidence Room remains the live shell; Luminous remains an earlier preview only.
+
+Craft influence (secondary): Signal/Craft graphite + orange action energy may inform
+primary CTAs after approval — Kinetic remains the master system name.
 
 ---
 
-## Evidence Room (current)
+## Live product UI (until Kinetic approved)
 
-Creative territory: every decision leaves a paper trail.
+**Evidence Room** — bone / oxblood. Marketing + dashboard shell.
 
-| Role | Value |
-|------|-------|
-| Bone (canvas) | `#F2EEE5` |
-| Paper (surfaces) | `#FAF8F3` |
-| Carbon (text) | `#191919` |
-| Graphite (muted) | `#5E5A55` |
-| Oxblood (CTA / seam) | `#762C38` |
+- Preview: `/studio-preview/workspace`
 
-Typography: Instrument Serif, IBM Plex Sans, IBM Plex Mono. Signature motif: horizontal incision / seam.
+## Earlier proposal — Luminous Control
 
-Preview: `/studio-preview/workspace`
+Pearl & Indigo / Navy & Periwinkle. Preview: `/studio-preview/luminous`.
+Superseded as the preferred direction if Kinetic is approved.

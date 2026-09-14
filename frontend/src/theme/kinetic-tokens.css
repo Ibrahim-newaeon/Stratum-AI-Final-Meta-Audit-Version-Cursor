@@ -1,0 +1,262 @@
+/**
+ * Kinetic Signal Observatory — design preview tokens
+ * Bright instrument panel (light) / night observatory (dark).
+ * Scoped under .ks-root — does not replace live Evidence Room until approved.
+ */
+
+.ks-root.ks-light {
+  --ks-canvas: #f7fafc;
+  --ks-surface: #ffffff;
+  --ks-surface-blue: #eef4ff;
+  --ks-surface-lime: #f1f8d6;
+  --ks-surface-coral: #ffe8eb;
+  --ks-raised: #ffffff;
+  --ks-ink: #101828;
+  --ks-muted: #536174;
+  --ks-line: #d6dfea;
+  --ks-cobalt: #4054f5;
+  --ks-cobalt-soft: rgba(64, 84, 245, 0.12);
+  --ks-cyan: #00cfe8;
+  --ks-lime: #d7f54a;
+  --ks-coral: #ff5f6d;
+  --ks-orange: #ff9d42;
+  --ks-pass: #0f9f6e;
+  --ks-hold: #d97706;
+  --ks-block: #e11d48;
+  --ks-shadow: 0 12px 40px rgba(16, 24, 40, 0.08);
+  --ks-glow: 0 0 0 1px rgba(64, 84, 245, 0.2), 0 0 32px rgba(0, 207, 232, 0.18);
+  --ks-font-display: 'Syne', 'Space Grotesk', ui-sans-serif, sans-serif;
+  --ks-font-ui: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --ks-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ks-ribbon: linear-gradient(120deg, #4054f5 0%, #00cfe8 45%, #d7f54a 100%);
+  --ks-orbit: rgba(64, 84, 245, 0.35);
+}
+
+.ks-root.ks-dark {
+  --ks-canvas: #08111f;
+  --ks-surface: #0d1a2d;
+  --ks-surface-blue: #132b4b;
+  --ks-surface-lime: #1a2e14;
+  --ks-surface-coral: #3a1a22;
+  --ks-raised: #132640;
+  --ks-ink: #f5f8ff;
+  --ks-muted: #91a5c2;
+  --ks-line: #284363;
+  --ks-cobalt: #6e7cff;
+  --ks-cobalt-soft: rgba(110, 124, 255, 0.18);
+  --ks-cyan: #39e8ff;
+  --ks-lime: #d8ff53;
+  --ks-coral: #ff7785;
+  --ks-orange: #ffb15c;
+  --ks-pass: #3dd68c;
+  --ks-hold: #ffb15c;
+  --ks-block: #ff7785;
+  --ks-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --ks-glow: 0 0 0 1px rgba(57, 232, 255, 0.25), 0 0 40px rgba(110, 124, 255, 0.22);
+  --ks-font-display: 'Syne', 'Space Grotesk', ui-sans-serif, sans-serif;
+  --ks-font-ui: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --ks-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ks-ribbon: linear-gradient(120deg, #6e7cff 0%, #39e8ff 50%, #d8ff53 100%);
+  --ks-orbit: rgba(57, 232, 255, 0.4);
+}
+
+.ks-root {
+  font-family: var(--ks-font-ui);
+  background: var(--ks-canvas);
+  color: var(--ks-ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ks-root *:focus-visible {
+  outline: 2px solid var(--ks-cyan);
+  outline-offset: 2px;
+}
+
+.ks-display {
+  font-family: var(--ks-font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+}
+
+.ks-mono {
+  font-family: var(--ks-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ks-label {
+  font-family: var(--ks-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ks-muted);
+}
+
+.ks-ribbon {
+  height: 3px;
+  width: 100%;
+  background: var(--ks-ribbon);
+}
+
+.ks-panel {
+  background: var(--ks-surface);
+  border: 1px solid var(--ks-line);
+  box-shadow: var(--ks-shadow);
+}
+
+.ks-panel-blue {
+  background: var(--ks-surface-blue);
+  border: 1px solid var(--ks-line);
+}
+
+.ks-panel-lime {
+  background: var(--ks-surface-lime);
+  border: 1px solid color-mix(in srgb, var(--ks-lime) 40%, var(--ks-line));
+}
+
+.ks-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--ks-cobalt);
+  color: #fff;
+  border: none;
+  font-family: var(--ks-font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.ks-btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+.ks-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: transparent;
+  color: var(--ks-ink);
+  border: 1px solid var(--ks-line);
+  font-family: var(--ks-font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.ks-btn-secondary:hover {
+  border-color: var(--ks-cobalt);
+  background: var(--ks-cobalt-soft);
+}
+
+.ks-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--ks-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ks-badge-pass {
+  background: color-mix(in srgb, var(--ks-pass) 18%, transparent);
+  color: var(--ks-pass);
+}
+
+.ks-badge-hold {
+  background: color-mix(in srgb, var(--ks-hold) 18%, transparent);
+  color: var(--ks-hold);
+}
+
+.ks-badge-block {
+  background: color-mix(in srgb, var(--ks-block) 18%, transparent);
+  color: var(--ks-block);
+}
+
+.ks-signal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ks-cyan);
+  box-shadow: 0 0 0 0 var(--ks-cyan);
+  animation: ks-pulse 2.4s ease-out infinite;
+}
+
+@keyframes ks-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ks-cyan) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes ks-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ks-trail {
+  0% {
+    stroke-dashoffset: 120;
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.35;
+  }
+}
+
+@keyframes ks-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ks-rise {
+  animation: ks-rise 0.55s ease-out both;
+}
+
+.ks-orbit-spin {
+  animation: ks-orbit 28s linear infinite;
+  transform-origin: center;
+}
+
+.ks-trail-line {
+  stroke-dasharray: 8 10;
+  animation: ks-trail 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ks-signal-dot,
+  .ks-orbit-spin,
+  .ks-trail-line,
+  .ks-rise {
+    animation: none !important;
+  }
+}

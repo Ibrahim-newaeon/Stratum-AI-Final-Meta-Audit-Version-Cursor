@@ -175,7 +175,6 @@ function Panel({
 
 function Note({
   children,
-  ok,
   warn,
   hold,
 }: {

@@ -48,6 +48,7 @@ const LuminousCommandOverview = lazy(() =>
   })),
 );
 const LuminousPlaceholder = lazy(() => import('./views/luminous/LuminousPlaceholder'));
+const KineticPreviewApp = lazy(() => import('./views/kinetic/KineticPreviewApp'));
 const CustomDashboard = lazy(() => import('./views/CustomDashboard'));
 const Campaigns = lazy(() => import('./views/Campaigns'));
 const Stratum = lazy(() => import('./views/Stratum'));
@@ -315,6 +316,15 @@ function App() {
                         }
                       />
                     </Route>
+                    {/* Public Kinetic Signal Observatory design preview */}
+                    <Route
+                      path="/studio-preview/kinetic/*"
+                      element={
+                        <Suspense fallback={<LoadingSpinner />}>
+                          <KineticPreviewApp />
+                        </Suspense>
+                      }
+                    />
                     <Route
                       path="/forgot-password"
                       element={
