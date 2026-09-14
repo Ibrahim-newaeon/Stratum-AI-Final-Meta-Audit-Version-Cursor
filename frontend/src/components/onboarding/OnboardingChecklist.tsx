@@ -26,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useActivationStatus } from '@/api/activation';
 
 interface ChecklistItem {
   id: string;
@@ -40,12 +41,32 @@ interface ChecklistItem {
 
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
   {
-    id: 'connect_platform',
-    title: 'Connect an Ad Platform',
-    description: 'Link your Facebook, Instagram, or WhatsApp account',
+    id: 'meta_oauth',
+    title: 'Connect Meta Ads (OAuth)',
+    description: 'Authorize campaign read and insights via Facebook Login',
     icon: Link2,
     actionLabel: 'Connect',
     actionUrl: '/dashboard/campaigns/connect',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'capi_meta',
+    title: 'Set up Conversions API',
+    description: 'Add Pixel ID and CAPI token for server-side events',
+    icon: Zap,
+    actionLabel: 'CAPI Setup',
+    actionUrl: '/dashboard/capi-setup',
+    completed: false,
+    required: true,
+  },
+  {
+    id: 'marketing_api_token',
+    title: 'Add Marketing API token',
+    description: 'System User token for Custom Audiences (not the CAPI token)',
+    icon: Link2,
+    actionLabel: 'Add token',
+    actionUrl: '/dashboard/activation#marketing-token',
     completed: false,
     required: true,
   },
@@ -107,30 +128,49 @@ interface OnboardingChecklistProps {
   onComplete?: () => void;
 }
 
+const ACTIVATION_STEP_IDS = new Set(['meta_oauth', 'capi_meta', 'marketing_api_token']);
+
 export function OnboardingChecklist({
   tenantId: _tenantId,
   variant = 'sidebar',
   onComplete,
 }: OnboardingChecklistProps) {
   const navigate = useNavigate();
+  const { data: activationStatus } = useActivationStatus();
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [isExpanded, setIsExpanded] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
 
-  // Load progress from localStorage
+  // Merge API-driven Meta activation steps with local product-step progress
+  useEffect(() => {
+    if (!activationStatus) return;
+    const activationComplete = Object.fromEntries(
+      activationStatus.steps.map((s) => [s.id, s.complete])
+    );
+    setChecklist((prev) =>
+      prev.map((item) =>
+        ACTIVATION_STEP_IDS.has(item.id)
+          ? { ...item, completed: activationComplete[item.id] ?? false }
+          : item
+      )
+    );
+  }, [activationStatus]);
+
+  // Load product-step progress from localStorage
   useEffect(() => {
     const stored = localStorage.getItem('stratum_onboarding_progress');
     if (stored) {
       try {
         const progress = JSON.parse(stored) as Record<string, boolean>;
         setChecklist((prev) =>
-          prev.map((item) => ({
-            ...item,
-            completed: progress[item.id] || false,
-          }))
+          prev.map((item) =>
+            ACTIVATION_STEP_IDS.has(item.id)
+              ? item
+              : { ...item, completed: progress[item.id] || item.completed }
+          )
         );
-      } catch (e) {
+      } catch {
         // Invalid stored data, use defaults
       }
     }
@@ -171,11 +211,10 @@ export function OnboardingChecklist({
   };
 
   const handleAction = (item: ChecklistItem) => {
-    // Navigate and mark as in-progress
     navigate(item.actionUrl);
-    // Could mark complete after navigation or via callback
-    // For demo, we'll mark it complete on click
-    setTimeout(() => markComplete(item.id), 500);
+    if (!ACTIVATION_STEP_IDS.has(item.id)) {
+      setTimeout(() => markComplete(item.id), 500);
+    }
   };
 
   const dismiss = () => {

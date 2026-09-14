@@ -8,6 +8,7 @@ Main API router that aggregates all endpoint routers.
 from fastapi import APIRouter, Depends
 
 from app.api.v1.endpoints import (
+    activation,
     analytics,
     analytics_ai,
     # New Settings endpoints
@@ -129,6 +130,12 @@ api_router.include_router(
 api_router.include_router(
     onboarding_agent.router,
     tags=["Onboarding Agent"],
+)
+
+# Meta activation hub (integration checklist)
+api_router.include_router(
+    activation.router,
+    tags=["Activation"],
 )
 
 # Main Dashboard (Unified dashboard for frontend)

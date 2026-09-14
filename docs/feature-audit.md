@@ -3,35 +3,23 @@
 Grounded in implementation and `CLAUDE.md`. This file tracks durable product
 priority decisions; it is not a live feature inventory.
 
-## Full frontend redesign (important, not ASAP)
+## Full frontend redesign (in progress)
 
-A **full redesign of the marketing website (landing pages) and the in-app
-dashboard** is an **important** product goal, but it is **explicitly not an
-immediate kickoff**.
+Visual system is **Stratum Studio** from the Pearl & Indigo / Navy & Periwinkle
+concept boards (`docs/design/`). Same layout geometry in both themes; only color
+tokens and artwork change.
 
-| Do now | Do later (after Meta go-live + backend gaps) |
-|--------|-----------------------------------------------|
-| Meta activation smoke — `docs/05-operations/meta-activation-smoke.md` | Rebuild landing + dashboard UX / IA / visual system |
-| Harden LOCAL_ONLY Rules, Autopilot defaults, trust gate | Polish or deep-refactor current Campaigns / Overview / CDP screens |
-| Thin API clients the **new** FE can call | Large dashboard UI features the redesign will replace |
+| Phase | Status |
+|-------|--------|
+| Meta activation hub + required Marketing API token | **Shipped** |
+| Studio design tokens + AppShell (light/dark) | **Shipped** |
+| Workspace overview + Design system content page | **Shipped** |
+| Home, login, signup, marketing PageLayout | **Shipped** (Studio tokens) |
+| Remaining dashboard feature views (Campaigns, CDP, …) | Planned — strangler under StudioAppShell |
 
-**Rule for agents/contributors:** treat redesign as a tracked priority, not the
-next sprint. Prefer durable backend and Meta activation over investing in
-throwaway UI on the present frontend.
-
-### Design system when redesign starts
-
-Use **[Radix Themes](https://www.radix-ui.com/themes)** (`@radix-ui/themes`) as
-the primary component + theme layer for the new marketing site and dashboard —
-not ad-hoc restyling of the current Tailwind / Radix **Primitives** stack.
-
-- Today the SPA already depends on Radix Primitives (unstyled).
-- Themes adds the styled system (`Theme` provider, tokens for accent / gray /
-  radius / scaling, layout primitives like `Flex` / `Box` / `Text`).
-- Keep brand typography and atmosphere constraints from product design rules.
-- Do **not** default to purple-on-white Themes demos.
-- Do **not** install Themes early just to polish screens the redesign will
-  replace.
+**Rule for agents/contributors:** new UI uses Studio CSS variables
+(`--studio-*`) and Inter. Do not reintroduce teal HoloGlass theme objects or
+the NeuralNetworkBg dashboard chrome. Toggle light/dark via ThemeProvider.
 
 ## Rules → Meta policy (decided)
 

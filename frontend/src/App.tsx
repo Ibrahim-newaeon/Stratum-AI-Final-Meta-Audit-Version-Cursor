@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import DashboardLayout from './views/DashboardLayout';
+import DashboardLayout from './components/studio/StudioAppShell';
 import TenantLayout from './views/TenantLayout';
 import { Toaster } from './components/ui/toaster';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -32,13 +32,15 @@ function ConnectPlatformsRedirect() {
 const Landing = lazy(() => import('./views/Landing'));
 const LandingAr = lazy(() => import('./views/LandingAr'));
 const AILanding = lazy(() => import('./views/AILanding'));
-const Login = lazy(() => import('./views/Login'));
-const Signup = lazy(() => import('./views/Signup'));
+const Login = lazy(() => import('./views/auth/LoginPage'));
+const Signup = lazy(() => import('./views/auth/SignupPage'));
 const ForgotPassword = lazy(() => import('./views/ForgotPassword'));
 const ResetPassword = lazy(() => import('./views/ResetPassword'));
 const VerifyEmail = lazy(() => import('./views/VerifyEmail'));
 const Onboarding = lazy(() => import('./views/Onboarding'));
 const UnifiedDashboard = lazy(() => import('./views/dashboard/UnifiedDashboard'));
+const WorkspaceOverview = lazy(() => import('./views/studio/WorkspaceOverview'));
+const DesignSystemPage = lazy(() => import('./views/studio/DesignSystemPage'));
 const CustomDashboard = lazy(() => import('./views/CustomDashboard'));
 const Campaigns = lazy(() => import('./views/Campaigns'));
 const Stratum = lazy(() => import('./views/Stratum'));
@@ -56,6 +58,7 @@ const BillingSuccess = lazy(() => import('./views/billing/BillingSuccess'));
 const Tenants = lazy(() => import('./views/Tenants'));
 const MLTraining = lazy(() => import('./views/MLTraining'));
 const CAPISetup = lazy(() => import('./views/CAPISetup'));
+const Activation = lazy(() => import('./views/Activation'));
 const DataQuality = lazy(() => import('./views/DataQuality'));
 const DataQualityDashboard = lazy(() => import('./views/DataQualityDashboard'));
 const SuperadminDashboard = lazy(() => import('./views/SuperadminDashboard'));
@@ -251,6 +254,26 @@ function App() {
                         </Suspense>
                       }
                     />
+                    {/* Public Studio design preview (no auth) */}
+                    <Route path="/studio-preview" element={<DashboardLayout />}>
+                      <Route index element={<Navigate to="workspace" replace />} />
+                      <Route
+                        path="workspace"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <WorkspaceOverview />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="design-system"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <DesignSystemPage />
+                          </Suspense>
+                        }
+                      />
+                    </Route>
                     <Route
                       path="/forgot-password"
                       element={
@@ -677,6 +700,22 @@ function App() {
                         path="overview"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
+                            <WorkspaceOverview />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="design-system"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <DesignSystemPage />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="performance"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
                             <UnifiedDashboard />
                           </Suspense>
                         }
@@ -807,6 +846,14 @@ function App() {
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <MLTraining />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="activation"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <Activation />
                           </Suspense>
                         }
                       />
