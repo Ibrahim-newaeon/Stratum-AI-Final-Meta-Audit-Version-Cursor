@@ -360,10 +360,10 @@
     "draft": "مسودة",
     "appliesTo": "ينطبق على",
     "cooldown": "فترة التهدئة",
-    "triggered": "تم التشغيل",
+    "triggered": "مرات التشغيل",
     "lastTriggered": "آخر تشغيل",
     "noRules": "لم يتم العثور على قواعد",
-    "createFirst": "إنشاء القاعدة الأولى",
+    "createFirst": "أنشئ قاعدتك الأولى",
     "metrics": {
       "spend": "الإنفاق",
       "revenue": "الإيرادات",
@@ -395,7 +395,11 @@
       "decrease_budget": "تقليل الميزانية",
       "send_email": "إرسال إشعار بريد إلكتروني",
       "send_slack": "إرسال إشعار سلاك"
-    }
+    },
+    "activate": "تفعيل",
+    "pause": "إيقاف",
+    "notConfigured": "غير مُعد",
+    "draftHint": "تُحفظ القواعد كمسودة. اضغط تفعيل لتشغيلها."
   },
   "guide": {
     "welcome": {

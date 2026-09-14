@@ -381,10 +381,18 @@ export function WhatsApp() {
           .catch(() => null),
       ]);
 
-      const contactsList = contactsRes.data?.data?.items || [];
-      const templatesList = templatesRes.data?.data?.items || [];
-      const messagesList = messagesRes.data?.data?.items || [];
-      const conversationWindows = conversationsRes?.data?.data?.items || [];
+      const unwrapItems = (res: { data?: any }) => {
+        const body = res?.data;
+        if (Array.isArray(body)) return body;
+        if (Array.isArray(body?.data?.items)) return body.data.items;
+        if (Array.isArray(body?.items)) return body.items;
+        if (Array.isArray(body?.data)) return body.data;
+        return [];
+      };
+      const contactsList = unwrapItems(contactsRes);
+      const templatesList = unwrapItems(templatesRes);
+      const messagesList = unwrapItems(messagesRes);
+      const conversationWindows = unwrapItems(conversationsRes || {});
       const windowByContact = new Map<number, boolean>();
       for (const w of conversationWindows) {
         if (w?.contact_id != null) {

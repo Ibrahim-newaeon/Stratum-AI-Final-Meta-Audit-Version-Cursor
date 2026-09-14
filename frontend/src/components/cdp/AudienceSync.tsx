@@ -3,7 +3,7 @@
  * Manage audience sync to Meta (Facebook, Instagram & WhatsApp)
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertCircle,
@@ -28,6 +28,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
 import {
   AudienceExportParams,
   CDPSegment,
@@ -185,6 +186,7 @@ function CreateAudienceModal({
   segments,
   connectedPlatforms,
 }: CreateAudienceModalProps) {
+  const { toast } = useToast();
   const [segmentId, setSegmentId] = useState('');
   const [platform, setPlatform] = useState<SyncPlatform | ''>('');
   const [adAccountId, setAdAccountId] = useState('');
@@ -196,12 +198,23 @@ function CreateAudienceModal({
 
   const createMutation = useCreatePlatformAudience();
 
+  // Pre-select Meta when it is the only connected platform
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!platform && connectedPlatforms.length === 1) {
+      setPlatform(connectedPlatforms[0].platform);
+    }
+  }, [isOpen, connectedPlatforms, platform]);
+
   const selectedPlatform = connectedPlatforms.find((p) => p.platform === platform);
   const adAccounts = selectedPlatform?.ad_accounts || [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!segmentId || !platform || !adAccountId || !audienceName) return;
+    if (!segmentId || !platform || !adAccountId || !audienceName) {
+      setFormError('Select a segment, Meta platform, ad account, and audience name.');
+      return;
+    }
 
     setFormError(null);
     try {
@@ -213,6 +226,10 @@ function CreateAudienceModal({
         description: description || undefined,
         auto_sync: autoSync,
         sync_interval_hours: syncInterval,
+      });
+      toast({
+        title: 'Audience created',
+        description: 'Meta Custom Audience sync started (Facebook & Instagram placements).',
       });
       onClose();
       // Reset form
@@ -226,13 +243,17 @@ function CreateAudienceModal({
       setSyncInterval(24);
     } catch (error: unknown) {
       console.error('Failed to create audience:', error);
-      const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-      const detail =
-        err?.response?.data?.detail ||
+      const err = error as { response?: { data?: { detail?: string | { msg?: string }[]; message?: string } }; message?: string };
+      let detail: string =
+        (typeof err?.response?.data?.detail === 'string' && err.response.data.detail) ||
         err?.response?.data?.message ||
         err?.message ||
-        'Could not create audience. Check credentials and segment status.';
-      setFormError(typeof detail === 'string' ? detail : 'Could not create audience.');
+        'Could not create audience. Use a Meta Marketing API token (not CAPI/Pixel), and ensure the ad account matches.';
+      if (Array.isArray(err?.response?.data?.detail)) {
+        detail = err.response.data.detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+      }
+      setFormError(detail);
+      toast({ title: 'Create failed', description: detail, variant: 'destructive' });
     }
   };
 
@@ -266,6 +287,14 @@ function CreateAudienceModal({
                 </option>
               ))}
             </select>
+            {segmentId &&
+              (segments.find((s) => String(s.id) === String(segmentId))?.profile_count ?? 0) ===
+                0 && (
+                <p className="mt-1.5 text-xs text-amber-600">
+                  This segment has 0 profiles. You can still create the Custom Audience shell on Meta;
+                  sync will add members once the segment has people.
+                </p>
+              )}
           </div>
 
           {/* Platform selection */}
@@ -292,9 +321,14 @@ function CreateAudienceModal({
                 </button>
               ))}
             </div>
-            {/* Always allow adding/replacing Meta Marketing tokens */}{(
-              <p className="mt-2 text-sm text-muted-foreground">
-                No platforms connected. Connect platforms in Settings.
+            {connectedPlatforms.length === 0 ? (
+              <p className="mt-2 text-sm text-amber-600">
+                No Meta Marketing credentials yet. Save a System User token below first.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Meta Custom Audiences power both Facebook and Instagram placements from one ad-account
+                list. Use a Marketing API token — not a CAPI / Pixel token.
               </p>
             )}
           </div>
@@ -1009,7 +1043,7 @@ export function AudienceSync() {
           <input
             type="password"
             required
-            placeholder="Access token"
+            placeholder="Marketing API System User token (not CAPI/Pixel)"
             value={credForm.access_token}
             onChange={(e) => setCredForm((f) => ({ ...f, access_token: e.target.value }))}
             className="w-full px-3 py-2 rounded-lg border bg-background"
@@ -1044,12 +1078,8 @@ export function AudienceSync() {
           onChange={(e) => setPlatformFilter(e.target.value as SyncPlatform | '')}
           className="px-3 py-2 rounded-lg border bg-background focus:ring-2 focus:ring-primary/20"
         >
-          <option value="">All Platforms</option>
-          {Object.entries(PLATFORM_CONFIG).map(([key, config]) => (
-            <option key={key} value={key}>
-              {config.name}
-            </option>
-          ))}
+          <option value="">All</option>
+          <option value="meta">Meta (Facebook & Instagram)</option>
         </select>
       </div>
 

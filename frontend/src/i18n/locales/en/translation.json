@@ -342,7 +342,7 @@
     "status": "Status",
     "enabled": "Enabled",
     "disabled": "Disabled",
-    "lastTriggered": "Last Triggered",
+    "lastTriggered": "Last triggered",
     "timesTriggered": "Times Triggered",
     "createRule": "Create Rule",
     "saveRule": "Save Rule",
@@ -382,7 +382,24 @@
       "decrease_budget": "Decrease Budget",
       "send_email": "Send Email Notification",
       "send_slack": "Send Slack Notification"
-    }
+    },
+    "appliesTo": "Applies to",
+    "cooldown": "Cooldown",
+    "triggered": "Triggered",
+    "activate": "Activate",
+    "pause": "Pause",
+    "notConfigured": "Not configured",
+    "draftHint": "Rules start as Draft. Click Activate (play) to turn them on.",
+    "totalRules": "Total Rules",
+    "triggersToday": "Triggers Today",
+    "actionsExecuted": "Actions Executed",
+    "searchPlaceholder": "Search rules...",
+    "allStatuses": "All statuses",
+    "active": "Active",
+    "paused": "Paused",
+    "draft": "Draft",
+    "createFirst": "Create your first rule",
+    "description": "Description"
   },
   "guide": {
     "welcome": {
