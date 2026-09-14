@@ -18,6 +18,7 @@ import {
   Phone,
   Plus,
   Radio,
+  RefreshCw,
   Search,
   Send,
   Smile,
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/api/client';
+import { useToast } from '@/components/ui/use-toast';
 
 // Country codes with dial codes
 const COUNTRY_CODES = [
@@ -291,6 +293,7 @@ interface Conversation {
 }
 
 export function WhatsApp() {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('contacts');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -369,15 +372,33 @@ export function WhatsApp() {
     setIsLoading(true);
     setError(null);
     try {
-      const [contactsRes, templatesRes, messagesRes] = await Promise.all([
+      const [contactsRes, templatesRes, messagesRes, conversationsRes] = await Promise.all([
         apiClient.get('/whatsapp/contacts'),
         apiClient.get('/whatsapp/templates'),
         apiClient.get('/whatsapp/messages'),
+        apiClient
+          .get('/whatsapp/conversations', { params: { active_only: false, page_size: 100 } })
+          .catch(() => null),
       ]);
 
-      const contactsList = contactsRes.data?.data?.items || [];
-      const templatesList = templatesRes.data?.data?.items || [];
-      const messagesList = messagesRes.data?.data?.items || [];
+      const unwrapItems = (res: { data?: any }) => {
+        const body = res?.data;
+        if (Array.isArray(body)) return body;
+        if (Array.isArray(body?.data?.items)) return body.data.items;
+        if (Array.isArray(body?.items)) return body.items;
+        if (Array.isArray(body?.data)) return body.data;
+        return [];
+      };
+      const contactsList = unwrapItems(contactsRes);
+      const templatesList = unwrapItems(templatesRes);
+      const messagesList = unwrapItems(messagesRes);
+      const conversationWindows = unwrapItems(conversationsRes || {});
+      const windowByContact = new Map<number, boolean>();
+      for (const w of conversationWindows) {
+        if (w?.contact_id != null) {
+          windowByContact.set(Number(w.contact_id), Boolean(w.is_active));
+        }
+      }
 
       setContacts(contactsList);
       setTemplates(templatesList);
@@ -385,7 +406,7 @@ export function WhatsApp() {
 
       // Build conversations from contacts and messages
       const convos: Conversation[] = contactsList
-        .filter((c: WhatsAppContact) => c.message_count > 0)
+        .filter((c: WhatsAppContact) => c.message_count > 0 || windowByContact.has(c.id))
         .map((contact: WhatsAppContact) => {
           const contactMessages = messagesList.filter(
             (m: WhatsAppMessage) => m.contact_id === contact.id
@@ -401,15 +422,19 @@ export function WhatsApp() {
             (m: WhatsAppMessage) => m.direction === 'inbound' && m.status !== 'read'
           ).length;
 
+          const fallbackActive = contact.last_message_at
+            ? new Date().getTime() - new Date(contact.last_message_at).getTime() <
+              24 * 60 * 60 * 1000
+            : false;
+
           return {
             id: contact.id,
             contact,
             lastMessage,
             unreadCount,
-            isActive: contact.last_message_at
-              ? new Date().getTime() - new Date(contact.last_message_at).getTime() <
-                24 * 60 * 60 * 1000
-              : false,
+            isActive: windowByContact.has(contact.id)
+              ? Boolean(windowByContact.get(contact.id))
+              : fallbackActive,
           };
         });
 
@@ -1014,6 +1039,35 @@ export function WhatsApp() {
           >
             <FileText className="w-4 h-4" />
             <span>Create Template</span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await apiClient.post('/whatsapp/templates/sync');
+                toast({
+                  title: 'Templates synced',
+                  description: 'Pulled the latest approval status from Meta.',
+                });
+                await fetchData();
+              } catch (err: unknown) {
+                const detail =
+                  (err as { response?: { data?: { detail?: string } }; message?: string })?.response
+                    ?.data?.detail ||
+                  (err as { message?: string })?.message ||
+                  'Could not sync templates from Meta.';
+                toast({
+                  title: 'Sync failed',
+                  description: typeof detail === 'string' ? detail : 'Could not sync templates.',
+                  variant: 'destructive',
+                });
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border hover:bg-muted transition-colors"
+            title="Import templates and approval status from Meta"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Sync from Meta</span>
           </button>
         </div>
       </div>

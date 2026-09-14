@@ -52,6 +52,10 @@ export default defineConfig({
         target: process.env.DOCKER_ENV === 'true' ? 'http://api:8000' : 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/uploads': {
+        target: process.env.DOCKER_ENV === 'true' ? 'http://api:8000' : 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
   build: {

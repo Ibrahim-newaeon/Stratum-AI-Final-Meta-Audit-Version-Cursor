@@ -62,55 +62,56 @@ function ConditionRow({
   isLast: boolean;
 }) {
   const fieldOptions = [
-    { value: 'lifecycle_stage', label: 'Lifecycle Stage' },
-    { value: 'total_events', label: 'Total Events' },
-    { value: 'total_revenue', label: 'Total Revenue' },
-    { value: 'total_purchases', label: 'Total Purchases' },
-    { value: 'first_seen_at', label: 'First Seen' },
-    { value: 'last_seen_at', label: 'Last Seen' },
-    { value: 'has_email', label: 'Has Email' },
-    { value: 'has_phone', label: 'Has Phone' },
+    { value: 'profile.lifecycle_stage', label: 'Lifecycle Stage' },
+    { value: 'profile.total_events', label: 'Total Events' },
+    { value: 'profile.total_revenue', label: 'Total Revenue' },
+    { value: 'profile.total_purchases', label: 'Total Purchases' },
+    { value: 'profile.first_seen_at', label: 'First Seen' },
+    { value: 'profile.last_seen_at', label: 'Last Seen' },
+    { value: 'identifier.email', label: 'Has Email' },
+    { value: 'identifier.phone', label: 'Has Phone' },
   ];
 
   const operatorOptions: Record<string, Array<{ value: string; label: string }>> = {
-    lifecycle_stage: [
-      { value: 'eq', label: 'equals' },
-      { value: 'neq', label: 'not equals' },
+    'profile.lifecycle_stage': [
+      { value: 'equals', label: 'equals' },
+      { value: 'not_equals', label: 'not equals' },
       { value: 'in', label: 'is one of' },
     ],
-    total_events: [
-      { value: 'gt', label: 'greater than' },
-      { value: 'gte', label: 'greater or equal' },
-      { value: 'lt', label: 'less than' },
-      { value: 'lte', label: 'less or equal' },
-      { value: 'eq', label: 'equals' },
+    'profile.total_events': [
+      { value: 'greater_than', label: 'greater than' },
+      { value: 'greater_or_equal', label: 'greater or equal' },
+      { value: 'less_than', label: 'less than' },
+      { value: 'less_or_equal', label: 'less or equal' },
+      { value: 'equals', label: 'equals' },
     ],
-    total_revenue: [
-      { value: 'gt', label: 'greater than' },
-      { value: 'gte', label: 'greater or equal' },
-      { value: 'lt', label: 'less than' },
-      { value: 'lte', label: 'less or equal' },
+    'profile.total_revenue': [
+      { value: 'greater_than', label: 'greater than' },
+      { value: 'greater_or_equal', label: 'greater or equal' },
+      { value: 'less_than', label: 'less than' },
+      { value: 'less_or_equal', label: 'less or equal' },
     ],
-    total_purchases: [
-      { value: 'gt', label: 'greater than' },
-      { value: 'gte', label: 'greater or equal' },
-      { value: 'eq', label: 'equals' },
+    'profile.total_purchases': [
+      { value: 'greater_than', label: 'greater than' },
+      { value: 'greater_or_equal', label: 'greater or equal' },
+      { value: 'equals', label: 'equals' },
     ],
-    first_seen_at: [
+    'profile.first_seen_at': [
       { value: 'after', label: 'after' },
       { value: 'before', label: 'before' },
-      { value: 'within_days', label: 'within last N days' },
+      { value: 'within_last', label: 'within last N days' },
     ],
-    last_seen_at: [
+    'profile.last_seen_at': [
       { value: 'after', label: 'after' },
       { value: 'before', label: 'before' },
-      { value: 'within_days', label: 'within last N days' },
+      { value: 'within_last', label: 'within last N days' },
     ],
-    has_email: [{ value: 'eq', label: 'is' }],
-    has_phone: [{ value: 'eq', label: 'is' }],
+    'identifier.email': [{ value: 'equals', label: 'is present' }],
+    'identifier.phone': [{ value: 'equals', label: 'is present' }],
   };
 
-  const operators = operatorOptions[condition.field] || operatorOptions.total_events;
+  const operators =
+    operatorOptions[condition.field] || operatorOptions['profile.total_events'];
 
   return (
     <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -138,7 +139,7 @@ function ConditionRow({
         ))}
       </select>
 
-      {condition.field === 'lifecycle_stage' ? (
+      {condition.field === 'profile.lifecycle_stage' ? (
         <select
           value={String(condition.value)}
           onChange={(e) => onChange({ ...condition, value: e.target.value })}
@@ -150,7 +151,7 @@ function ConditionRow({
           <option value="customer">Customer</option>
           <option value="churned">Churned</option>
         </select>
-      ) : condition.field === 'has_email' || condition.field === 'has_phone' ? (
+      ) : condition.field === 'identifier.email' || condition.field === 'identifier.phone' ? (
         <select
           value={String(condition.value)}
           onChange={(e) => onChange({ ...condition, value: e.target.value === 'true' })}
@@ -162,7 +163,7 @@ function ConditionRow({
       ) : (
         <input
           type={
-            condition.field.includes('_at') && !condition.operator.includes('days')
+            condition.field.includes('_at') && !condition.operator.includes('within')
               ? 'date'
               : 'number'
           }
@@ -199,7 +200,7 @@ function SegmentBuilderModal({
   const [logic, setLogic] = useState<'and' | 'or'>('and');
   const [conditions, setConditions] = useState<SegmentCondition[]>(
     (segment?.rules as unknown as SegmentRules)?.conditions || [
-      { field: 'lifecycle_stage', operator: 'eq', value: '' },
+      { field: 'profile.lifecycle_stage', operator: 'equals', value: '' },
     ]
   );
   const [autoRefresh, setAutoRefresh] = useState(segment?.auto_refresh ?? true);
@@ -230,7 +231,10 @@ function SegmentBuilderModal({
   };
 
   const addCondition = () => {
-    setConditions([...conditions, { field: 'total_events', operator: 'gt', value: 0 }]);
+    setConditions([
+      ...conditions,
+      { field: 'profile.total_events', operator: 'greater_than', value: 0 },
+    ]);
   };
 
   const updateCondition = (index: number, condition: SegmentCondition) => {
@@ -276,6 +280,10 @@ function SegmentBuilderModal({
 
         {/* Content */}
         <div className="p-4 overflow-y-auto max-h-[calc(90vh-150px)] space-y-6">
+          <p className="text-sm text-muted-foreground rounded-lg border bg-muted/40 p-3">
+            Segments define who is in the audience. They are not tied to a Meta page or ad account
+            here — pick the destination ad account when you create an Audience Sync.
+          </p>
           {/* Name & Description */}
           <div className="space-y-4">
             <div>
@@ -607,7 +615,10 @@ export default function CDPSegments() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Segments</h1>
-          <p className="text-muted-foreground mt-1">{data?.total || 0} segments</p>
+          <p className="text-muted-foreground mt-1">
+            {data?.total || 0} segments · Tenant-wide rules. Choose the Meta ad account when you
+            sync under Audience Sync (Facebook & Instagram placements share one Custom Audience).
+          </p>
         </div>
         <button
           type="button"

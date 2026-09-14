@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -9,23 +9,29 @@ import {
   Download,
   Eye,
   FileText,
-  Grid,
+  Grid3X3,
   Image as ImageIcon,
   List,
   Loader2,
-  MoreHorizontal,
+  Pencil,
   Search,
-  Tag,
   Trash2,
   Upload,
   Video,
+  X,
 } from 'lucide-react';
 import { cn, formatCompactNumber, formatPercent } from '@/lib/utils';
-import { useAssets, useBulkArchiveAssets, useDeleteAsset, useUploadAsset } from '@/api/hooks';
+import {
+  useAssets,
+  useBulkArchiveAssets,
+  useDeleteAsset,
+  useUpdateAsset,
+  useUploadAsset,
+} from '@/api/hooks';
 import { useTenantStore } from '@/stores/tenantStore';
 
-type AssetType = 'image' | 'video' | 'copy';
-type AssetStatus = 'active' | 'paused' | 'fatigued' | 'draft';
+type AssetType = 'image' | 'video' | 'copy' | 'carousel' | 'text' | 'html5';
+type AssetStatus = 'active' | 'paused' | 'fatigued' | 'draft' | 'archived';
 
 interface Asset {
   id: number;
@@ -33,6 +39,7 @@ interface Asset {
   type: AssetType;
   status: AssetStatus;
   thumbnail: string;
+  url: string;
   impressions: number;
   ctr: number;
   fatigueScore: number;
@@ -44,6 +51,24 @@ interface Asset {
 
 type ViewMode = 'grid' | 'list';
 
+function normalizeType(raw: unknown): AssetType {
+  const value = String(raw || 'image').toLowerCase();
+  if (value === 'video') return 'video';
+  if (value === 'copy' || value === 'text') return 'copy';
+  if (value === 'carousel') return 'carousel';
+  if (value === 'html5') return 'html5';
+  return 'image';
+}
+
+function normalizeStatus(raw: unknown, fatigueScore = 0): AssetStatus {
+  const value = String(raw || '').toLowerCase();
+  if (['active', 'paused', 'fatigued', 'draft', 'archived'].includes(value)) {
+    return value as AssetStatus;
+  }
+  if (fatigueScore >= 70) return 'fatigued';
+  return 'active';
+}
+
 export function Assets() {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -53,46 +78,41 @@ export function Assets() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedAssets, setSelectedAssets] = useState<number[]>([]);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
-
-  // Use tenant store for context (reserved for API calls)
-  useTenantStore((state) => state.tenantId);
-
-  // Fetch assets from API
-  const { data: assetsData, refetch } = useAssets();
-  useDeleteAsset(); // Prefetch delete mutation
-  const bulkArchive = useBulkArchiveAssets();
-  const uploadAsset = useUploadAsset();
+  const [editingName, setEditingName] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Transform API data; empty list when library has no assets yet
-  const assets = useMemo((): Asset[] => {
-    if (assetsData?.items && assetsData.items.length > 0) {
-      return assetsData.items.map((a: any) => ({
-        id: Number(a.id) || 0,
-        name: a.name || a.filename || '',
-        type: a.type || a.asset_type || 'image',
-        status: a.status || 'active',
-        thumbnail:
-          a.thumbnail_url ||
-          a.url ||
-          `https://placehold.co/300x250/0ea5e9/white?text=${encodeURIComponent(a.name || 'Asset')}`,
-        impressions: a.impressions || 0,
-        ctr: a.ctr || 0,
-        fatigueScore: a.fatigue_score || a.fatigueScore || 0,
-        campaigns: a.campaigns || [],
-        createdAt: a.created_at || a.createdAt || new Date().toISOString(),
-        dimensions: a.dimensions || (a.width && a.height) ? `${a.width}x${a.height}` : undefined,
-        duration: a.duration,
-      }));
-    }
-    return [];
-  }, [assetsData]);
+  useTenantStore((state) => state.tenantId);
 
-  // Handle bulk delete
-  const handleBulkDelete = async () => {
-    await bulkArchive.mutateAsync(selectedAssets.map((id) => id.toString()));
-    setSelectedAssets([]);
-  };
+  const { data: assetsData, isLoading, isError, refetch } = useAssets();
+  const deleteAsset = useDeleteAsset();
+  const bulkArchive = useBulkArchiveAssets();
+  const uploadAsset = useUploadAsset();
+  const updateAsset = useUpdateAsset();
+
+  const assets = useMemo((): Asset[] => {
+    const items = assetsData?.items ?? [];
+    return items.map((a: any) => {
+      const url = a.file_url || a.url || a.thumbnail_url || '';
+      return {
+        id: Number(a.id) || 0,
+        name: a.name || a.filename || 'Untitled asset',
+        type: normalizeType(a.asset_type || a.type),
+        status: normalizeStatus(a.status, Number(a.fatigue_score ?? a.fatigueScore ?? 0)),
+        thumbnail: a.thumbnail_url || url || '',
+        url,
+        impressions: Number(a.impressions || 0),
+        ctr: Number(a.ctr || 0),
+        fatigueScore: Number(a.fatigue_score ?? a.fatigueScore ?? 0),
+        campaigns: Array.isArray(a.campaigns) ? a.campaigns : [],
+        createdAt: a.created_at || a.createdAt || new Date().toISOString(),
+        dimensions:
+          a.dimensions ||
+          (a.width && a.height ? `${a.width}x${a.height}` : undefined),
+        duration: a.duration ? String(a.duration) : undefined,
+      };
+    });
+  }, [assetsData]);
 
   const filteredAssets = assets.filter((asset) => {
     if (searchQuery && !asset.name.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -108,38 +128,105 @@ export function Assets() {
   });
 
   const toggleSelectAsset = (id: number) => {
-    setSelectedAssets((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+    setSelectedAssets((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const openPreview = (asset: Asset) => {
+    setPreviewAsset(asset);
+    setEditingName(asset.name);
+    setIsEditing(false);
+  };
+
+  const handleUpload = async (file: File) => {
+    try {
+      await uploadAsset.mutateAsync({ file });
+      toast({
+        title: 'Asset uploaded',
+        description: `"${file.name}" is now in your library.`,
+      });
+      await refetch();
+    } catch (err) {
+      toast({
+        title: 'Upload failed',
+        description: err instanceof Error ? err.message : 'Could not upload asset',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleSaveName = async () => {
+    if (!previewAsset || !editingName.trim()) return;
+    try {
+      await updateAsset.mutateAsync({
+        id: String(previewAsset.id),
+        data: { name: editingName.trim() },
+      });
+      toast({ title: 'Asset updated', description: 'Name saved successfully.' });
+      setIsEditing(false);
+      setPreviewAsset((prev) => (prev ? { ...prev, name: editingName.trim() } : prev));
+      await refetch();
+    } catch (err) {
+      toast({
+        title: 'Update failed',
+        description: err instanceof Error ? err.message : 'Could not update asset',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteAsset.mutateAsync(String(id));
+      toast({ title: 'Asset deleted' });
+      if (previewAsset?.id === id) setPreviewAsset(null);
+      setSelectedAssets((prev) => prev.filter((item) => item !== id));
+      await refetch();
+    } catch (err) {
+      toast({
+        title: 'Delete failed',
+        description: err instanceof Error ? err.message : 'Could not delete asset',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      await bulkArchive.mutateAsync(selectedAssets.map(String));
+      toast({ title: 'Assets archived', description: `${selectedAssets.length} item(s) archived.` });
+      setSelectedAssets([]);
+      await refetch();
+    } catch (err) {
+      toast({
+        title: 'Archive failed',
+        description: err instanceof Error ? err.message : 'Could not archive assets',
+        variant: 'destructive',
+      });
+    }
   };
 
   const getTypeIcon = (type: AssetType) => {
-    switch (type) {
-      case 'image':
-        return <ImageIcon className="w-4 h-4" />;
-      case 'video':
-        return <Video className="w-4 h-4" />;
-      case 'copy':
-        return <FileText className="w-4 h-4" />;
-    }
+    if (type === 'video') return <Video className="w-4 h-4" />;
+    if (type === 'copy' || type === 'text') return <FileText className="w-4 h-4" />;
+    return <ImageIcon className="w-4 h-4" />;
   };
 
   const getStatusBadge = (status: AssetStatus) => {
     const config: Record<
       AssetStatus,
-      { color: string; icon: React.ComponentType<{ className?: string }>; label: string }
+      { color: string; icon: typeof CheckCircle2; label: string }
     > = {
       active: { color: 'bg-green-500/10 text-green-500', icon: CheckCircle2, label: 'Active' },
       paused: { color: 'bg-amber-500/10 text-amber-500', icon: Clock, label: 'Paused' },
       fatigued: { color: 'bg-red-500/10 text-red-500', icon: AlertTriangle, label: 'Fatigued' },
       draft: { color: 'bg-gray-500/10 text-gray-500', icon: FileText, label: 'Draft' },
+      archived: { color: 'bg-gray-500/10 text-gray-500', icon: FileText, label: 'Archived' },
     };
     const { color, icon: Icon, label } = config[status];
     return (
-      <span
-        className={cn(
-          'px-2 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1',
-          color
-        )}
-      >
+      <span className={cn('px-2 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1', color)}>
         <Icon className="w-3 h-3" />
         {label}
       </span>
@@ -154,45 +241,32 @@ export function Assets() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{t('assets.title')}</h1>
           <p className="text-muted-foreground">{t('assets.subtitle')}</p>
         </div>
 
-        <>
+        <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*,video/*,.txt,.csv,.json"
             className="hidden"
+            data-testid="assets-file-input"
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
-              try {
-                await uploadAsset.mutateAsync({ file });
-                toast({
-                  title: 'Asset uploaded',
-                  description: `"${file.name}" is now in your library.`,
-                });
-                void refetch();
-              } catch (err) {
-                toast({
-                  title: 'Upload failed',
-                  description: err instanceof Error ? err.message : 'Could not upload asset',
-                  variant: 'destructive',
-                });
-              } finally {
-                e.target.value = '';
-              }
+              await handleUpload(file);
+              e.target.value = '';
             }}
           />
           <button
             type="button"
+            data-testid="assets-upload-button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadAsset.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="relative z-10 flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {uploadAsset.isPending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -201,10 +275,9 @@ export function Assets() {
             )}
             <span>{t('assets.upload')}</span>
           </button>
-        </>
+        </div>
       </div>
 
-      {/* Filters & Controls */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -243,15 +316,17 @@ export function Assets() {
 
           <div className="flex rounded-lg border overflow-hidden">
             <button
+              type="button"
               onClick={() => setViewMode('grid')}
               className={cn(
                 'p-2 transition-colors',
                 viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
               )}
             >
-              <Grid className="w-4 h-4" />
+              <Grid3X3 className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={() => setViewMode('list')}
               className={cn(
                 'p-2 transition-colors',
@@ -264,39 +339,44 @@ export function Assets() {
         </div>
       </div>
 
-      {/* Bulk Actions */}
       {selectedAssets.length > 0 && (
         <div className="flex items-center gap-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
           <span className="text-sm font-medium">
             {selectedAssets.length} {t('assets.selected')}
           </span>
-          <div className="flex gap-2">
-            <button className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-background border hover:bg-muted transition-colors text-sm">
-              <Tag className="w-4 h-4" />
-              {t('assets.addTags')}
-            </button>
-            <button className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-background border hover:bg-muted transition-colors text-sm">
-              <Download className="w-4 h-4" />
-              {t('assets.download')}
-            </button>
-            <button
-              onClick={handleBulkDelete}
-              disabled={bulkArchive.isPending}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-sm disabled:opacity-50"
-            >
-              {bulkArchive.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Trash2 className="w-4 h-4" />
-              )}
-              {t('assets.delete')}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleBulkDelete}
+            disabled={bulkArchive.isPending}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-sm disabled:opacity-50"
+          >
+            {bulkArchive.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+            {t('assets.delete')}
+          </button>
         </div>
       )}
 
-      {/* Asset Grid */}
-      {viewMode === 'grid' ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          Loading assets...
+        </div>
+      ) : isError ? (
+        <div className="text-center py-12 space-y-3">
+          <p className="text-muted-foreground">Could not load assets from the API.</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="px-4 py-2 rounded-lg border hover:bg-muted text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredAssets.map((asset) => (
             <div
@@ -306,22 +386,27 @@ export function Assets() {
                 selectedAssets.includes(asset.id) && 'ring-2 ring-primary'
               )}
             >
-              {/* Thumbnail */}
               <div
                 className="relative aspect-video bg-muted cursor-pointer"
-                onClick={() => setPreviewAsset(asset)}
+                onClick={() => openPreview(asset)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') setPreviewAsset(asset);
+                  if (e.key === 'Enter' || e.key === ' ') openPreview(asset);
                 }}
                 role="button"
                 tabIndex={0}
               >
-                <img
-                  src={asset.thumbnail}
-                  alt={asset.name}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute top-2 left-2">
+                {asset.thumbnail ? (
+                  <img
+                    src={asset.thumbnail}
+                    alt={asset.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                    {getTypeIcon(asset.type)}
+                  </div>
+                )}
+                <div className="absolute top-2 left-2" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={selectedAssets.includes(asset.id)}
@@ -330,16 +415,10 @@ export function Assets() {
                   />
                 </div>
                 <div className="absolute top-2 right-2">{getStatusBadge(asset.status)}</div>
-                <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded bg-black/50 text-white text-xs">
-                  {getTypeIcon(asset.type)}
-                  <span>{asset.dimensions || asset.duration || 'Copy'}</span>
-                </div>
               </div>
 
-              {/* Details */}
               <div className="p-4">
                 <h4 className="font-medium text-sm truncate mb-2">{asset.name}</h4>
-
                 <div className="flex items-center justify-between text-sm mb-3">
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <Eye className="w-3 h-3" />
@@ -350,40 +429,30 @@ export function Assets() {
                   </div>
                 </div>
 
-                {/* Fatigue Score */}
                 {asset.status !== 'draft' && (
-                  <div className="space-y-1">
+                  <div className="space-y-1 mb-3">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{t('assets.fatigueScore')}</span>
-                      <span
-                        className={cn(
-                          'font-medium',
-                          getFatigueColor(asset.fatigueScore).split(' ')[0]
-                        )}
-                      >
+                      <span className={cn('font-medium', getFatigueColor(asset.fatigueScore).split(' ')[0])}>
                         {asset.fatigueScore}%
                       </span>
                     </div>
                     <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                       <div
-                        className={cn(
-                          'h-full rounded-full',
-                          getFatigueColor(asset.fatigueScore).split(' ')[1]
-                        )}
-                        style={{ width: `${asset.fatigueScore}%` }}
+                        className={cn('h-full rounded-full', getFatigueColor(asset.fatigueScore).split(' ')[1])}
+                        style={{ width: `${Math.min(100, asset.fatigueScore)}%` }}
                       />
                     </div>
                   </div>
                 )}
 
-                {/* Actions */}
-                <div className="flex items-center justify-between mt-4 pt-3 border-t">
+                <div className="flex items-center justify-between pt-3 border-t">
                   <div className="flex gap-1">
                     <button
                       type="button"
-                      onClick={() => setPreviewAsset(asset)}
+                      onClick={() => openPreview(asset)}
                       className="p-1.5 rounded hover:bg-muted transition-colors"
-                      title="View asset"
+                      title="View"
                     >
                       <Eye className="w-4 h-4" />
                     </button>
@@ -391,12 +460,12 @@ export function Assets() {
                       type="button"
                       onClick={async () => {
                         try {
-                          await navigator.clipboard.writeText(asset.thumbnail);
-                          toast({ title: 'Copied', description: 'Asset URL copied to clipboard.' });
+                          await navigator.clipboard.writeText(asset.url || asset.thumbnail);
+                          toast({ title: 'Copied', description: 'Asset URL copied.' });
                         } catch {
                           toast({
                             title: 'Copy failed',
-                            description: 'Could not copy asset URL.',
+                            description: 'Could not copy URL.',
                             variant: 'destructive',
                           });
                         }
@@ -406,19 +475,26 @@ export function Assets() {
                     >
                       <Copy className="w-4 h-4" />
                     </button>
-                    <a
-                      href={asset.thumbnail}
-                      download={asset.name}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-1.5 rounded hover:bg-muted transition-colors"
-                      title="Download / open"
-                    >
-                      <Download className="w-4 h-4" />
-                    </a>
+                    {(asset.url || asset.thumbnail) && (
+                      <a
+                        href={asset.url || asset.thumbnail}
+                        download={asset.name}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded hover:bg-muted transition-colors"
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                    )}
                   </div>
-                  <button className="p-1.5 rounded hover:bg-muted transition-colors">
-                    <MoreHorizontal className="w-4 h-4" />
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(asset.id)}
+                    className="p-1.5 rounded hover:bg-muted text-red-500 transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -426,7 +502,6 @@ export function Assets() {
           ))}
         </div>
       ) : (
-        /* List View */
         <div className="rounded-xl border bg-card overflow-hidden">
           <table className="w-full">
             <thead className="bg-muted/50 border-b">
@@ -449,11 +524,10 @@ export function Assets() {
                 </th>
                 <th className="p-4 text-left text-sm font-medium">{t('assets.name')}</th>
                 <th className="p-4 text-left text-sm font-medium">{t('assets.type')}</th>
-                <th className="p-4 text-left text-sm font-medium">{t('assets.status')}</th>
+                <th className="p-4 text-left text-sm font-medium">{t('assets.statusLabel')}</th>
                 <th className="p-4 text-right text-sm font-medium">{t('assets.impressions')}</th>
                 <th className="p-4 text-right text-sm font-medium">CTR</th>
-                <th className="p-4 text-center text-sm font-medium">{t('assets.fatigue')}</th>
-                <th className="p-4 text-right text-sm font-medium">{t('assets.actions')}</th>
+                <th className="p-4 text-right text-sm font-medium">{t('assets.actionsLabel')}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -468,12 +542,22 @@ export function Assets() {
                     />
                   </td>
                   <td className="p-4">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={asset.thumbnail}
-                        alt={asset.name}
-                        className="w-12 h-12 rounded object-cover"
-                      />
+                    <button
+                      type="button"
+                      onClick={() => openPreview(asset)}
+                      className="flex items-center gap-3 text-left hover:opacity-90"
+                    >
+                      {asset.thumbnail ? (
+                        <img
+                          src={asset.thumbnail}
+                          alt={asset.name}
+                          className="w-12 h-12 rounded object-cover"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
+                          {getTypeIcon(asset.type)}
+                        </div>
+                      )}
                       <div>
                         <p className="font-medium text-sm">{asset.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -482,12 +566,12 @@ export function Assets() {
                             : 'Not assigned'}
                         </p>
                       </div>
-                    </div>
+                    </button>
                   </td>
                   <td className="p-4">
-                    <div className="flex items-center gap-2 text-sm">
+                    <div className="flex items-center gap-2 text-sm capitalize">
                       {getTypeIcon(asset.type)}
-                      <span className="capitalize">{asset.type}</span>
+                      <span>{asset.type}</span>
                     </div>
                   </td>
                   <td className="p-4">{getStatusBadge(asset.status)}</td>
@@ -495,31 +579,23 @@ export function Assets() {
                     {formatCompactNumber(asset.impressions)}
                   </td>
                   <td className="p-4 text-right font-medium">{formatPercent(asset.ctr)}</td>
-                  <td className="p-4">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            getFatigueColor(asset.fatigueScore).split(' ')[1]
-                          )}
-                          style={{ width: `${asset.fatigueScore}%` }}
-                        />
-                      </div>
-                      <span
-                        className={cn(
-                          'text-sm font-medium',
-                          getFatigueColor(asset.fatigueScore).split(' ')[0]
-                        )}
-                      >
-                        {asset.fatigueScore}%
-                      </span>
-                    </div>
-                  </td>
                   <td className="p-4 text-right">
-                    <button className="p-2 rounded hover:bg-muted transition-colors">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openPreview(asset)}
+                        className="p-2 rounded hover:bg-muted transition-colors"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(asset.id)}
+                        className="p-2 rounded hover:bg-muted text-red-500 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -528,49 +604,137 @@ export function Assets() {
         </div>
       )}
 
-      {filteredAssets.length === 0 && (
-        <div className="text-center py-12">
-          <ImageIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">{t('assets.noResults')}</p>
+      {!isLoading && !isError && filteredAssets.length === 0 && (
+        <div className="text-center py-12 space-y-3">
+          <ImageIcon className="w-12 h-12 mx-auto text-muted-foreground" />
+          <p className="text-muted-foreground">
+            {assets.length === 0
+              ? 'No assets yet. Upload your first creative to get started.'
+              : t('assets.noResults')}
+          </p>
+          {assets.length === 0 && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <Upload className="w-4 h-4" />
+              Upload asset
+            </button>
+          )}
         </div>
       )}
+
       {previewAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setPreviewAsset(null)}
-          />
-          <div className="relative z-10 w-full max-w-3xl mx-4 rounded-2xl border bg-card shadow-xl overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b">
-              <div>
-                <h2 className="font-semibold">{previewAsset.name}</h2>
-                <p className="text-xs text-muted-foreground capitalize">
-                  {previewAsset.type} · {previewAsset.status}
-                </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setPreviewAsset(null)} />
+          <div className="relative z-10 w-full max-w-3xl rounded-2xl border bg-card shadow-xl overflow-hidden">
+            <div className="flex items-start justify-between gap-4 p-4 border-b">
+              <div className="min-w-0 flex-1">
+                {isEditing ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-lg border bg-background"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveName()}
+                      disabled={updateAsset.isPending}
+                      className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditing(false);
+                        setEditingName(previewAsset.name);
+                      }}
+                      className="px-3 py-1.5 rounded-lg border text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-semibold truncate">{previewAsset.name}</h2>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(true)}
+                        className="p-1 rounded hover:bg-muted"
+                        title="Edit name"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {previewAsset.type} · {previewAsset.status}
+                    </p>
+                  </>
+                )}
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewAsset(null)}
-                className="px-3 py-1.5 rounded-lg border hover:bg-muted text-sm"
+                className="p-2 rounded-lg border hover:bg-muted"
+                aria-label="Close"
               >
-                Close
+                <X className="w-4 h-4" />
               </button>
             </div>
+
             <div className="bg-muted flex items-center justify-center min-h-[280px]">
               {previewAsset.type === 'video' ? (
-                <video src={previewAsset.thumbnail} controls className="max-h-[70vh] w-full" />
-              ) : (
+                <video
+                  src={previewAsset.url || previewAsset.thumbnail}
+                  controls
+                  className="max-h-[70vh] w-full"
+                />
+              ) : previewAsset.thumbnail || previewAsset.url ? (
                 <img
-                  src={previewAsset.thumbnail}
+                  src={previewAsset.thumbnail || previewAsset.url}
                   alt={previewAsset.name}
                   className="max-h-[70vh] w-full object-contain"
                 />
+              ) : (
+                <div className="text-muted-foreground py-16">No preview available</div>
               )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-4 border-t">
+              <div className="text-sm text-muted-foreground">
+                Impressions {formatCompactNumber(previewAsset.impressions)} · CTR{' '}
+                {formatPercent(previewAsset.ctr)}
+              </div>
+              <div className="flex gap-2">
+                {(previewAsset.url || previewAsset.thumbnail) && (
+                  <a
+                    href={previewAsset.url || previewAsset.thumbnail}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border hover:bg-muted text-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Open file
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(previewAsset.id)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 text-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }

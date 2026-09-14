@@ -140,11 +140,29 @@ export const rulesApi = {
   },
 
   /**
-   * Toggle rule status
+   * Activate a draft/paused rule
    */
-  toggleRule: async (id: string): Promise<Rule> => {
-    const response = await apiClient.post<ApiResponse<Rule>>(`/rules/${id}/toggle`);
+  activateRule: async (id: string): Promise<Rule> => {
+    const response = await apiClient.post<ApiResponse<Rule>>(`/rules/${id}/activate`);
     return response.data.data;
+  },
+
+  /**
+   * Pause an active rule
+   */
+  pauseRule: async (id: string): Promise<Rule> => {
+    const response = await apiClient.post<ApiResponse<Rule>>(`/rules/${id}/pause`);
+    return response.data.data;
+  },
+
+  /**
+   * Toggle rule status using activate/pause (backend has no /toggle).
+   */
+  toggleRule: async (id: string, currentStatus?: string): Promise<Rule> => {
+    if (currentStatus === 'active') {
+      return rulesApi.pauseRule(id);
+    }
+    return rulesApi.activateRule(id);
   },
 
   /**
@@ -244,10 +262,11 @@ export function useToggleRule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: rulesApi.toggleRule,
-    onSuccess: (_, id) => {
+    mutationFn: ({ id, status }: { id: string; status?: string }) =>
+      rulesApi.toggleRule(id, status),
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['rules'] });
-      queryClient.invalidateQueries({ queryKey: ['rules', id] });
+      queryClient.invalidateQueries({ queryKey: ['rules', variables.id] });
     },
   });
 }

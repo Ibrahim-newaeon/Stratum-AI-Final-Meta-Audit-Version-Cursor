@@ -265,7 +265,17 @@ export function Rules() {
           type: r.action_type || 'send_alert',
           config: r.action_config || {},
         },
-      appliesTo: r.applies_to || r.applies_to_campaigns || r.campaigns || [],
+      appliesTo: (() => {
+        const raw =
+          r.applies_to ||
+          r.applies_to_campaigns ||
+          r.applies_to_platforms ||
+          r.campaigns ||
+          [];
+        if (Array.isArray(raw)) return raw.map(String);
+        if (raw) return [String(raw)];
+        return [];
+      })(),
       triggerCount: r.trigger_count || r.triggerCount || 0,
       lastTriggered: r.last_triggered_at || r.last_triggered || r.lastTriggered || null,
       cooldownHours: r.cooldown_hours || r.cooldownHours || 24,
@@ -273,9 +283,31 @@ export function Rules() {
     }));
   }, [rulesData]);
 
-  // Handle toggle rule status
-  const handleToggleRule = async (ruleId: number, _currentStatus: RuleStatus) => {
-    await toggleRule.mutateAsync(ruleId.toString());
+  // Handle toggle rule status (draft/paused → activate, active → pause)
+  const handleToggleRule = async (ruleId: number, currentStatus: RuleStatus) => {
+    try {
+      await toggleRule.mutateAsync({ id: ruleId.toString(), status: currentStatus });
+      toast({
+        title: currentStatus === 'active' ? 'Rule paused' : 'Rule activated',
+        description:
+          currentStatus === 'active'
+            ? 'The rule will no longer run automatically.'
+            : 'The rule is now active and will evaluate on schedule.',
+      });
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string; message?: string } }; message?: string })
+          ?.response?.data?.detail ||
+        (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data
+          ?.message ||
+        (err as { message?: string })?.message ||
+        'Could not update rule status.';
+      toast({
+        title: 'Status update failed',
+        description: typeof detail === 'string' ? detail : 'Could not update rule status.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const filteredRules = rules.filter((rule) => {
@@ -363,6 +395,7 @@ export function Rules() {
             {t('rules.title')}
           </h1>
           <p className="text-muted-foreground">{t('rules.subtitle')}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('rules.draftHint')}</p>
         </div>
 
         <button
@@ -447,29 +480,34 @@ export function Rules() {
               <div className="flex items-center gap-2">
                 {rule.status === 'active' ? (
                   <button
-                    onClick={() => handleToggleRule(rule.id, rule.status)}
+                    type="button"
+                    onClick={() => void handleToggleRule(rule.id, rule.status)}
                     disabled={toggleRule.isPending}
-                    className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-                    title="Pause"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border hover:bg-muted transition-colors disabled:opacity-50 text-sm"
+                    title={t('rules.pause')}
                   >
                     {toggleRule.isPending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Pause className="w-4 h-4" />
                     )}
+                    <span>{t('rules.pause')}</span>
                   </button>
                 ) : (
                   <button
-                    onClick={() => handleToggleRule(rule.id, rule.status)}
+                    type="button"
+                    onClick={() => void handleToggleRule(rule.id, rule.status)}
                     disabled={toggleRule.isPending}
-                    className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-                    title="Activate"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 text-sm"
+                    title={t('rules.activate')}
+                    data-testid="activate-rule-button"
                   >
                     {toggleRule.isPending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Play className="w-4 h-4" />
                     )}
+                    <span>{t('rules.activate')}</span>
                   </button>
                 )}
                 <button
@@ -520,7 +558,9 @@ export function Rules() {
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">{t('rules.appliesTo')}:</span>
                 <span className="font-medium">
-                  {rule.appliesTo.length > 0 ? rule.appliesTo.join(', ') : 'Not configured'}
+                  {rule.appliesTo.length > 0
+                    ? rule.appliesTo.join(', ')
+                    : t('rules.notConfigured')}
                 </span>
               </div>
               <div className="flex items-center gap-2">

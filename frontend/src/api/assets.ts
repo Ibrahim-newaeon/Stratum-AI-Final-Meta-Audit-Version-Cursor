@@ -188,11 +188,11 @@ export const assetsApi = {
   },
 
   /**
-   * Bulk archive assets
+   * Bulk archive assets (soft-delete each; backend has no bulk route)
    */
   bulkArchive: async (ids: string[]): Promise<Asset[]> => {
-    const response = await apiClient.post<ApiResponse<Asset[]>>('/assets/bulk/archive', { ids });
-    return response.data.data;
+    await Promise.all(ids.map((id) => assetsApi.deleteAsset(id)));
+    return [];
   },
 };
 
