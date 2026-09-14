@@ -1,0 +1,69 @@
+/**
+ * Kinetic Signal Observatory — self-hosted type
+ * Primary: Instagram Sans · Display: Instagram Sans Headline
+ * Condensed: labels · Fallback: Helvetica School
+ */
+
+@font-face {
+  font-family: 'Instagram Sans';
+  src: url('/fonts/kinetic/InstagramSans-Light.woff') format('woff');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instagram Sans';
+  src: url('/fonts/kinetic/InstagramSans-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instagram Sans';
+  src: url('/fonts/kinetic/InstagramSans-Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instagram Sans';
+  src: url('/fonts/kinetic/InstagramSans-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instagram Sans Headline';
+  src: url('/fonts/kinetic/InstagramSansHeadline-Regular.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instagram Sans Condensed';
+  src: url('/fonts/kinetic/InstagramSansCondensed-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instagram Sans Condensed';
+  src: url('/fonts/kinetic/InstagramSansCondensed-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica School';
+  src: url('/fonts/kinetic/HelveticaSchool-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

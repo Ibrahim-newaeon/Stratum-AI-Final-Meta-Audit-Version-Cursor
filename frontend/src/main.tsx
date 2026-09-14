@@ -8,6 +8,7 @@ import './index.css';
 import './theme/evidence-tokens.css';
 import './theme/luminous-tokens.css';
 import './theme/kinetic-tokens.css';
+import './theme/kinetic-fonts.css';
 import './i18n';
 
 // Initialize Sentry error tracking

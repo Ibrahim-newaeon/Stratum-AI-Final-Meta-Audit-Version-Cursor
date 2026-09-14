@@ -50,7 +50,7 @@ Signal Health Check → Trust Gate → Automation Decision
 ### Design system (frontend)
 
 - **Live UI:** Evidence Room (until redesign approved)
-- **Proposed:** [Kinetic Signal Observatory](docs/design/README.md) — preview at `/studio-preview/kinetic` and `/studio-preview/kinetic/dashboard`
+- **Proposed:** [Kinetic Signal Observatory](docs/design/README.md) — Instagram Sans typography; preview at `/studio-preview/kinetic` and `/studio-preview/kinetic/dashboard`
 
 ---
 

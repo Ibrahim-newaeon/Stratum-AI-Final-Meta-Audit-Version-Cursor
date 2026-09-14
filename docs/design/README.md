@@ -15,7 +15,9 @@ product visual language. Bright, asymmetric, signal-flow first. Trust Gate is th
 | Lime | `#D7F54A` | `#D8FF53` |
 | Coral | `#FF5F6D` | `#FF7785` |
 
-Typography: **Syne** (display) · **DM Sans** (UI) · **IBM Plex Mono** (metadata).
+Typography: **Instagram Sans Headline** (display) · **Instagram Sans** (UI) ·
+**Instagram Sans Condensed** (labels) · **Helvetica School** (fallback) ·
+IBM Plex Mono (tabular metadata). Self-hosted under `frontend/public/fonts/kinetic/`.
 
 ### Signature UI
 
