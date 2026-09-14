@@ -1,10 +1,8 @@
 /**
- * PageLayout — public content pages shell (Radix Themes + MarketingShell).
+ * PageLayout — public content pages (Studio tokens + MarketingShell).
  */
 
-import { Container } from '@radix-ui/themes';
 import { MarketingShell } from '@/components/marketing/MarketingShell';
-import { StratumThemeProvider } from '@/theme/StratumThemeProvider';
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -12,12 +10,10 @@ interface PageLayoutProps {
 
 export function PageLayout({ children }: PageLayoutProps) {
   return (
-    <StratumThemeProvider>
-      <MarketingShell>
-        <Container size="3" py="8" style={{ minHeight: '60vh' }}>
-          {children}
-        </Container>
-      </MarketingShell>
-    </StratumThemeProvider>
+    <MarketingShell>
+      <div className="mx-auto max-w-[960px] px-6 py-12" style={{ minHeight: '60vh' }}>
+        {children}
+      </div>
+    </MarketingShell>
   );
 }

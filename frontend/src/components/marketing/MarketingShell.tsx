@@ -1,12 +1,12 @@
 /**
- * Marketing site shell — Radix Themes header/footer for public pages.
+ * Marketing site shell — Studio Pearl & Indigo / Navy & Periwinkle tokens.
  */
 
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Box, Button, Container, Flex, Heading, Text } from '@radix-ui/themes';
 import { useTranslation } from 'react-i18next';
-import { Menu, X } from 'lucide-react';
+import { Menu, Moon, Sun, X } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const navLinks = [
   { name: 'Features', href: '/features' },
@@ -25,6 +25,7 @@ export function MarketingShell({ children }: MarketingShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { i18n } = useTranslation();
+  const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
     document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
@@ -37,127 +38,110 @@ export function MarketingShell({ children }: MarketingShellProps) {
       : location.pathname === href || location.pathname.startsWith(`${href}/`);
 
   return (
-    <Box style={{ minHeight: '100vh', background: '#0b1215' }}>
-      <Box
-        position="sticky"
-        top="0"
+    <div className="studio-shell flex min-h-screen flex-col">
+      <header
+        className="sticky top-0 z-50 border-b"
         style={{
-          zIndex: 50,
+          background: 'color-mix(in srgb, var(--studio-sidebar) 92%, transparent)',
           backdropFilter: 'blur(12px)',
-          background: 'rgba(11, 18, 21, 0.85)',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          borderColor: 'var(--studio-border)',
         }}
       >
-        <Container size="4" py="3">
-          <Flex align="center" justify="between" gap="4">
-            <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <Flex align="center" gap="2">
-                <Box
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    background: 'var(--teal-9)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 700,
-                    color: '#0b1215',
-                  }}
-                >
-                  S
-                </Box>
-                <Heading size="4" weight="medium">
-                  Stratum AI
-                </Heading>
-              </Flex>
+        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-6 py-3">
+          <Link to="/" className="flex items-center gap-3 no-underline">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-[10px] text-sm font-semibold"
+              style={{
+                background: 'var(--studio-accent)',
+                color: 'var(--studio-accent-contrast)',
+              }}
+            >
+              S
+            </div>
+            <span className="text-sm font-semibold" style={{ color: 'var(--studio-text)' }}>
+              Stratum AI
+            </span>
+          </Link>
+
+          <nav className="hidden items-center gap-5 md:flex">
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                to={link.href}
+                className="text-sm no-underline"
+                style={{
+                  color: isActive(link.href) ? 'var(--studio-accent)' : 'var(--studio-text-secondary)',
+                }}
+              >
+                {link.name}
+              </Link>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-[10px] border p-2"
+              style={{ borderColor: 'var(--studio-border)', color: 'var(--studio-text-secondary)' }}
+              onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+              aria-label="Toggle theme"
+            >
+              {resolvedTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <Link to="/login" className="studio-btn-ghost hidden sm:inline-flex">
+              Log in
             </Link>
-
-            <Flex display={{ initial: 'none', md: 'flex' }} align="center" gap="5">
-              {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  to={link.href}
-                  style={{
-                    textDecoration: 'none',
-                    fontSize: 14,
-                    color: isActive(link.href) ? 'var(--teal-11)' : 'var(--gray-11)',
-                  }}
-                >
-                  {link.name}
-                </Link>
-              ))}
-            </Flex>
-
-            <Flex align="center" gap="2">
-              <Button variant="ghost" size="2" asChild>
-                <Link to="/login">Log in</Link>
-              </Button>
-              <Button size="2" asChild>
-                <Link to="/signup">Start free</Link>
-              </Button>
-              <Box display={{ initial: 'block', md: 'none' }}>
-                <Button
-                  variant="ghost"
-                  size="1"
-                  onClick={() => setMobileOpen((o) => !o)}
-                  aria-label="Toggle menu"
-                >
-                  {mobileOpen ? <X size={18} /> : <Menu size={18} />}
-                </Button>
-              </Box>
-            </Flex>
-          </Flex>
-
-          {mobileOpen && (
-            <Flex direction="column" gap="2" pt="3" display={{ md: 'none' }}>
-              {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  to={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  style={{
-                    padding: '8px 0',
-                    textDecoration: 'none',
-                    color: isActive(link.href) ? 'var(--teal-11)' : 'var(--gray-11)',
-                  }}
-                >
-                  {link.name}
-                </Link>
-              ))}
-            </Flex>
-          )}
-        </Container>
-      </Box>
-
-      <Box asChild>{children}</Box>
-
-      <Box
-        style={{
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          background: 'rgba(0,0,0,0.3)',
-          marginTop: 80,
-        }}
-      >
-        <Container size="4" py="6">
-          <Flex direction={{ initial: 'column', sm: 'row' }} justify="between" gap="4">
-            <Text size="2" color="gray">
-              © {new Date().getFullYear()} Stratum AI — Trust-Gated Autopilot for Meta channels
-            </Text>
-            <Flex gap="4">
-              <Link to="/privacy" style={{ color: 'var(--gray-11)', fontSize: 14 }}>
-                Privacy
+            <Link to="/signup" className="studio-btn-primary">
+              Start free
+            </Link>
+            <button
+              type="button"
+              className="rounded-[10px] border p-2 md:hidden"
+              style={{ borderColor: 'var(--studio-border)' }}
+              onClick={() => setMobileOpen((o) => !o)}
+              aria-label="Toggle menu"
+            >
+              {mobileOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
+        </div>
+        {mobileOpen && (
+          <div className="flex flex-col gap-2 border-t px-6 py-3 md:hidden" style={{ borderColor: 'var(--studio-border)' }}>
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                to={link.href}
+                onClick={() => setMobileOpen(false)}
+                className="py-2 text-sm no-underline"
+                style={{ color: 'var(--studio-text)' }}
+              >
+                {link.name}
               </Link>
-              <Link to="/terms" style={{ color: 'var(--gray-11)', fontSize: 14 }}>
-                Terms
-              </Link>
-              <Link to="/contact" style={{ color: 'var(--gray-11)', fontSize: 14 }}>
-                Contact
-              </Link>
-            </Flex>
-          </Flex>
-        </Container>
-      </Box>
-    </Box>
+            ))}
+          </div>
+        )}
+      </header>
+
+      <main className="flex-1">{children}</main>
+
+      <footer className="mt-20 border-t" style={{ borderColor: 'var(--studio-border)' }}>
+        <div className="mx-auto flex max-w-[1200px] flex-col justify-between gap-4 px-6 py-8 sm:flex-row">
+          <p className="text-sm" style={{ color: 'var(--studio-text-secondary)' }}>
+            © {new Date().getFullYear()} Stratum AI — Trust-Gated Autopilot for Meta
+          </p>
+          <div className="flex gap-4 text-sm">
+            <Link to="/privacy" style={{ color: 'var(--studio-text-secondary)' }}>
+              Privacy
+            </Link>
+            <Link to="/terms" style={{ color: 'var(--studio-text-secondary)' }}>
+              Terms
+            </Link>
+            <Link to="/contact" style={{ color: 'var(--studio-text-secondary)' }}>
+              Contact
+            </Link>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import DashboardLayout from './views/DashboardLayout';
+import DashboardLayout from './components/studio/StudioAppShell';
 import TenantLayout from './views/TenantLayout';
 import { Toaster } from './components/ui/toaster';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -39,6 +39,8 @@ const ResetPassword = lazy(() => import('./views/ResetPassword'));
 const VerifyEmail = lazy(() => import('./views/VerifyEmail'));
 const Onboarding = lazy(() => import('./views/Onboarding'));
 const UnifiedDashboard = lazy(() => import('./views/dashboard/UnifiedDashboard'));
+const WorkspaceOverview = lazy(() => import('./views/studio/WorkspaceOverview'));
+const DesignSystemPage = lazy(() => import('./views/studio/DesignSystemPage'));
 const CustomDashboard = lazy(() => import('./views/CustomDashboard'));
 const Campaigns = lazy(() => import('./views/Campaigns'));
 const Stratum = lazy(() => import('./views/Stratum'));
@@ -676,6 +678,22 @@ function App() {
                       <Route index element={<Navigate to="/dashboard/overview" replace />} />
                       <Route
                         path="overview"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <WorkspaceOverview />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="design-system"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <DesignSystemPage />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="performance"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <UnifiedDashboard />

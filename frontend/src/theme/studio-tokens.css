@@ -1,0 +1,128 @@
+/**
+ * Stratum Studio visual system — Pearl & Indigo (light) / Navy & Periwinkle (dark)
+ * Matches docs/design concept boards. 8px rhythm, ~10px radii, Inter typography.
+ */
+
+:root,
+html.light {
+  --studio-bg: #f6f7fb;
+  --studio-sidebar: #ffffff;
+  --studio-card: #ffffff;
+  --studio-border: #dde2ec;
+  --studio-text: #182235;
+  --studio-text-secondary: #526078;
+  --studio-accent: #4f46e5;
+  --studio-accent-hover: #4338ca;
+  --studio-accent-contrast: #ffffff;
+  --studio-nav-active: #eef2ff;
+  --studio-search-bg: #f1f3f8;
+  --studio-success: #059669;
+  --studio-success-wash: #ecfdf5;
+  --studio-radius: 10px;
+  --studio-sidebar-width: 220px;
+  --studio-focus-ring: 0 0 0 3px rgba(79, 70, 229, 0.28);
+  --studio-search-glow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+  --studio-art-from: #4f46e5;
+  --studio-art-via: #6366f1;
+  --studio-art-to: #a5b4fc;
+  --studio-swatch-1: #4f46e5;
+  --studio-swatch-2: #6366f1;
+  --studio-swatch-3: #a5b4fc;
+  --studio-swatch-4: #e0e7ff;
+}
+
+html.dark {
+  --studio-bg: #0f1424;
+  --studio-sidebar: #131a2c;
+  --studio-card: #1b243b;
+  --studio-border: #33415f;
+  --studio-text: #f1f5ff;
+  --studio-text-secondary: #b7c3da;
+  --studio-accent: #a5b4fc;
+  --studio-accent-hover: #c7d2fe;
+  --studio-accent-contrast: #0f1424;
+  --studio-nav-active: #293456;
+  --studio-search-bg: #1b243b;
+  --studio-success: #34d399;
+  --studio-success-wash: rgba(52, 211, 153, 0.12);
+  --studio-focus-ring: 0 0 0 3px rgba(165, 180, 252, 0.35);
+  --studio-search-glow: 0 0 0 3px rgba(165, 180, 252, 0.22);
+  --studio-art-from: #0f1424;
+  --studio-art-via: #33415f;
+  --studio-art-to: #a5b4fc;
+  --studio-swatch-1: #a5b4fc;
+  --studio-swatch-2: #818cf8;
+  --studio-swatch-3: #33415f;
+  --studio-swatch-4: #0f1424;
+}
+
+.studio-shell {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: var(--studio-bg);
+  color: var(--studio-text);
+  min-height: 100vh;
+}
+
+.studio-shell *:focus-visible {
+  outline: none;
+  box-shadow: var(--studio-focus-ring);
+}
+
+.studio-card {
+  background: var(--studio-card);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius);
+}
+
+.studio-btn-primary {
+  background: var(--studio-accent);
+  color: var(--studio-accent-contrast);
+  border-radius: var(--studio-radius);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1;
+  padding: 10px 16px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s ease;
+}
+
+.studio-btn-primary:hover {
+  background: var(--studio-accent-hover);
+}
+
+.studio-btn-ghost {
+  background: transparent;
+  color: var(--studio-text);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--studio-radius);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1;
+  padding: 10px 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-btn-ghost:hover {
+  background: var(--studio-nav-active);
+}
+
+.studio-art {
+  background: linear-gradient(
+    135deg,
+    var(--studio-art-from) 0%,
+    var(--studio-art-via) 45%,
+    var(--studio-art-to) 100%
+  );
+}
+
+.studio-search:focus {
+  box-shadow: var(--studio-search-glow);
+  border-color: var(--studio-accent);
+}

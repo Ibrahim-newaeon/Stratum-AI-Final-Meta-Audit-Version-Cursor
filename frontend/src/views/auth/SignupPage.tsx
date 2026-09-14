@@ -1,5 +1,5 @@
 /**
- * Sign up — Radix Themes redesign
+ * Sign up — Studio Pearl & Indigo / Navy & Periwinkle
  */
 
 import { useState } from 'react';
@@ -7,23 +7,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import {
-  Box,
-  Button,
-  Callout,
-  Card,
-  Container,
-  Flex,
-  Heading,
-  Text,
-  TextField,
-} from '@radix-ui/themes';
 import { useSignup } from '@/api/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import FacebookLoginButton from '@/components/auth/FacebookLoginButton';
 import type { FacebookCredential } from '@/lib/facebookSdk';
 import { SEO, pageSEO } from '@/components/common/SEO';
-import { StratumThemeProvider } from '@/theme/StratumThemeProvider';
 import { MarketingShell } from '@/components/marketing/MarketingShell';
 
 const signupSchema = z
@@ -54,9 +42,7 @@ export default function SignupPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<SignupForm>({
-    resolver: zodResolver(signupSchema),
-  });
+  } = useForm<SignupForm>({ resolver: zodResolver(signupSchema) });
 
   const onSubmit = async (data: SignupForm) => {
     try {
@@ -68,7 +54,7 @@ export default function SignupPage() {
       });
       navigate('/login', { state: { registered: true } });
     } catch {
-      // error surfaced via registerMutation.error
+      // surfaced via mutation error
     }
   };
 
@@ -77,11 +63,8 @@ export default function SignupPage() {
     setFacebookPending(true);
     try {
       const result = await loginWithFacebook(credential);
-      if (result.success) {
-        navigate('/dashboard/activation', { replace: true });
-      } else {
-        setFacebookError(result.error || 'Facebook sign-up failed');
-      }
+      if (result.success) navigate('/dashboard/activation', { replace: true });
+      else setFacebookError(result.error || 'Facebook sign-up failed');
     } catch {
       setFacebookError('An unexpected error occurred');
     } finally {
@@ -89,130 +72,85 @@ export default function SignupPage() {
     }
   };
 
+  const fieldStyle = {
+    background: 'var(--studio-search-bg)',
+    borderColor: 'var(--studio-border)',
+    color: 'var(--studio-text)',
+  } as const;
+
   return (
-    <StratumThemeProvider>
+    <>
       <SEO {...pageSEO.signup} />
       <MarketingShell>
-        <Container size="2" py="9">
-          <Flex direction="column" align="center" gap="6">
-            <Box style={{ textAlign: 'center', maxWidth: 480 }}>
-              <Heading size="7" mb="2">
-                Create your workspace
-              </Heading>
-              <Text color="gray" size="3">
-                Free to start. After signup you&apos;ll connect OAuth, CAPI, and your Marketing
-                API token — we walk you through each step.
-              </Text>
-            </Box>
+        <div className="mx-auto max-w-md px-6 py-16">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-semibold" style={{ color: 'var(--studio-text)' }}>
+              Create your workspace
+            </h1>
+            <p className="mt-2 text-sm" style={{ color: 'var(--studio-text-secondary)' }}>
+              Free to start. After signup you&apos;ll connect OAuth, CAPI, and your Marketing API
+              token.
+            </p>
+          </div>
 
-            <Card size="4" style={{ width: '100%', maxWidth: 480 }}>
-              <Flex direction="column" gap="4">
-                {apiError && (
-                  <Callout.Root color="red" size="1">
-                    <Callout.Text>{apiError}</Callout.Text>
-                  </Callout.Root>
-                )}
+          <div className="studio-card p-6">
+            {apiError && (
+              <div
+                className="mb-4 rounded-[10px] border px-3 py-2 text-sm"
+                style={{ borderColor: 'var(--studio-border)', color: '#DC2626' }}
+              >
+                {apiError}
+              </div>
+            )}
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              {(
+                [
+                  ['name', 'Full name', 'text'],
+                  ['email', 'Work email', 'email'],
+                  ['company', 'Company', 'text'],
+                  ['password', 'Password', 'password'],
+                  ['confirmPassword', 'Confirm password', 'password'],
+                ] as const
+              ).map(([key, label, type]) => (
+                <div key={key}>
+                  <label className="mb-1 block text-sm font-medium" style={{ color: 'var(--studio-text)' }}>
+                    {label}
+                  </label>
+                  <input
+                    type={type}
+                    className="studio-search w-full rounded-[10px] border px-3 py-2.5 text-sm"
+                    style={fieldStyle}
+                    {...register(key)}
+                  />
+                  {errors[key] && (
+                    <p className="mt-1 text-xs text-red-600">{errors[key]?.message}</p>
+                  )}
+                </div>
+              ))}
+              <button type="submit" className="studio-btn-primary w-full justify-center" disabled={isLoading}>
+                {isLoading ? 'Creating account…' : 'Create account'}
+              </button>
+            </form>
 
-                <form onSubmit={handleSubmit(onSubmit)}>
-                  <Flex direction="column" gap="3">
-                    <Box>
-                      <Text as="label" size="2" weight="medium" mb="1">
-                        Full name
-                      </Text>
-                      <TextField.Root
-                        placeholder="Your name"
-                        size="3"
-                        {...register('name')}
-                      />
-                      {errors.name && (
-                        <Text size="1" color="red" mt="1">
-                          {errors.name.message}
-                        </Text>
-                      )}
-                    </Box>
-                    <Box>
-                      <Text as="label" size="2" weight="medium" mb="1">
-                        Work email
-                      </Text>
-                      <TextField.Root
-                        type="email"
-                        placeholder="you@company.com"
-                        size="3"
-                        {...register('email')}
-                      />
-                      {errors.email && (
-                        <Text size="1" color="red" mt="1">
-                          {errors.email.message}
-                        </Text>
-                      )}
-                    </Box>
-                    <Box>
-                      <Text as="label" size="2" weight="medium" mb="1">
-                        Company
-                      </Text>
-                      <TextField.Root
-                        placeholder="Company name"
-                        size="3"
-                        {...register('company')}
-                      />
-                      {errors.company && (
-                        <Text size="1" color="red" mt="1">
-                          {errors.company.message}
-                        </Text>
-                      )}
-                    </Box>
-                    <Box>
-                      <Text as="label" size="2" weight="medium" mb="1">
-                        Password
-                      </Text>
-                      <TextField.Root type="password" size="3" {...register('password')} />
-                      {errors.password && (
-                        <Text size="1" color="red" mt="1">
-                          {errors.password.message}
-                        </Text>
-                      )}
-                    </Box>
-                    <Box>
-                      <Text as="label" size="2" weight="medium" mb="1">
-                        Confirm password
-                      </Text>
-                      <TextField.Root type="password" size="3" {...register('confirmPassword')} />
-                      {errors.confirmPassword && (
-                        <Text size="1" color="red" mt="1">
-                          {errors.confirmPassword.message}
-                        </Text>
-                      )}
-                    </Box>
-                    <Button type="submit" size="3" disabled={isLoading} style={{ width: '100%' }}>
-                      {isLoading ? 'Creating account…' : 'Create account'}
-                    </Button>
-                  </Flex>
-                </form>
+            <div className="my-5 flex items-center gap-3">
+              <div className="h-px flex-1" style={{ background: 'var(--studio-border)' }} />
+              <span className="text-xs" style={{ color: 'var(--studio-text-secondary)' }}>
+                or
+              </span>
+              <div className="h-px flex-1" style={{ background: 'var(--studio-border)' }} />
+            </div>
 
-                <Flex align="center" gap="3">
-                  <Box style={{ flex: 1, height: 1, background: 'var(--gray-6)' }} />
-                  <Text size="1" color="gray">
-                    or
-                  </Text>
-                  <Box style={{ flex: 1, height: 1, background: 'var(--gray-6)' }} />
-                </Flex>
+            <FacebookLoginButton onCredential={handleFacebookCredential} disabled={isLoading} />
 
-                <FacebookLoginButton
-                  onCredential={handleFacebookCredential}
-                  disabled={isLoading}
-                />
-
-                <Text size="2" color="gray" align="center">
-                  Already have an account?{' '}
-                  <Link to="/login" style={{ color: 'var(--teal-11)' }}>
-                    Sign in
-                  </Link>
-                </Text>
-              </Flex>
-            </Card>
-          </Flex>
-        </Container>
+            <p className="mt-5 text-center text-sm" style={{ color: 'var(--studio-text-secondary)' }}>
+              Already have an account?{' '}
+              <Link to="/login" style={{ color: 'var(--studio-accent)' }}>
+                Sign in
+              </Link>
+            </p>
+          </div>
+        </div>
       </MarketingShell>
-    </StratumThemeProvider>
+    </>
   );
 }
