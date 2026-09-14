@@ -1,0 +1,219 @@
+/**
+ * Luminous Control — Pearl & Indigo (light) / Navy & Periwinkle (dark)
+ * Design preview tokens. Approve before rolling out app-wide.
+ */
+
+/* Pearl & Indigo (light) — scoped so Evidence Room stays untouched */
+.lc-root.lc-light,
+html.luminous-light {
+  --lc-canvas: #f6f7fb;
+  --lc-sidebar: #ffffff;
+  --lc-surface: #ffffff;
+  --lc-surface-2: #eef1f7;
+  --lc-elevated: #ffffff;
+  --lc-border: #dde2ec;
+  --lc-text: #182235;
+  --lc-muted: #526078;
+  --lc-accent: #4f46e5;
+  --lc-accent-hover: #4338ca;
+  --lc-accent-contrast: #ffffff;
+  --lc-selected: #eef2ff;
+  --lc-support: #818cf8;
+  --lc-art-from: #4f46e5;
+  --lc-art-via: #6366f1;
+  --lc-art-to: #a5b4fc;
+  --lc-pass: #0d9488;
+  --lc-pass-bg: #ccfbf1;
+  --lc-ok: var(--lc-pass);
+  --lc-ok-soft: var(--lc-pass-bg);
+  --lc-hold: #d97706;
+  --lc-hold-bg: #fef3c7;
+  --lc-hold-soft: var(--lc-hold-bg);
+  --lc-warn: #d97706;
+  --lc-block: #e11d48;
+  --lc-block-bg: #ffe4e6;
+  --lc-bad: var(--lc-block);
+  --lc-bad-soft: var(--lc-block-bg);
+  --lc-unknown: #94a3b8;
+  --lc-unknown-bg: #f1f5f9;
+  --lc-focus: 0 0 0 3px rgba(79, 70, 229, 0.25);
+  --lc-shadow: 0 1px 2px rgba(24, 34, 53, 0.04), 0 8px 24px rgba(24, 34, 53, 0.06);
+  --lc-radius: 10px;
+  --lc-radius-lg: 16px;
+  --lc-sidebar-w: 240px;
+  --lc-font: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --lc-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* Navy & Periwinkle (dark) */
+.lc-root.lc-dark,
+html.luminous-dark {
+  --lc-canvas: #0f1424;
+  --lc-sidebar: #131a2c;
+  --lc-surface: #1b243b;
+  --lc-surface-2: #243049;
+  --lc-elevated: #243049;
+  --lc-border: #33415f;
+  --lc-text: #f1f5ff;
+  --lc-muted: #b7c3da;
+  --lc-accent: #a5b4fc;
+  --lc-accent-hover: #c7d2fe;
+  --lc-accent-contrast: #0f1424;
+  --lc-selected: #293456;
+  --lc-support: #818cf8;
+  --lc-art-from: #0f1424;
+  --lc-art-via: #33415f;
+  --lc-art-to: #a5b4fc;
+  --lc-pass: #2dd4bf;
+  --lc-pass-bg: rgba(45, 212, 191, 0.12);
+  --lc-ok: var(--lc-pass);
+  --lc-ok-soft: var(--lc-pass-bg);
+  --lc-hold: #fbbf24;
+  --lc-hold-bg: rgba(251, 191, 36, 0.12);
+  --lc-hold-soft: var(--lc-hold-bg);
+  --lc-warn: #fbbf24;
+  --lc-block: #fb7185;
+  --lc-block-bg: rgba(251, 113, 133, 0.12);
+  --lc-bad: var(--lc-block);
+  --lc-bad-soft: var(--lc-block-bg);
+  --lc-unknown: #94a3b8;
+  --lc-unknown-bg: rgba(148, 163, 184, 0.12);
+  --lc-focus: 0 0 0 3px rgba(165, 180, 252, 0.35);
+  --lc-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.28);
+  --lc-radius: 10px;
+  --lc-radius-lg: 16px;
+  --lc-sidebar-w: 240px;
+  --lc-font: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --lc-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.lc-root,
+.lc-shell {
+  font-family: var(--lc-font);
+  background: var(--lc-canvas);
+  color: var(--lc-text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.lc-sidebar {
+  background: var(--lc-sidebar);
+  border-right: 1px solid var(--lc-border);
+}
+
+.lc-topbar {
+  background: color-mix(in srgb, var(--lc-canvas) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--lc-border);
+}
+
+.lc-shell *:focus-visible {
+  outline: none;
+  box-shadow: var(--lc-focus);
+}
+
+.lc-card {
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  box-shadow: var(--lc-shadow);
+}
+
+.lc-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lc-muted);
+}
+
+.lc-mono {
+  font-family: var(--lc-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.lc-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--lc-accent);
+  color: var(--lc-accent-contrast);
+  border: none;
+  border-radius: var(--lc-radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.lc-btn-primary:hover {
+  background: var(--lc-accent-hover);
+}
+
+.lc-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: transparent;
+  color: var(--lc-text);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.lc-btn-secondary:hover {
+  background: var(--lc-selected);
+}
+
+.lc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lc-badge-pass {
+  background: var(--lc-pass-bg);
+  color: var(--lc-pass);
+}
+
+.lc-badge-hold {
+  background: var(--lc-hold-bg);
+  color: var(--lc-hold);
+}
+
+.lc-badge-block {
+  background: var(--lc-block-bg);
+  color: var(--lc-block);
+}
+
+.lc-badge-unknown {
+  background: var(--lc-unknown-bg);
+  color: var(--lc-unknown);
+}
+
+.lc-art {
+  background: linear-gradient(135deg, var(--lc-art-from), var(--lc-art-via), var(--lc-art-to));
+}
+
+.lc-glow-accent {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lc-accent) 35%, var(--lc-border)),
+    0 0 24px color-mix(in srgb, var(--lc-accent) 18%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lc-flow-pulse,
+  .lc-processing {
+    animation: none !important;
+  }
+}

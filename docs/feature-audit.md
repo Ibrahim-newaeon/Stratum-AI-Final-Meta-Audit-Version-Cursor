@@ -5,20 +5,26 @@ priority decisions; it is not a live feature inventory.
 
 ## Full frontend redesign (in progress)
 
-Visual system is the **Evidence Room** (Paper, Ink, Intervention): bone/paper
-canvas, oxblood CTAs and seams, Instrument Serif + IBM Plex. Restraint is the
-spectacle — decisions, evidence, holds, and human authority are the material.
+**Live shell:** Evidence Room (bone/oxblood) on marketing + dashboard.
+
+**Proposed next system (design preview only):** **Luminous Control** — Pearl &
+Indigo / Navy & Periwinkle, Inter, Trust-Gated Autopilot + CDP Identity Graph
+hero modules. Preview: `/studio-preview/luminous`. See `docs/design/README.md`.
+
+Do not migrate app-wide until Luminous is approved. Until then:
 
 | Phase | Status |
 |-------|--------|
 | Meta activation hub + required Marketing API token | **Shipped** |
 | Evidence Room tokens, marketing homepage narrative, cross-examination | **Shipped** |
 | Dashboard shell + Overview (Attention Ledger, Decision Under Review) | **Shipped** |
-| Remaining Operate / Intelligence feature views | Planned under EvidenceAppShell |
+| Luminous Control Command Overview (design approval) | **Preview** |
+| Remaining Operate / Intelligence feature views | Hold — migrate after design sign-off |
 
-**Rule:** new UI uses `--er-*` / Evidence Room classes. No neural networks, neon,
-HUD chrome, or fabricated confidence scores. Sample data must be labeled.
-Prior Pearl/Indigo Studio tokens are superseded.
+**Rule:** live UI keeps `--er-*` / Evidence Room. Luminous uses scoped `--lc-*`
+inside `.lc-root` only. Sample data must be labeled. No fabricated confidence
+scores. Prior Pearl/Indigo Studio tokens remain superseded by Evidence Room
+until Luminous replaces both.
 
 ## Rules → Meta policy (decided)
 

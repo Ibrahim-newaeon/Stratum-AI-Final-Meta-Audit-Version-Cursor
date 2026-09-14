@@ -1,8 +1,50 @@
-# StratumAI — Evidence Room visual system
+# StratumAI — Design systems
+
+## Active product UI (until Luminous approved)
+
+**Evidence Room** — bone / oxblood, Instrument Serif + IBM Plex. Live on marketing + dashboard shell.
+
+- Tokens: `frontend/src/theme/evidence-tokens.css`
+- Preview: `/studio-preview/workspace`
+- Detail: see Evidence Room section below
+
+## Proposed — Luminous Control (awaiting approval)
+
+Creative territory: calm command surface for Meta revenue ops. Pearl & Indigo (light) / Navy & Periwinkle (dark). Inter + IBM Plex Mono. ~10px radii.
+
+| Role | Light | Dark |
+|------|-------|------|
+| Canvas | `#F6F7FB` | `#0F1424` |
+| Surface | `#FFFFFF` | `#1B243B` |
+| Text | `#182235` | `#F1F5FF` |
+| Accent | Indigo `#4F46E5` | Periwinkle `#A5B4FC` |
+| Pass | Teal | Teal |
+| Hold | Amber | Amber |
+| Block | Rose | Rose |
+
+### Signature modules (keep from loved mocks)
+
+1. **Trust-Gated Autopilot** — Signal Health → Trust Gate → Automation Decision flow
+2. **CDP Identity Graph** — EMQ + identity nodes; light Gen Z “identity strata” chips scoped inside CDP only
+3. **Action Queue** — gate score + status before money moves
+4. **Honest KPIs** — undefined metrics show as `—`, not fake numbers
+
+### Implementation (preview only)
+
+- `frontend/src/theme/luminous-tokens.css`
+- `frontend/src/components/luminous/*`
+- `frontend/src/views/luminous/LuminousCommandOverview.tsx`
+- **Preview:** `/studio-preview/luminous` (Pearl / Navy toggle in sidebar)
+
+Do **not** migrate home, auth, or full dashboard until this design is approved. Evidence Room remains the live shell.
+
+Reference boards: `docs/design/luminous-control-board.png`, `docs/design/luminous-overview-angled.png`
+
+---
+
+## Evidence Room (current)
 
 Creative territory: every decision leaves a paper trail.
-
-## Tokens
 
 | Role | Value |
 |------|-------|
@@ -10,31 +52,8 @@ Creative territory: every decision leaves a paper trail.
 | Paper (surfaces) | `#FAF8F3` |
 | Carbon (text) | `#191919` |
 | Graphite (muted) | `#5E5A55` |
-| Limestone (trays) | `#D8D1C5` |
-| Line | `#D5CEC2` |
 | Oxblood (CTA / seam) | `#762C38` |
-| Deep teal (pass) | `#245A55` |
-| Signal orange | `#F04A1A` |
-| Warning amber | `#B87518` |
-| Critical red | `#B5302C` |
 
-Typography: **Instrument Serif** (headlines), **IBM Plex Sans** (UI), **IBM Plex Mono** (IDs, timestamps, metrics).
-
-Signature motif: horizontal incision / seam between recommendation and evidence.
-
-## Implementation
-
-- `frontend/src/theme/evidence-tokens.css`
-- `frontend/src/components/evidence/EvidenceAppShell.tsx` — Operate / Intelligence / Workspace taxonomy
-- `frontend/src/components/evidence/DecisionCrossExamination.tsx`
-- `frontend/src/components/evidence/EvidenceMarketingShell.tsx`
-- Overview Front Desk: KPI honesty (undefined shown), triage queue, Trust Hold expandable dossier
-
-### Signature loop — Resolving a Trust Hold
-
-1. Click a Trust Hold row on Overview  
-2. Seam opens → intended action vs violation + mono evidence points  
-3. Authorize override / Keep hold / Adjust parameters  
-4. Operator name logged; row resolves
+Typography: Instrument Serif, IBM Plex Sans, IBM Plex Mono. Signature motif: horizontal incision / seam.
 
 Preview: `/studio-preview/workspace`

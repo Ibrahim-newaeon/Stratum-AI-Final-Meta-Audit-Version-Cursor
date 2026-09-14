@@ -41,6 +41,13 @@ const Onboarding = lazy(() => import('./views/Onboarding'));
 const UnifiedDashboard = lazy(() => import('./views/dashboard/UnifiedDashboard'));
 const WorkspaceOverview = lazy(() => import('./views/studio/WorkspaceOverview'));
 const DesignSystemPage = lazy(() => import('./views/studio/DesignSystemPage'));
+const LuminousPreviewLayout = lazy(() => import('./views/luminous/LuminousPreviewLayout'));
+const LuminousCommandOverview = lazy(() =>
+  import('./views/luminous/LuminousCommandOverview').then((m) => ({
+    default: m.LuminousCommandOverview,
+  })),
+);
+const LuminousPlaceholder = lazy(() => import('./views/luminous/LuminousPlaceholder'));
 const CustomDashboard = lazy(() => import('./views/CustomDashboard'));
 const Campaigns = lazy(() => import('./views/Campaigns'));
 const Stratum = lazy(() => import('./views/Stratum'));
@@ -254,7 +261,7 @@ function App() {
                         </Suspense>
                       }
                     />
-                    {/* Public Studio design preview (no auth) */}
+                    {/* Public Studio design preview (no auth) — Evidence Room */}
                     <Route path="/studio-preview" element={<DashboardLayout />}>
                       <Route index element={<Navigate to="workspace" replace />} />
                       <Route
@@ -270,6 +277,40 @@ function App() {
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <DesignSystemPage />
+                          </Suspense>
+                        }
+                      />
+                    </Route>
+                    {/* Public Luminous Control design preview (no auth) — approval only */}
+                    <Route
+                      path="/studio-preview/luminous"
+                      element={
+                        <Suspense fallback={<LoadingSpinner />}>
+                          <LuminousPreviewLayout />
+                        </Suspense>
+                      }
+                    >
+                      <Route
+                        index
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <LuminousCommandOverview />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="overview"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <LuminousCommandOverview />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path=":section"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <LuminousPlaceholder />
                           </Suspense>
                         }
                       />

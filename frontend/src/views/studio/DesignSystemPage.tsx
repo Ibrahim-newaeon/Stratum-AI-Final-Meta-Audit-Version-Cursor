@@ -54,9 +54,12 @@ export default function DesignSystemPage() {
         </div>
       </div>
 
-      <p className="mt-8 text-sm">
+      <p className="mt-8 text-sm space-x-4">
         <Link to="/studio-preview/workspace" style={{ color: 'var(--er-accent)' }}>
-          Open overview preview →
+          Evidence overview →
+        </Link>
+        <Link to="/studio-preview/luminous" style={{ color: 'var(--er-accent)' }}>
+          Luminous Control (proposed) →
         </Link>
       </p>
     </div>
