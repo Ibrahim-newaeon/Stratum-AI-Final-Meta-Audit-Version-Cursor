@@ -11,10 +11,13 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import sentry_sdk
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, ORJSONResponse
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1 import api_router
@@ -323,6 +326,12 @@ def create_application() -> FastAPI:
     # Include Routers
     # -------------------------------------------------------------------------
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+    # Creative asset uploads (Asset Library). Auth is enforced at upload/list;
+    # file bytes are served from the same path returned as file_url.
+    upload_dir = Path(__import__("os").environ.get("UPLOAD_DIR", "/tmp/uploads/assets"))
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads/assets", StaticFiles(directory=str(upload_dir)), name="uploaded_assets")
 
     # -------------------------------------------------------------------------
     # Health Check Endpoints

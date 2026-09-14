@@ -48,7 +48,9 @@ const Recommendations = lazy(() => import('./views/Recommendations'));
 const Rules = lazy(() => import('./views/Rules'));
 const Competitors = lazy(() => import('./views/Competitors'));
 const Predictions = lazy(() => import('./views/Predictions'));
-const WhatsApp = lazy(() => import('./views/whatsapp/WhatsAppManager'));
+// API-backed WhatsApp SPA (contacts/templates/messages persist). The mock
+// WhatsAppManager shell is kept under views/whatsapp/ for reference only.
+const WhatsApp = lazy(() => import('./views/WhatsApp'));
 const Settings = lazy(() => import('./views/Settings'));
 const BillingSuccess = lazy(() => import('./views/billing/BillingSuccess'));
 const Tenants = lazy(() => import('./views/Tenants'));
@@ -694,6 +696,14 @@ function App() {
                             <Campaigns />
                           </Suspense>
                         }
+                      />
+                      <Route
+                        path="campaigns/create"
+                        element={<Navigate to="/dashboard/campaigns?create=1" replace />}
+                      />
+                      <Route
+                        path="campaigns/new"
+                        element={<Navigate to="/dashboard/campaigns?create=1" replace />}
                       />
                       <Route
                         path="campaigns/connect"

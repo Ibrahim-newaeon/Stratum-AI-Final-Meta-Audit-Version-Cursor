@@ -131,7 +131,9 @@ export function Campaigns() {
     if (handledQueryRef.current === key) return;
     handledQueryRef.current = key;
 
-    if (create === '1') setCreateModalOpen(true);
+    if (create === '1') {
+      setCreateModalOpen(true);
+    }
     if (discover === '1') {
       discoverCampaigns.mutate(undefined, {
         onSuccess: () => {
@@ -150,6 +152,7 @@ export function Campaigns() {
       });
     }
 
+    // Strip one-shot query flags after applying them; keep modal state in React.
     const next = new URLSearchParams(searchParams);
     next.delete('discover');
     next.delete('create');
@@ -332,8 +335,15 @@ export function Campaigns() {
             <span>Discover from Meta</span>
           </button>
           <button
-            onClick={() => setCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            type="button"
+            onClick={() => {
+              setCreateModalOpen(true);
+              const next = new URLSearchParams(searchParams);
+              next.set('create', '1');
+              setSearchParams(next, { replace: true });
+            }}
+            className="relative z-10 flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            data-testid="create-campaign-button"
           >
             <Plus className="w-4 h-4" />
             <span>{t('campaigns.createNew')}</span>

@@ -55,23 +55,25 @@ const PLATFORM_CONFIG: Record<
     icon: string;
   }
 > = {
+  // Custom Audiences are Meta Marketing API objects (one ad-account list serves
+  // Facebook + Instagram placements). Separate FB/IG audience APIs do not exist here.
   meta: {
-    name: 'Meta',
+    name: 'Meta (Facebook & Instagram)',
     color: 'text-blue-500',
     bgColor: 'bg-blue-500/10',
     icon: 'M',
   },
   facebook: {
-    name: 'Facebook',
+    name: 'Meta (Facebook & Instagram)',
     color: 'text-blue-500',
     bgColor: 'bg-blue-500/10',
-    icon: 'F',
+    icon: 'M',
   },
   instagram: {
-    name: 'Instagram',
-    color: 'text-pink-500',
-    bgColor: 'bg-pink-500/10',
-    icon: 'I',
+    name: 'Meta (Facebook & Instagram)',
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-500/10',
+    icon: 'M',
   },
   whatsapp: {
     name: 'WhatsApp',
@@ -190,6 +192,7 @@ function CreateAudienceModal({
   const [description, setDescription] = useState('');
   const [autoSync, setAutoSync] = useState(true);
   const [syncInterval, setSyncInterval] = useState(24);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const createMutation = useCreatePlatformAudience();
 
@@ -200,10 +203,11 @@ function CreateAudienceModal({
     e.preventDefault();
     if (!segmentId || !platform || !adAccountId || !audienceName) return;
 
+    setFormError(null);
     try {
       await createMutation.mutateAsync({
         segment_id: segmentId,
-        platform: platform,
+        platform: 'meta',
         ad_account_id: adAccountId,
         audience_name: audienceName,
         description: description || undefined,
@@ -217,10 +221,18 @@ function CreateAudienceModal({
       setAdAccountId('');
       setAudienceName('');
       setDescription('');
+      setFormError(null);
       setAutoSync(true);
       setSyncInterval(24);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to create audience:', error);
+      const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string };
+      const detail =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Could not create audience. Check credentials and segment status.';
+      setFormError(typeof detail === 'string' ? detail : 'Could not create audience.');
     }
   };
 
@@ -280,7 +292,7 @@ function CreateAudienceModal({
                 </button>
               ))}
             </div>
-            {connectedPlatforms.length === 0 && (
+            {/* Always allow adding/replacing Meta Marketing tokens */}{(
               <p className="mt-2 text-sm text-muted-foreground">
                 No platforms connected. Connect platforms in Settings.
               </p>
@@ -364,6 +376,12 @@ function CreateAudienceModal({
               </div>
             )}
           </div>
+
+          {formError && (
+            <p className="text-sm text-red-500" role="alert">
+              {formError}
+            </p>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
@@ -822,7 +840,7 @@ export function AudienceSync() {
   } = usePlatformAudiences({
     platform: platformFilter || undefined,
   });
-  const { data: segmentsData } = useSegments({ status: 'active' });
+  const { data: segmentsData } = useSegments();
 
   // Mutations
   const syncMutation = useTriggerSync();
@@ -914,7 +932,7 @@ export function AudienceSync() {
             Audience Sync
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Push CDP segments to ad platforms for targeting
+            Push CDP segments to Meta Custom Audiences (Facebook & Instagram placements share one list)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -927,8 +945,16 @@ export function AudienceSync() {
             Export
           </button>
           <button
+            type="button"
             onClick={() => setShowCreateModal(true)}
             disabled={connectedPlatforms.length === 0 || segments.length === 0}
+            title={
+              connectedPlatforms.length === 0
+                ? 'Add Meta Marketing credentials below first'
+                : segments.length === 0
+                  ? 'Create a CDP segment first'
+                  : 'Create a Meta Custom Audience'
+            }
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -956,15 +982,14 @@ export function AudienceSync() {
         )}
       </div>
 
-      {connectedPlatforms.length === 0 && (
+      {(
         <form
           onSubmit={handleConnectCredentials}
           className="rounded-xl border bg-card p-5 space-y-3 max-w-xl"
         >
           <h3 className="font-semibold">Connect Meta for Audience Sync</h3>
           <p className="text-sm text-muted-foreground">
-            Store a System User token with Custom Audience access. The token is encrypted at rest and
-            never shown again.
+            Use a Meta Marketing API System User token with ads_management / Custom Audience access — not a CAPI or Pixel token. Encrypted at rest; never shown again.
           </p>
           <input
             type="text"

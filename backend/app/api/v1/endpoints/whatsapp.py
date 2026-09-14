@@ -899,6 +899,125 @@ async def delete_template(
     )
 
 
+@router.post("/templates/sync", response_model=APIResponse)
+async def sync_templates_from_meta(
+    request: Request,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Pull message templates from Meta and upsert local rows + approval status.
+    """
+    tenant_id = getattr(request.state, "tenant_id", None)
+
+    try:
+        whatsapp_client = await get_whatsapp_client_for_tenant(db, tenant_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"WhatsApp credentials not configured or invalid: {exc}",
+        ) from exc
+
+    try:
+        remote_templates = await whatsapp_client.get_templates(limit=250)
+    except Exception as exc:
+        logger.exception("whatsapp_template_sync_failed", tenant_id=tenant_id)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch templates from Meta: {exc}",
+        ) from exc
+
+    status_map = {
+        "APPROVED": WhatsAppTemplateStatus.APPROVED,
+        "PENDING": WhatsAppTemplateStatus.PENDING,
+        "REJECTED": WhatsAppTemplateStatus.REJECTED,
+        "PAUSED": WhatsAppTemplateStatus.PAUSED,
+        "DISABLED": WhatsAppTemplateStatus.PAUSED,
+    }
+
+    created = 0
+    updated = 0
+
+    for remote in remote_templates:
+        name = remote.get("name") or ""
+        language = remote.get("language") or "en"
+        if not name:
+            continue
+
+        meta_id = str(remote.get("id") or "")
+        remote_status = status_map.get(
+            str(remote.get("status") or "PENDING").upper(),
+            WhatsAppTemplateStatus.PENDING,
+        )
+        category_raw = str(remote.get("category") or "MARKETING").upper()
+        try:
+            category = WhatsAppTemplateCategory(category_raw)
+        except ValueError:
+            category = WhatsAppTemplateCategory.MARKETING
+
+        # Extract body text from components when present
+        body_text = ""
+        header_type = None
+        header_content = None
+        footer_text = None
+        for component in remote.get("components") or []:
+            ctype = str(component.get("type") or "").upper()
+            if ctype == "BODY":
+                body_text = component.get("text") or body_text
+            elif ctype == "HEADER":
+                header_type = component.get("format")
+                header_content = component.get("text")
+            elif ctype == "FOOTER":
+                footer_text = component.get("text")
+
+        result = await db.execute(
+            select(WhatsAppTemplate).where(
+                WhatsAppTemplate.tenant_id == tenant_id,
+                WhatsAppTemplate.name == name,
+                WhatsAppTemplate.language == language,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.status = remote_status
+            existing.meta_template_id = meta_id or existing.meta_template_id
+            existing.category = category
+            if body_text:
+                existing.body_text = body_text
+            if header_type is not None:
+                existing.header_type = header_type
+            if header_content is not None:
+                existing.header_content = header_content
+            if footer_text is not None:
+                existing.footer_text = footer_text
+            updated += 1
+        else:
+            db.add(
+                WhatsAppTemplate(
+                    tenant_id=tenant_id,
+                    name=name,
+                    language=language,
+                    category=category,
+                    header_type=header_type,
+                    header_content=header_content,
+                    body_text=body_text or f"(synced) {name}",
+                    footer_text=footer_text,
+                    status=remote_status,
+                    meta_template_id=meta_id or None,
+                )
+            )
+            created += 1
+
+    await db.commit()
+
+    return APIResponse(
+        success=True,
+        data={"created": created, "updated": updated, "fetched": len(remote_templates)},
+        message=f"Synced {len(remote_templates)} templates from Meta "
+        f"({created} created, {updated} updated)",
+    )
+
+
 # =============================================================================
 # Message Endpoints
 # =============================================================================

@@ -273,9 +273,31 @@ export function Rules() {
     }));
   }, [rulesData]);
 
-  // Handle toggle rule status
-  const handleToggleRule = async (ruleId: number, _currentStatus: RuleStatus) => {
-    await toggleRule.mutateAsync(ruleId.toString());
+  // Handle toggle rule status (draft/paused → activate, active → pause)
+  const handleToggleRule = async (ruleId: number, currentStatus: RuleStatus) => {
+    try {
+      await toggleRule.mutateAsync({ id: ruleId.toString(), status: currentStatus });
+      toast({
+        title: currentStatus === 'active' ? 'Rule paused' : 'Rule activated',
+        description:
+          currentStatus === 'active'
+            ? 'The rule will no longer run automatically.'
+            : 'The rule is now active and will evaluate on schedule.',
+      });
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string; message?: string } }; message?: string })
+          ?.response?.data?.detail ||
+        (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data
+          ?.message ||
+        (err as { message?: string })?.message ||
+        'Could not update rule status.';
+      toast({
+        title: 'Status update failed',
+        description: typeof detail === 'string' ? detail : 'Could not update rule status.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const filteredRules = rules.filter((rule) => {
