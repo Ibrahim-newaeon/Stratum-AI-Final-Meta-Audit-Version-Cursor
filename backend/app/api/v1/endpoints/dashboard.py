@@ -42,6 +42,7 @@ from app.api.v1.endpoints.oauth import FRONTEND_CONNECT_PATH
 from app.models.campaign_builder import ConnectionStatus, TenantPlatformConnection
 from app.models.onboarding import OnboardingStatus, TenantOnboarding
 from app.schemas import APIResponse
+from app.services.tenant.activation import compute_activation_status
 from app.services.signal_health import (
     COMPONENT_EMQ,
     STATUS_CRITICAL,
@@ -1154,6 +1155,18 @@ async def get_quick_actions(
                 icon="link",
                 action=FRONTEND_CONNECT_PATH,
             )
+        )
+
+    activation = await compute_activation_status(db, tenant_id)
+    if not activation["required_complete"]:
+        actions.insert(
+            0,
+            QuickAction(
+                id="complete_meta_setup",
+                label="Complete Meta Setup",
+                icon="shield",
+                action="/dashboard/activation",
+            ),
         )
 
     # Check for campaigns

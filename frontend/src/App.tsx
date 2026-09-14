@@ -32,8 +32,8 @@ function ConnectPlatformsRedirect() {
 const Landing = lazy(() => import('./views/Landing'));
 const LandingAr = lazy(() => import('./views/LandingAr'));
 const AILanding = lazy(() => import('./views/AILanding'));
-const Login = lazy(() => import('./views/Login'));
-const Signup = lazy(() => import('./views/Signup'));
+const Login = lazy(() => import('./views/auth/LoginPage'));
+const Signup = lazy(() => import('./views/auth/SignupPage'));
 const ForgotPassword = lazy(() => import('./views/ForgotPassword'));
 const ResetPassword = lazy(() => import('./views/ResetPassword'));
 const VerifyEmail = lazy(() => import('./views/VerifyEmail'));
@@ -56,6 +56,7 @@ const BillingSuccess = lazy(() => import('./views/billing/BillingSuccess'));
 const Tenants = lazy(() => import('./views/Tenants'));
 const MLTraining = lazy(() => import('./views/MLTraining'));
 const CAPISetup = lazy(() => import('./views/CAPISetup'));
+const Activation = lazy(() => import('./views/Activation'));
 const DataQuality = lazy(() => import('./views/DataQuality'));
 const DataQualityDashboard = lazy(() => import('./views/DataQualityDashboard'));
 const SuperadminDashboard = lazy(() => import('./views/SuperadminDashboard'));
@@ -807,6 +808,14 @@ function App() {
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <MLTraining />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="activation"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <Activation />
                           </Suspense>
                         }
                       />

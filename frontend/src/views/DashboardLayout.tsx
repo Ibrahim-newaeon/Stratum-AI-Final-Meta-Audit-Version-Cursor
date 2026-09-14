@@ -63,6 +63,7 @@ import { NeuralNetworkBg } from '@/components/ui/NeuralNetworkBg';
 import { TrustGateIndicator } from '@/components/ui/TrustGateIndicator';
 import { OnboardingChat, OnboardingChatButton } from '@/components/onboarding';
 import { isHiddenInPortalLaunch } from '@/lib/portalLaunch';
+import { ActivationBanner } from '@/components/activation/ActivationBanner';
 
 // Stratum AI Dashboard Theme - Midnight Teal Glass
 const theme = {
@@ -107,6 +108,12 @@ const navigation = [
     href: '/dashboard/campaigns/connect',
     icon: LinkIcon,
     tourId: 'nav-connect',
+  },
+  {
+    name: 'Meta Setup',
+    href: '/dashboard/activation',
+    icon: ShieldCheckIcon,
+    tourId: 'nav-activation',
   },
   { name: 'nav.stratum', href: '/dashboard/stratum', icon: TrophyIcon, tourId: 'nav-stratum' },
   {
@@ -207,6 +214,7 @@ export default function DashboardLayout() {
       <NeuralNetworkBg />
 
       <DemoBanner variant="top" />
+      <ActivationBanner />
 
       <div className="flex flex-1 overflow-hidden relative z-10">
         {/* Mobile sidebar overlay */}
