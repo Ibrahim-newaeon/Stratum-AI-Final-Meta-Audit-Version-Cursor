@@ -56,6 +56,47 @@ from app.services.signal_health import (
 logger = get_logger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
+RECOMMENDATION_DECISION_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
+
+
+def _recommendation_decision_key(tenant_id: int) -> str:
+    return f"dashboard:recommendation_decisions:{tenant_id}"
+
+
+async def _get_recommendation_decisions(tenant_id: int) -> dict[str, str]:
+    """Return {recommendation_id: approved|rejected} for this tenant."""
+    try:
+        from app.api.v1.endpoints.auth import get_redis_client
+
+        redis_client = await get_redis_client()
+        raw = await redis_client.hgetall(_recommendation_decision_key(tenant_id))
+        if not raw:
+            return {}
+        return {str(k): str(v) for k, v in raw.items()}
+    except Exception:
+        logger.warning("recommendation_decisions_unavailable", tenant_id=tenant_id, exc_info=True)
+        return {}
+
+
+async def _set_recommendation_decision(
+    tenant_id: int, recommendation_id: str, decision: str
+) -> None:
+    try:
+        from app.api.v1.endpoints.auth import get_redis_client
+
+        redis_client = await get_redis_client()
+        key = _recommendation_decision_key(tenant_id)
+        await redis_client.hset(key, recommendation_id, decision)
+        await redis_client.expire(key, RECOMMENDATION_DECISION_TTL_SECONDS)
+    except Exception:
+        logger.warning(
+            "recommendation_decision_persist_failed",
+            tenant_id=tenant_id,
+            recommendation_id=recommendation_id,
+            exc_info=True,
+        )
+
+
 
 # =============================================================================
 # Enums
@@ -893,6 +934,22 @@ async def get_recommendations(
             )
         )
 
+    # Apply persisted approve/reject decisions so actions survive refetch.
+    decisions = await _get_recommendation_decisions(tenant_id)
+    for rec in recommendations:
+        decision = decisions.get(rec.id)
+        if decision == "approved":
+            rec.status = RecommendationStatus.APPROVED
+        elif decision == "rejected":
+            rec.status = RecommendationStatus.REJECTED
+
+    if status_filter:
+        recommendations = [r for r in recommendations if r.status == status_filter]
+    else:
+        recommendations = [
+            r for r in recommendations if r.status == RecommendationStatus.PENDING
+        ]
+
     # Sort by confidence and limit
     recommendations.sort(key=lambda r: r.confidence, reverse=True)
     recommendations = recommendations[:limit]
@@ -926,6 +983,10 @@ async def approve_recommendation(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid recommendation ID"
         )
 
+    await _set_recommendation_decision(
+        current_user.tenant_id, recommendation_id, "approved"
+    )
+
     logger.info(
         "recommendation_approved",
         recommendation_id=recommendation_id,
@@ -948,6 +1009,10 @@ async def reject_recommendation(
     """
     Reject a recommendation.
     """
+    await _set_recommendation_decision(
+        current_user.tenant_id, recommendation_id, "rejected"
+    )
+
     logger.info(
         "recommendation_rejected",
         recommendation_id=recommendation_id,

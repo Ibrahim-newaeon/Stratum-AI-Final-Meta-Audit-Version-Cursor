@@ -44,6 +44,7 @@ const Campaigns = lazy(() => import('./views/Campaigns'));
 const Stratum = lazy(() => import('./views/Stratum'));
 const Benchmarks = lazy(() => import('./views/Benchmarks'));
 const Assets = lazy(() => import('./views/Assets'));
+const Recommendations = lazy(() => import('./views/Recommendations'));
 const Rules = lazy(() => import('./views/Rules'));
 const Competitors = lazy(() => import('./views/Competitors'));
 const Predictions = lazy(() => import('./views/Predictions'));
@@ -723,6 +724,14 @@ function App() {
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
                             <Assets />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="recommendations"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <Recommendations />
                           </Suspense>
                         }
                       />

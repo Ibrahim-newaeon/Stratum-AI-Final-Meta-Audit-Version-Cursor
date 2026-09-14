@@ -58,6 +58,10 @@ export interface CampaignFilters {
   startDate?: string;
   endDate?: string;
   search?: string;
+  /** Backend page (1-indexed). Prefer over skip/limit. */
+  page?: number;
+  page_size?: number;
+  account_id?: string;
   skip?: number;
   limit?: number;
 }
@@ -92,9 +96,38 @@ export const campaignsApi = {
   getCampaigns: async (
     filters: CampaignFilters = {}
   ): Promise<PaginatedResponse<CampaignWithMetrics>> => {
+    const {
+      page,
+      page_size,
+      skip,
+      limit,
+      startDate,
+      endDate,
+      search,
+      account_id,
+      ...rest
+    } = filters;
+
+    const params: Record<string, string | number> = { ...rest };
+    if (search) params.search = search;
+    if (account_id) params.account_id = account_id;
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+
+    // Backend uses page/page_size; keep skip/limit as a compatibility shim.
+    if (page != null) {
+      params.page = page;
+    } else if (skip != null && (limit != null || page_size != null)) {
+      const size = page_size ?? limit ?? 20;
+      params.page = Math.floor(skip / size) + 1;
+      params.page_size = size;
+    }
+    if (page_size != null) params.page_size = page_size;
+    else if (limit != null && page_size == null && page == null) params.page_size = limit;
+
     const response = await apiClient.get<ApiResponse<PaginatedResponse<CampaignWithMetrics>>>(
       '/campaigns',
-      { params: filters }
+      { params }
     );
     return response.data.data;
   },

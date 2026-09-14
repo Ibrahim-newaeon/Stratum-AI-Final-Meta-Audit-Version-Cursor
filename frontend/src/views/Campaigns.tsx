@@ -5,11 +5,8 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   ChevronDown,
   ChevronUp,
-  Edit,
   ExternalLink,
-  Filter,
   Loader2,
-  MoreHorizontal,
   Pause,
   Play,
   Plus,
@@ -34,12 +31,14 @@ import {
   useDiscoverCampaigns,
   usePauseCampaign,
 } from '@/api/hooks';
+import { useAdAccounts } from '@/api/campaignBuilder';
 import { useTenantStore } from '@/stores/tenantStore';
 
 interface Campaign {
   id: number;
   name: string;
   platform: string;
+  accountId: string;
   status: 'active' | 'paused' | 'completed' | 'draft';
   spend: number;
   budget: number;
@@ -50,51 +49,89 @@ interface Campaign {
   conversions: number;
   ctr: number;
   trend: 'up' | 'down' | 'stable';
+  externalUrl?: string | null;
 }
-
 
 type SortField = 'name' | 'spend' | 'revenue' | 'roas' | 'conversions';
 type SortDirection = 'asc' | 'desc';
+
+const PAGE_SIZE = 20;
+
+function centsToMajor(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return n / 100;
+}
 
 export function Campaigns() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [platformFilter, setPlatformFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState<string>(searchParams.get('status') || 'all');
+  const [platformFilter, setPlatformFilter] = useState<string>(
+    searchParams.get('platform') || 'all'
+  );
+  const [accountFilter, setAccountFilter] = useState<string>(
+    searchParams.get('account_id') || 'all'
+  );
+  const [page, setPage] = useState(Number(searchParams.get('page') || '1') || 1);
   const [sortField, setSortField] = useState<SortField>('spend');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedCampaigns, setSelectedCampaigns] = useState<number[]>([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const handledQueryRef = useRef<string | null>(null);
 
-  // Use tenant store for context (reserved for API calls)
-  useTenantStore((state) => state.tenantId);
+  const tenantId = useTenantStore((state) => state.tenantId);
 
-  // Fetch campaigns from API
-  const { data: campaignsData, isLoading } = useCampaigns();
+  const campaignFilters = useMemo(
+    () => ({
+      page,
+      page_size: PAGE_SIZE,
+      search: searchQuery.trim() || undefined,
+      status:
+        statusFilter !== 'all'
+          ? (statusFilter as 'active' | 'paused' | 'completed' | 'draft')
+          : undefined,
+      platform: platformFilter !== 'all' ? (platformFilter as 'meta') : undefined,
+      account_id: accountFilter !== 'all' ? accountFilter : undefined,
+    }),
+    [page, searchQuery, statusFilter, platformFilter, accountFilter]
+  );
+
+  const { data: campaignsData, isLoading, refetch } = useCampaigns(campaignFilters);
   const pauseCampaign = usePauseCampaign();
   const activateCampaign = useActivateCampaign();
   const deleteCampaign = useDeleteCampaign();
   const discoverCampaigns = useDiscoverCampaigns();
+  const { data: adAccounts = [] } = useAdAccounts(tenantId ?? 0, 'meta', true);
 
-  // Dashboard quick actions deep-link here with ?discover=1 / ?create=1
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    const sync = (key: string, value: string, blank: string) => {
+      if (!value || value === blank) next.delete(key);
+      else next.set(key, value);
+    };
+    sync('status', statusFilter, 'all');
+    sync('platform', platformFilter, 'all');
+    sync('account_id', accountFilter, 'all');
+    sync('search', searchQuery.trim(), '');
+    if (page > 1) next.set('page', String(page));
+    else next.delete('page');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync filter state only
+  }, [statusFilter, platformFilter, accountFilter, searchQuery, page]);
+
   useEffect(() => {
     const discover = searchParams.get('discover');
     const create = searchParams.get('create');
-    if (!discover && !create) {
-      return;
-    }
+    if (!discover && !create) return;
+
     const key = searchParams.toString();
-    if (handledQueryRef.current === key) {
-      return;
-    }
+    if (handledQueryRef.current === key) return;
     handledQueryRef.current = key;
 
-    if (create === '1') {
-      setCreateModalOpen(true);
-    }
+    if (create === '1') setCreateModalOpen(true);
     if (discover === '1') {
       discoverCampaigns.mutate(undefined, {
         onSuccess: () => {
@@ -119,26 +156,40 @@ export function Campaigns() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, discoverCampaigns, toast]);
 
-  // Transform API campaigns; empty list when none discovered yet (no mock catalogue)
+  const totalCampaigns = campaignsData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCampaigns / PAGE_SIZE));
+
   const campaigns = useMemo((): Campaign[] => {
-    if (campaignsData?.items && campaignsData.items.length > 0) {
-      return campaignsData.items.map((c: any) => ({
+    const items = campaignsData?.items ?? [];
+    return items.map((c: any) => {
+      const spend = c.spend ?? centsToMajor(c.total_spend_cents ?? c.spend_cents ?? 0);
+      const revenue = c.revenue ?? centsToMajor(c.revenue_cents ?? 0);
+      const budget = c.budget ?? centsToMajor(c.daily_budget_cents ?? c.daily_budget ?? 0);
+      const roas = c.roas ?? (spend > 0 ? revenue / spend : 0);
+      const impressions = c.impressions || 0;
+      const clicks = c.clicks || 0;
+      const rawStatus = (c.status || 'active').toLowerCase();
+      const status = (
+        ['active', 'paused', 'completed', 'draft'].includes(rawStatus) ? rawStatus : 'draft'
+      ) as Campaign['status'];
+      return {
         id: Number(c.id) || Number(c.campaign_id) || 0,
         name: c.name || c.campaign_name || '',
-        platform: c.platform?.toLowerCase() || 'facebook',
-        status: c.status?.toLowerCase() || 'active',
-        spend: c.spend || 0,
-        budget: c.budget || c.daily_budget || 10000,
-        revenue: c.revenue || 0,
-        roas: c.roas || (c.spend > 0 ? c.revenue / c.spend : 0),
-        impressions: c.impressions || 0,
-        clicks: c.clicks || 0,
+        platform: (c.platform || 'meta').toLowerCase(),
+        accountId: String(c.account_id || c.accountId || ''),
+        status,
+        spend,
+        budget,
+        revenue,
+        roas,
+        impressions,
+        clicks,
         conversions: c.conversions || 0,
-        ctr: c.ctr || (c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0),
-        trend: c.trend || (c.roas >= 3.5 ? 'up' : c.roas < 2.5 ? 'down' : 'stable'),
-      }));
-    }
-    return [];
+        ctr: c.ctr || (impressions > 0 ? (clicks / impressions) * 100 : 0),
+        trend: c.trend || (roas >= 3.5 ? 'up' : roas < 2.5 ? 'down' : 'stable'),
+        externalUrl: c.external_url || c.platform_url || null,
+      };
+    });
   }, [campaignsData]);
 
   const handleSort = (field: SortField) => {
@@ -150,30 +201,20 @@ export function Campaigns() {
     }
   };
 
-  const filteredCampaigns = campaigns
-    .filter((campaign) => {
-      if (searchQuery && !campaign.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-      if (statusFilter !== 'all' && campaign.status !== statusFilter) {
-        return false;
-      }
-      if (platformFilter !== 'all' && campaign.platform !== platformFilter) {
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
-      const direction = sortDirection === 'asc' ? 1 : -1;
-      if (typeof aValue === 'string') {
-        return aValue.localeCompare(bValue as string) * direction;
-      }
-      return (aValue - (bValue as number)) * direction;
-    });
+  const filteredCampaigns = useMemo(
+    () =>
+      [...campaigns].sort((a, b) => {
+        const aValue = a[sortField];
+        const bValue = b[sortField];
+        const direction = sortDirection === 'asc' ? 1 : -1;
+        if (typeof aValue === 'string') {
+          return aValue.localeCompare(bValue as string) * direction;
+        }
+        return ((aValue as number) - (bValue as number)) * direction;
+      }),
+    [campaigns, sortField, sortDirection]
+  );
 
-  // Handle bulk pause
   const handleBulkPause = async () => {
     for (const id of selectedCampaigns) {
       await pauseCampaign.mutateAsync(id.toString());
@@ -181,7 +222,6 @@ export function Campaigns() {
     setSelectedCampaigns([]);
   };
 
-  // Handle bulk activate
   const handleBulkActivate = async () => {
     for (const id of selectedCampaigns) {
       await activateCampaign.mutateAsync(id.toString());
@@ -189,7 +229,6 @@ export function Campaigns() {
     setSelectedCampaigns([]);
   };
 
-  // Handle bulk delete
   const handleBulkDelete = async () => {
     for (const id of selectedCampaigns) {
       await deleteCampaign.mutateAsync(id.toString());
@@ -227,7 +266,6 @@ export function Campaigns() {
       completed: 'bg-blue-500/10 text-blue-500',
       draft: 'bg-gray-500/10 text-gray-500',
     };
-
     return (
       <span className={cn('px-2 py-1 rounded-full text-xs font-medium', styles[status])}>
         {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -245,9 +283,16 @@ export function Campaigns() {
     </div>
   );
 
+  const resetPageOnFilter = <T,>(setter: (value: T) => void) => {
+    return (value: T) => {
+      setter(value);
+      setPage(1);
+      setSelectedCampaigns([]);
+    };
+  };
+
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{t('campaigns.title')}</h1>
@@ -264,6 +309,7 @@ export function Campaigns() {
                     title: 'Discovery queued',
                     description: 'Campaign list refreshes when Meta sync finishes.',
                   });
+                  void refetch();
                 },
                 onError: (err) => {
                   toast({
@@ -295,7 +341,6 @@ export function Campaigns() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -303,15 +348,15 @@ export function Campaigns() {
             type="text"
             placeholder={t('campaigns.searchPlaceholder')}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => resetPageOnFilter(setSearchQuery)(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => resetPageOnFilter(setStatusFilter)(e.target.value)}
             className="px-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
             <option value="all">{t('campaigns.allStatuses')}</option>
@@ -323,23 +368,28 @@ export function Campaigns() {
 
           <select
             value={platformFilter}
-            onChange={(e) => setPlatformFilter(e.target.value)}
+            onChange={(e) => resetPageOnFilter(setPlatformFilter)(e.target.value)}
             className="px-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
             <option value="all">{t('campaigns.allPlatforms')}</option>
-            <option value="facebook">Facebook</option>
-            <option value="instagram">Instagram</option>
-            <option value="whatsapp">WhatsApp</option>
+            <option value="meta">Meta</option>
           </select>
 
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg border hover:bg-muted transition-colors">
-            <Filter className="w-4 h-4" />
-            <span>{t('common.moreFilters')}</span>
-          </button>
+          <select
+            value={accountFilter}
+            onChange={(e) => resetPageOnFilter(setAccountFilter)(e.target.value)}
+            className="px-4 py-2 rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[12rem]"
+          >
+            <option value="all">All ad accounts</option>
+            {adAccounts.map((account) => (
+              <option key={account.platform_account_id} value={account.platform_account_id}>
+                {account.name || account.platform_account_id}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Bulk Actions */}
       {selectedCampaigns.length > 0 && (
         <div className="flex items-center gap-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
           <span className="text-sm font-medium">
@@ -386,7 +436,6 @@ export function Campaigns() {
         </div>
       )}
 
-      {/* Table */}
       <div className="rounded-xl border bg-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -472,6 +521,7 @@ export function Campaigns() {
                         <p className="font-medium">{campaign.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatCurrency(campaign.spend)} / {formatCurrency(campaign.budget)}
+                          {campaign.accountId ? ` · ${campaign.accountId}` : ''}
                         </p>
                       </div>
                     </div>
@@ -508,15 +558,45 @@ export function Campaigns() {
                   </td>
                   <td className="p-4 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <button className="p-2 rounded-lg hover:bg-muted transition-colors">
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 rounded-lg hover:bg-muted transition-colors">
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 rounded-lg hover:bg-muted transition-colors">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </button>
+                      {campaign.externalUrl ? (
+                        <a
+                          href={campaign.externalUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-2 rounded-lg hover:bg-muted transition-colors"
+                          title="Open in Meta"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      ) : (
+                        <span
+                          className="p-2 rounded-lg text-muted-foreground/40"
+                          title="No Meta deep-link for this row"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </span>
+                      )}
+                      {campaign.status === 'active' ? (
+                        <button
+                          type="button"
+                          onClick={() => pauseCampaign.mutate(campaign.id.toString())}
+                          disabled={pauseCampaign.isPending}
+                          className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                          title="Pause locally in Stratum"
+                        >
+                          <Pause className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => activateCampaign.mutate(campaign.id.toString())}
+                          disabled={activateCampaign.isPending}
+                          className="p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                          title="Activate locally in Stratum"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -525,15 +605,14 @@ export function Campaigns() {
           </table>
         </div>
 
-        {filteredCampaigns.length === 0 && (
+        {filteredCampaigns.length === 0 && !isLoading && (
           <div className="p-12 text-center">
             <p className="text-muted-foreground">{t('campaigns.noResults')}</p>
           </div>
         )}
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <p className="text-sm text-muted-foreground">
           {isLoading ? (
             <span className="flex items-center gap-2">
@@ -543,35 +622,42 @@ export function Campaigns() {
           ) : (
             t('campaigns.showing', {
               count: filteredCampaigns.length,
-              total: campaigns.length,
+              total: totalCampaigns,
             })
           )}
         </p>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             className="px-3 py-1.5 rounded-lg border hover:bg-muted transition-colors text-sm disabled:opacity-50"
-            disabled
+            disabled={page <= 1 || isLoading}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
             {t('common.previous')}
           </button>
-          <button className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm">
-            1
-          </button>
-          <button className="px-3 py-1.5 rounded-lg border hover:bg-muted transition-colors text-sm">
-            2
-          </button>
-          <button className="px-3 py-1.5 rounded-lg border hover:bg-muted transition-colors text-sm">
+          <span className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm">
+            {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            className="px-3 py-1.5 rounded-lg border hover:bg-muted transition-colors text-sm disabled:opacity-50"
+            disabled={page >= totalPages || isLoading}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
             {t('common.next')}
           </button>
         </div>
       </div>
 
-      {/* Campaign Create Modal */}
       <CampaignCreateModal
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onSuccess={(campaign) => {
-          toast({ title: 'Campaign created', description: `"${campaign?.name || 'New campaign'}" has been created successfully.` });
+          toast({
+            title: 'Campaign created',
+            description: `"${campaign?.name || 'New campaign'}" has been created successfully.`,
+          });
+          void refetch();
         }}
       />
     </div>

@@ -302,7 +302,8 @@ export default function UnifiedDashboard() {
           <CampaignPerformanceTable
             campaigns={campaigns?.campaigns || []}
             loading={campaignsLoading}
-            onViewAll={() => navigate('/dashboard/campaigns')}
+            onViewAll={() => navigate('/dashboard/campaigns?status=active')}
+            onCampaignClick={() => navigate('/dashboard/campaigns?status=active')}
           />
         </div>
 
