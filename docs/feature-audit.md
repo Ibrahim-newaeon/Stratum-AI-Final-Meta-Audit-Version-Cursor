@@ -8,8 +8,8 @@ priority decisions; it is not a live feature inventory.
 **Live shell:** Evidence Room (bone/oxblood) on marketing + dashboard.
 
 **Proposed next system (design preview):** **Kinetic Signal Observatory** —
-cobalt / cyan / lime / coral, Instagram Sans (+ Helvetica School fallback),
-Trust Gate orbit as the hero, asymmetric Signal Weather dashboard. Previews:
+cobalt / cyan / lime / coral, Helvetica + Garamond only, Trust Gate orbit as the
+hero, asymmetric Signal Weather dashboard. Previews:
 
 - `/studio-preview/kinetic` (marketing)
 - `/studio-preview/kinetic/dashboard` (overview)
