@@ -1,7 +1,7 @@
 /**
  * Kinetic Signal Observatory — design preview tokens
  * Bright instrument panel (light) / night observatory (dark).
- * Scoped under .ks-root — does not replace live Evidence Room until approved.
+ * Scoped under .ks-root. Approved live system for marketing, auth, and dashboard shell.
  */
 
 .ks-root.ks-light {
@@ -25,9 +25,10 @@
   --ks-block: #e11d48;
   --ks-shadow: 0 12px 40px rgba(16, 24, 40, 0.08);
   --ks-glow: 0 0 0 1px rgba(64, 84, 245, 0.2), 0 0 32px rgba(0, 207, 232, 0.18);
-  --ks-font-display: 'Syne', 'Space Grotesk', ui-sans-serif, sans-serif;
-  --ks-font-ui: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-  --ks-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ks-font-display: 'EB Garamond', Garamond, 'Times New Roman', serif;
+  --ks-font-ui: 'Helvetica School', Helvetica, Arial, sans-serif;
+  --ks-font-label: 'Helvetica School', Helvetica, Arial, sans-serif;
+  --ks-font-mono: 'Helvetica School', Helvetica, Arial, sans-serif;
   --ks-ribbon: linear-gradient(120deg, #4054f5 0%, #00cfe8 45%, #d7f54a 100%);
   --ks-orbit: rgba(64, 84, 245, 0.35);
 }
@@ -53,9 +54,10 @@
   --ks-block: #ff7785;
   --ks-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   --ks-glow: 0 0 0 1px rgba(57, 232, 255, 0.25), 0 0 40px rgba(110, 124, 255, 0.22);
-  --ks-font-display: 'Syne', 'Space Grotesk', ui-sans-serif, sans-serif;
-  --ks-font-ui: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-  --ks-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ks-font-display: 'EB Garamond', Garamond, 'Times New Roman', serif;
+  --ks-font-ui: 'Helvetica School', Helvetica, Arial, sans-serif;
+  --ks-font-label: 'Helvetica School', Helvetica, Arial, sans-serif;
+  --ks-font-mono: 'Helvetica School', Helvetica, Arial, sans-serif;
   --ks-ribbon: linear-gradient(120deg, #6e7cff 0%, #39e8ff 50%, #d8ff53 100%);
   --ks-orbit: rgba(57, 232, 255, 0.4);
 }
@@ -75,9 +77,9 @@
 
 .ks-display {
   font-family: var(--ks-font-display);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 0.95;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 0.98;
 }
 
 .ks-mono {
@@ -86,9 +88,9 @@
 }
 
 .ks-label {
-  font-family: var(--ks-font-mono);
+  font-family: var(--ks-font-label);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ks-muted);
@@ -161,9 +163,9 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  font-family: var(--ks-font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-family: var(--ks-font-label);
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

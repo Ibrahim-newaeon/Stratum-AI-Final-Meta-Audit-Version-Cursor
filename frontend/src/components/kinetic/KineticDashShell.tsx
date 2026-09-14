@@ -13,32 +13,64 @@ import {
   Zap,
 } from 'lucide-react'
 import { KineticThemeToggle } from '@/components/kinetic/KineticThemeToggle'
+import { ActivationBanner } from '@/components/activation/ActivationBanner'
+import { useTheme } from '@/contexts/ThemeContext'
 import { cn } from '@/lib/utils'
+
+type NavItem = {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+  end?: boolean
+}
+
+/** Live dashboard nav — Kinetic chrome mapped to real product routes. */
+const LIVE_NAV: NavItem[] = [
+  { to: '/dashboard/overview', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/dashboard/campaigns', label: 'Campaigns', icon: Zap },
+  { to: '/dashboard/stratum', label: 'Trust Engine', icon: Shield },
+  { to: '/dashboard/custom-autopilot-rules', label: 'Autopilot', icon: Radio },
+  { to: '/dashboard/cdp', label: 'CDP', icon: Users },
+  { to: '/dashboard/performance', label: 'Measurement', icon: Gauge },
+  { to: '/dashboard/recommendations', label: 'Attribution', icon: Activity },
+  { to: '/dashboard/assets', label: 'Assets', icon: Boxes },
+  { to: '/dashboard/campaigns/connect', label: 'Integrations', icon: Cable },
+  { to: '/dashboard/settings', label: 'Billing', icon: Wallet },
+  { to: '/dashboard/settings', label: 'Settings', icon: Settings },
+]
 
 type Props = {
   mode: 'light' | 'dark'
   onToggleMode: () => void
+  /** Route prefix for preview nav (`/studio-preview/kinetic`) or omit for live. */
+  basePath?: string
+  preview?: boolean
 }
 
-const NAV = [
-  { to: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-  { to: 'campaigns', label: 'Campaigns', icon: Zap },
-  { to: 'trust-engine', label: 'Trust Engine', icon: Shield },
-  { to: 'autopilot', label: 'Autopilot', icon: Radio },
-  { to: 'cdp', label: 'CDP', icon: Users },
-  { to: 'measurement', label: 'Measurement', icon: Gauge },
-  { to: 'attribution', label: 'Attribution', icon: Activity },
-  { to: 'assets', label: 'Assets', icon: Boxes },
-  { to: 'integrations', label: 'Integrations', icon: Cable },
-  { to: 'billing', label: 'Billing', icon: Wallet },
-  { to: 'settings', label: 'Settings', icon: Settings },
-]
-
 /**
- * Narrow command rail + workspace for Kinetic dashboard preview.
+ * Kinetic dashboard chrome — live (`/dashboard`) or design preview.
  */
-export function KineticDashShell({ mode, onToggleMode }: Props) {
-  const base = '/studio-preview/kinetic'
+export function KineticDashShell({ mode, onToggleMode, basePath, preview }: Props) {
+  const isPreview = Boolean(preview || basePath)
+  const base = basePath ?? '/dashboard'
+
+  const nav: NavItem[] = isPreview
+    ? [
+        { to: `${base}/dashboard`, label: 'Overview', icon: LayoutDashboard, end: true },
+        { to: `${base}/dashboard/campaigns`, label: 'Campaigns', icon: Zap },
+        { to: `${base}/dashboard/trust-engine`, label: 'Trust Engine', icon: Shield },
+        { to: `${base}/dashboard/autopilot`, label: 'Autopilot', icon: Radio },
+        { to: `${base}/dashboard/cdp`, label: 'CDP', icon: Users },
+        { to: `${base}/dashboard/measurement`, label: 'Measurement', icon: Gauge },
+        { to: `${base}/dashboard/attribution`, label: 'Attribution', icon: Activity },
+        { to: `${base}/dashboard/assets`, label: 'Assets', icon: Boxes },
+        { to: `${base}/dashboard/integrations`, label: 'Integrations', icon: Cable },
+        { to: `${base}/dashboard/billing`, label: 'Billing', icon: Wallet },
+        { to: `${base}/dashboard/settings`, label: 'Settings', icon: Settings },
+      ]
+    : LIVE_NAV
+
+  const homeHref = isPreview ? base : '/dashboard/overview'
 
   return (
     <div className={`ks-root flex min-h-screen ${mode === 'dark' ? 'ks-dark' : 'ks-light'}`}>
@@ -46,7 +78,7 @@ export function KineticDashShell({ mode, onToggleMode }: Props) {
         className="sticky top-0 flex h-screen w-[72px] shrink-0 flex-col items-center border-r border-[var(--ks-line)] py-4 lg:w-[220px] lg:items-stretch lg:px-3"
         style={{ background: 'var(--ks-surface)' }}
       >
-        <NavLink to={base} className="mb-6 flex items-center gap-2 px-1 no-underline lg:px-2">
+        <NavLink to={homeHref} className="mb-6 flex items-center gap-2 px-1 no-underline lg:px-2">
           <span
             className="flex h-9 w-9 shrink-0 items-center justify-center"
             style={{ background: 'var(--ks-cobalt)' }}
@@ -57,20 +89,18 @@ export function KineticDashShell({ mode, onToggleMode }: Props) {
             <p className="ks-display text-base" style={{ color: 'var(--ks-ink)' }}>
               Stratum
             </p>
-            <p className="ks-label">Observatory</p>
+            <p className="ks-label">{isPreview ? 'Preview' : 'Observatory'}</p>
           </div>
         </NavLink>
 
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Dashboard">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const Icon = item.icon
-            const href =
-              item.to === 'dashboard' ? `${base}/dashboard` : `${base}/dashboard/${item.to}`
             return (
               <NavLink
-                key={item.to}
-                to={href}
-                end={item.to === 'dashboard'}
+                key={`${item.label}-${item.to}`}
+                to={item.to}
+                end={item.end}
                 className={({ isActive }) =>
                   cn(
                     'relative flex items-center gap-2.5 px-2 py-2 text-[13px] no-underline transition-colors',
@@ -100,7 +130,7 @@ export function KineticDashShell({ mode, onToggleMode }: Props) {
         <div className="mt-3 hidden border-t border-[var(--ks-line)] pt-3 lg:block">
           <KineticThemeToggle mode={mode} onToggle={onToggleMode} />
           <p className="ks-mono mt-3 px-1 text-[10px]" style={{ color: 'var(--ks-pass)' }}>
-            SIGNAL 72 · PASS
+            SIGNAL · TRUST GATE
           </p>
         </div>
       </aside>
@@ -127,9 +157,19 @@ export function KineticDashShell({ mode, onToggleMode }: Props) {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          {!isPreview ? <ActivationBanner /> : null}
           <Outlet />
         </main>
       </div>
     </div>
   )
+}
+
+/** Live `/dashboard` layout — Kinetic chrome + ThemeContext. */
+export default function KineticLiveAppShell() {
+  const { resolvedTheme, setTheme } = useTheme()
+  const mode = resolvedTheme === 'dark' ? 'dark' : 'light'
+  const onToggleMode = () => setTheme(mode === 'dark' ? 'light' : 'dark')
+
+  return <KineticDashShell mode={mode} onToggleMode={onToggleMode} />
 }

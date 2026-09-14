@@ -8,19 +8,34 @@ import KineticDashboardOverview, {
 } from '@/views/kinetic/KineticDashboardOverview'
 
 /**
- * Public design-preview host for Kinetic Signal Observatory.
- * Mounted at `/studio-preview/kinetic/*`
+ * Design sandbox still available at `/studio-preview/kinetic/*`
+ * Live product now uses Kinetic shells on `/`, auth, and `/dashboard`.
  */
 export default function KineticPreviewApp() {
   const [mode, setMode] = useState<'light' | 'dark'>('light')
   const toggle = () => setMode((m) => (m === 'light' ? 'dark' : 'light'))
+  const base = '/studio-preview/kinetic'
 
   return (
     <Routes>
-      <Route element={<KineticMarketingShell mode={mode} onToggleMode={toggle} />}>
+      <Route
+        element={
+          <KineticMarketingShell mode={mode} onToggleMode={toggle} preview />
+        }
+      >
         <Route index element={<KineticMarketingHome />} />
       </Route>
-      <Route path="dashboard" element={<KineticDashShell mode={mode} onToggleMode={toggle} />}>
+      <Route
+        path="dashboard"
+        element={
+          <KineticDashShell
+            mode={mode}
+            onToggleMode={toggle}
+            basePath={base}
+            preview
+          />
+        }
+      >
         <Route index element={<KineticDashboardOverview />} />
         <Route path="campaigns" element={<KineticPlaceholder title="Campaigns" />} />
         <Route path="trust-engine" element={<KineticPlaceholder title="Trust Engine" />} />

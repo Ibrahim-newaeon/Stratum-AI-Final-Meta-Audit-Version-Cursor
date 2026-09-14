@@ -181,11 +181,11 @@ export function KineticMarketingHome() {
             with labeled mock data.
           </p>
           <Link
-            to="/studio-preview/kinetic/dashboard"
+            to="/dashboard/overview"
             className="mt-6 inline-flex items-center gap-2 bg-[var(--ks-lime)] px-5 py-3 text-sm font-semibold no-underline"
             style={{ color: '#101828' }}
           >
-            Open dashboard preview →
+            Open dashboard →
           </Link>
         </div>
       </section>

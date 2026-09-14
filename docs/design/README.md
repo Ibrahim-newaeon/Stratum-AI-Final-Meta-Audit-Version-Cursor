@@ -1,9 +1,9 @@
 # StratumAI — Design systems
 
-## Proposed next — Kinetic Signal Observatory (approval)
+## Live — Kinetic Signal Observatory (approved)
 
-Replaces rigid Pearl/Indigo, navy/periwinkle, and beige/oxblood as the **candidate**
-product visual language. Bright, asymmetric, signal-flow first. Trust Gate is the hero.
+Bright instrument panel (light) / night observatory (dark). Cobalt, cyan, lime,
+coral. Trust Gate is the hero. Helvetica + Garamond only.
 
 | Role | Light | Dark |
 |------|-------|------|
@@ -15,41 +15,31 @@ product visual language. Bright, asymmetric, signal-flow first. Trust Gate is th
 | Lime | `#D7F54A` | `#D8FF53` |
 | Coral | `#FF5F6D` | `#FF7785` |
 
-Typography: **Syne** (display) · **DM Sans** (UI) · **IBM Plex Mono** (metadata).
+Typography: **EB Garamond** (display) · **Helvetica School** (UI / labels) ·
+Helvetica → Arial fallback.
 
 ### Signature UI
 
 1. Living Trust Gate orbit (EXECUTE / HOLD / MANUAL REQUIRED)
 2. Signal Weather + five health components
-3. Campaign Pulse rows (health strips, not equal cards)
-4. Evidence Stream with reasons + timestamps
-5. Meta act / GA4 verify / GTM tag measurement lanes
+3. Campaign Pulse rows
+4. Evidence Stream
+5. Meta act / GA4 verify / GTM tag lanes
 
-### Preview (no auth)
+### Implementation
 
-- Marketing: `/studio-preview/kinetic`
-- Dashboard: `/studio-preview/kinetic/dashboard`
-- Day panel / Night observatory toggle in header
-
-Tokens: `frontend/src/theme/kinetic-tokens.css`  
-Components: `frontend/src/components/kinetic/`  
-Views: `frontend/src/views/kinetic/`
-
-**Do not** migrate live marketing/dashboard until Ibrahim approves Kinetic.
-Evidence Room remains the live shell; Luminous remains an earlier preview only.
-
-Craft influence (secondary): Signal/Craft graphite + orange action energy may inform
-primary CTAs after approval — Kinetic remains the master system name.
+- Tokens: `frontend/src/theme/kinetic-tokens.css`
+- Fonts: `frontend/src/theme/kinetic-fonts.css` + `frontend/public/fonts/kinetic/`
+- Shells: `frontend/src/components/kinetic/*`
+- Live: `/`, `/login`, `/signup`, `/dashboard/*`
+- Sandbox: `/studio-preview/kinetic`
 
 ---
 
-## Live product UI (until Kinetic approved)
+## Archive — Evidence Room
 
-**Evidence Room** — bone / oxblood. Marketing + dashboard shell.
+Bone / oxblood. Still available at `/studio-preview/workspace`.
 
-- Preview: `/studio-preview/workspace`
-
-## Earlier proposal — Luminous Control
+## Archive — Luminous Control
 
 Pearl & Indigo / Navy & Periwinkle. Preview: `/studio-preview/luminous`.
-Superseded as the preferred direction if Kinetic is approved.

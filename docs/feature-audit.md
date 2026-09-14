@@ -3,33 +3,25 @@
 Grounded in implementation and `CLAUDE.md`. This file tracks durable product
 priority decisions; it is not a live feature inventory.
 
-## Full frontend redesign (in progress)
+## Full frontend redesign
 
-**Live shell:** Evidence Room (bone/oxblood) on marketing + dashboard.
+**Live system:** **Kinetic Signal Observatory** — cobalt / cyan / lime / coral,
+Helvetica + Garamond, Trust Gate orbit, Signal Weather dashboard. Live on `/`,
+auth, and `/dashboard` (shell + overview). Feature pages inherit Kinetic chrome.
 
-**Proposed next system (design preview):** **Kinetic Signal Observatory** —
-cobalt / cyan / lime / coral, Syne + DM Sans, Trust Gate orbit as the hero,
-asymmetric Signal Weather dashboard. Previews:
-
-- `/studio-preview/kinetic` (marketing)
-- `/studio-preview/kinetic/dashboard` (overview)
-
-Earlier Luminous Control preview remains at `/studio-preview/luminous` for
-comparison only. See `docs/design/README.md`.
-
-Do not migrate app-wide until Kinetic is approved. Until then:
+Sandbox: `/studio-preview/kinetic`. Archives: Evidence (`/studio-preview/workspace`),
+Luminous (`/studio-preview/luminous`). See `docs/design/README.md`.
 
 | Phase | Status |
 |-------|--------|
 | Meta activation hub + required Marketing API token | **Shipped** |
-| Evidence Room tokens, marketing homepage, Front Desk | **Shipped (live)** |
-| Luminous Control Command Overview | Preview (superseded candidate) |
-| Kinetic Signal Observatory marketing + dashboard | **Preview (preferred)** |
-| App-wide migration (home, auth, all dashboard features) | After Kinetic sign-off |
+| Kinetic Signal Observatory (marketing, auth, dashboard shell + overview) | **Live** |
+| Remaining feature views restyled to Kinetic modules | In progress |
+| Evidence Room / Luminous | Archived previews |
 
-**Rule:** live UI keeps `--er-*`. Kinetic uses scoped `--ks-*` inside `.ks-root`
-only. Sample data must be labeled. GA4/GTM = measurement only, never ad channels.
-No fabricated confidence scores.
+**Rule:** live UI uses scoped `--ks-*` inside `.ks-root`. Sample overview data
+must stay labeled until wired to APIs. GA4/GTM = measurement only. No fabricated
+confidence scores.
 
 ## Rules → Meta policy (decided)
 
