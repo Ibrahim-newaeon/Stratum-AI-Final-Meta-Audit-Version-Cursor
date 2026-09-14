@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import DashboardLayout from './components/studio/StudioAppShell';
+import DashboardLayout from './components/evidence/EvidenceAppShell';
 import TenantLayout from './views/TenantLayout';
 import { Toaster } from './components/ui/toaster';
 import { TooltipProvider } from './components/ui/tooltip';

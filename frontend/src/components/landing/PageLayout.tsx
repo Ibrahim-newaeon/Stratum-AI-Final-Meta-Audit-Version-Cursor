@@ -1,19 +1,17 @@
 /**
- * PageLayout — public content pages (Studio tokens + MarketingShell).
+ * Public content pages — Evidence Room shell
  */
 
-import { MarketingShell } from '@/components/marketing/MarketingShell';
+import { EvidenceMarketingShell } from '@/components/evidence/EvidenceMarketingShell';
 
-interface PageLayoutProps {
-  children: React.ReactNode;
-}
-
-export function PageLayout({ children }: PageLayoutProps) {
+export function PageLayout({ children }: { children: React.ReactNode }) {
   return (
-    <MarketingShell>
-      <div className="mx-auto max-w-[960px] px-6 py-12" style={{ minHeight: '60vh' }}>
-        {children}
+    <EvidenceMarketingShell>
+      <div className="mx-auto max-w-[800px] px-6 py-12" style={{ minHeight: '60vh' }}>
+        <article className="prose-evidence text-base leading-7 md:text-lg" style={{ color: 'var(--er-text)' }}>
+          {children}
+        </article>
       </div>
-    </MarketingShell>
+    </EvidenceMarketingShell>
   );
 }

@@ -1,35 +1,33 @@
-# Stratum Studio visual system
+# StratumAI — Evidence Room visual system
 
-Concept boards (same geometry, light + dark tokens only):
-
-- Light — Pearl & Indigo: `stratum-studio-light-pearl-indigo.png`
-- Dark — Navy & Periwinkle: `stratum-studio-dark-navy-periwinkle.png`
+Creative territory: every decision leaves a paper trail.
 
 ## Tokens
 
-| Role | Light | Dark |
-|------|-------|------|
-| Background | `#F6F7FB` | `#0F1424` |
-| Sidebar | `#FFFFFF` | `#131A2C` |
-| Cards | `#FFFFFF` | `#1B243B` |
-| Borders | `#DDE2EC` | `#33415F` |
-| Primary text | `#182235` | `#F1F5FF` |
-| Secondary text | `#526078` | `#B7C3DA` |
-| Accent / buttons | `#4F46E5` | `#A5B4FC` |
-| Active nav wash | `#EEF2FF` | `#293456` |
+| Role | Value |
+|------|-------|
+| Bone (canvas) | `#F2EEE5` |
+| Paper (surfaces) | `#FAF8F3` |
+| Carbon (text) | `#191919` |
+| Graphite (muted) | `#5E5A55` |
+| Limestone (trays) | `#D8D1C5` |
+| Line | `#D5CEC2` |
+| Oxblood (CTA / seam) | `#762C38` |
+| Deep teal (pass) | `#245A55` |
+| Signal orange | `#F04A1A` |
+| Warning amber | `#B87518` |
+| Critical red | `#B5302C` |
 
-Accent button text: white on light, navy `#0F1424` on dark.
+Typography: **Instrument Serif** (headlines), **IBM Plex Sans** (UI), **IBM Plex Mono** (IDs, timestamps, metrics).
 
-## Shell
+Signature motif: horizontal incision / seam between recommendation and evidence.
 
-- Narrow left sidebar + top search (`⌘ K`) + primary action
-- Primary nav: Workspace, Campaigns, CDP, Assets, Settings
-- Secondary: Meta Setup
-- Theme toggle switches Pearl ↔ Navy
+## Implementation
 
-Implemented in:
+- `frontend/src/theme/evidence-tokens.css`
+- `frontend/src/components/evidence/EvidenceAppShell.tsx`
+- `frontend/src/components/evidence/DecisionCrossExamination.tsx`
+- `frontend/src/components/evidence/EvidenceMarketingShell.tsx`
+- Homepage narrative + Overview attention ledger
 
-- `frontend/src/theme/studio-tokens.css`
-- `frontend/src/components/studio/StudioAppShell.tsx`
-- `frontend/src/views/studio/WorkspaceOverview.tsx`
-- `frontend/src/views/studio/DesignSystemPage.tsx`
+Preview: `/studio-preview/workspace`, `/studio-preview/design-system`
