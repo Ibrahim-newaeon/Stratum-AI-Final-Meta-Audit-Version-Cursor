@@ -7,24 +7,29 @@ priority decisions; it is not a live feature inventory.
 
 **Live shell:** Evidence Room (bone/oxblood) on marketing + dashboard.
 
-**Proposed next system (design preview only):** **Luminous Control** — Pearl &
-Indigo / Navy & Periwinkle, Inter, Trust-Gated Autopilot + CDP Identity Graph
-hero modules. Preview: `/studio-preview/luminous`. See `docs/design/README.md`.
+**Proposed next system (design preview):** **Kinetic Signal Observatory** —
+cobalt / cyan / lime / coral, Syne + DM Sans, Trust Gate orbit as the hero,
+asymmetric Signal Weather dashboard. Previews:
 
-Do not migrate app-wide until Luminous is approved. Until then:
+- `/studio-preview/kinetic` (marketing)
+- `/studio-preview/kinetic/dashboard` (overview)
+
+Earlier Luminous Control preview remains at `/studio-preview/luminous` for
+comparison only. See `docs/design/README.md`.
+
+Do not migrate app-wide until Kinetic is approved. Until then:
 
 | Phase | Status |
 |-------|--------|
 | Meta activation hub + required Marketing API token | **Shipped** |
-| Evidence Room tokens, marketing homepage narrative, cross-examination | **Shipped** |
-| Dashboard shell + Overview (Attention Ledger, Decision Under Review) | **Shipped** |
-| Luminous Control Command Overview (design approval) | **Preview** |
-| Remaining Operate / Intelligence feature views | Hold — migrate after design sign-off |
+| Evidence Room tokens, marketing homepage, Front Desk | **Shipped (live)** |
+| Luminous Control Command Overview | Preview (superseded candidate) |
+| Kinetic Signal Observatory marketing + dashboard | **Preview (preferred)** |
+| App-wide migration (home, auth, all dashboard features) | After Kinetic sign-off |
 
-**Rule:** live UI keeps `--er-*` / Evidence Room. Luminous uses scoped `--lc-*`
-inside `.lc-root` only. Sample data must be labeled. No fabricated confidence
-scores. Prior Pearl/Indigo Studio tokens remain superseded by Evidence Room
-until Luminous replaces both.
+**Rule:** live UI keeps `--er-*`. Kinetic uses scoped `--ks-*` inside `.ks-root`
+only. Sample data must be labeled. GA4/GTM = measurement only, never ad channels.
+No fabricated confidence scores.
 
 ## Rules → Meta policy (decided)
 

@@ -34,17 +34,27 @@ Signal Health Check → Trust Gate → Automation Decision
 
 | Feature | Description |
 |---------|-------------|
-| **Trust Engine** | Signal health monitoring with 5-component weighted scoring (includes CDP EMQ and Platform vs GA4 variance) |
-| **Autopilot** | Configurable enforcement (Advisory/Soft-Block/Hard-Block) |
-| **Campaign Builder** | Multi-step wizard with approval workflow |
-| **CDP (NEW)** | First-party data platform with identity resolution & consent management |
-| **Meta Platform** | Facebook, Instagram, and WhatsApp integrations (Meta Marketing API) |
-| **Measurement & Verification** | Google Analytics 4 read-only baseline (Data API + service account) and Google Tag Manager web/server-side tagging for Meta Pixel/CAPI, independent verification, not an ad channel |
-| **CRM Integration** | HubSpot bidirectional sync with identity matching |
-| **Billing** | Paddle Billing (Merchant of Record): Paddle.js overlay checkout, signed webhooks keep the tenant plan in sync, customer portal and invoice PDFs |
-| **Attribution** | 6 models including Markov Chain & Shapley Value |
+| **Trust Engine** | Signal health monitoring with 5-component weighted scoring (event freshness, conversion integrity, Platform vs GA4 variance, CDP EMQ, spend/pacing stability) |
+| **Trust-Gated Autopilot** | HEALTHY→PASS→EXECUTE · DEGRADED→HOLD→ALERT · UNHEALTHY→BLOCK→MANUAL; Advisory / Soft-Block / Hard-Block |
+| **Campaign Builder** | Multi-step wizard with Trust Gate review before launch |
+| **CDP** | First-party data: identity resolution, EMQ, consent, event ingestion (batch ≤1000) |
+| **Meta Platform** | Facebook, Instagram, and WhatsApp only (Marketing API + CAPI + Pixel via GTM) |
+| **Measurement & Verification** | GA4 read-only revenue baseline; GTM web/server tagging — **not** ad channels |
+| **CRM Integration** | HubSpot sync with identity matching |
+| **Billing** | Paddle Billing (Merchant of Record): overlay checkout, signed webhooks, portal, invoices |
+| **Attribution** | Multi-model including Markov Chain & Shapley Value |
 | **Pacing** | Budget forecasting with EWMA predictions |
 | **A/B Testing** | Statistical analysis with power calculations |
+| **ROI Calculator** | Marketing surface for projected return scenarios |
+
+### Design system (frontend)
+
+- **Live UI:** Evidence Room (until redesign approved)
+- **Proposed:** [Kinetic Signal Observatory](docs/design/README.md) — preview at `/studio-preview/kinetic` and `/studio-preview/kinetic/dashboard`
+
+---
+
+## CDP (Customer Data Platform) v1.1.0
 
 ## CDP (Customer Data Platform) v1.1.0
 
