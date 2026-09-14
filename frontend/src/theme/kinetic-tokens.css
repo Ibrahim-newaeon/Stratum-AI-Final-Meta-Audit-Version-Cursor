@@ -1,7 +1,7 @@
 /**
  * Kinetic Signal Observatory — design preview tokens
  * Bright instrument panel (light) / night observatory (dark).
- * Scoped under .ks-root — does not replace live Evidence Room until approved.
+ * Scoped under .ks-root. Approved live system for marketing, auth, and dashboard shell.
  */
 
 .ks-root.ks-light {

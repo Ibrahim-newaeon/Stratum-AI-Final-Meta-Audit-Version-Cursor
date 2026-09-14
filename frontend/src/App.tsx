@@ -1,7 +1,8 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import DashboardLayout from './components/evidence/EvidenceAppShell';
+import KineticDashboardLayout from './components/kinetic/KineticDashShell';
+import EvidencePreviewLayout from './components/evidence/EvidenceAppShell';
 import TenantLayout from './views/TenantLayout';
 import { Toaster } from './components/ui/toaster';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -39,7 +40,8 @@ const ResetPassword = lazy(() => import('./views/ResetPassword'));
 const VerifyEmail = lazy(() => import('./views/VerifyEmail'));
 const Onboarding = lazy(() => import('./views/Onboarding'));
 const UnifiedDashboard = lazy(() => import('./views/dashboard/UnifiedDashboard'));
-const WorkspaceOverview = lazy(() => import('./views/studio/WorkspaceOverview'));
+const KineticOverview = lazy(() => import('./views/kinetic/KineticDashboardOverview'));
+const EvidenceWorkspaceOverview = lazy(() => import('./views/studio/WorkspaceOverview'));
 const DesignSystemPage = lazy(() => import('./views/studio/DesignSystemPage'));
 const LuminousPreviewLayout = lazy(() => import('./views/luminous/LuminousPreviewLayout'));
 const LuminousCommandOverview = lazy(() =>
@@ -262,14 +264,14 @@ function App() {
                         </Suspense>
                       }
                     />
-                    {/* Public Studio design preview (no auth) — Evidence Room */}
-                    <Route path="/studio-preview" element={<DashboardLayout />}>
+                    {/* Public Studio design preview (no auth) — Evidence Room archive */}
+                    <Route path="/studio-preview" element={<EvidencePreviewLayout />}>
                       <Route index element={<Navigate to="workspace" replace />} />
                       <Route
                         path="workspace"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <WorkspaceOverview />
+                            <EvidenceWorkspaceOverview />
                           </Suspense>
                         }
                       />
@@ -741,7 +743,7 @@ function App() {
                       element={
                         <ProtectedRoute>
                           <OnboardingGuard>
-                            <DashboardLayout />
+                            <KineticDashboardLayout />
                           </OnboardingGuard>
                         </ProtectedRoute>
                       }
@@ -751,7 +753,7 @@ function App() {
                         path="overview"
                         element={
                           <Suspense fallback={<LoadingSpinner />}>
-                            <WorkspaceOverview />
+                            <KineticOverview />
                           </Suspense>
                         }
                       />
