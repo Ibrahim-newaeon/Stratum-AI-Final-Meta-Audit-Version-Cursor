@@ -265,7 +265,7 @@ async def upload_asset(
 
     # Determine asset type from extension
     video_extensions = {".mp4", ".webm", ".mov"}
-    asset_type = AssetType.video if file_ext in video_extensions else AssetType.image
+    asset_type = AssetType.VIDEO if file_ext in video_extensions else AssetType.IMAGE
 
     # Create asset record
     asset = CreativeAsset(
