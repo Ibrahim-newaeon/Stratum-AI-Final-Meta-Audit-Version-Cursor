@@ -25,9 +25,16 @@ Signature motif: horizontal incision / seam between recommendation and evidence.
 ## Implementation
 
 - `frontend/src/theme/evidence-tokens.css`
-- `frontend/src/components/evidence/EvidenceAppShell.tsx`
+- `frontend/src/components/evidence/EvidenceAppShell.tsx` — Operate / Intelligence / Workspace taxonomy
 - `frontend/src/components/evidence/DecisionCrossExamination.tsx`
 - `frontend/src/components/evidence/EvidenceMarketingShell.tsx`
-- Homepage narrative + Overview attention ledger
+- Overview Front Desk: KPI honesty (undefined shown), triage queue, Trust Hold expandable dossier
 
-Preview: `/studio-preview/workspace`, `/studio-preview/design-system`
+### Signature loop — Resolving a Trust Hold
+
+1. Click a Trust Hold row on Overview  
+2. Seam opens → intended action vs violation + mono evidence points  
+3. Authorize override / Keep hold / Adjust parameters  
+4. Operator name logged; row resolves
+
+Preview: `/studio-preview/workspace`
