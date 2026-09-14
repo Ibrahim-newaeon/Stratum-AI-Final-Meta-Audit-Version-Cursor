@@ -3,35 +3,23 @@
 Grounded in implementation and `CLAUDE.md`. This file tracks durable product
 priority decisions; it is not a live feature inventory.
 
-## Full frontend redesign (important, not ASAP)
+## Full frontend redesign (in progress)
 
-A **full redesign of the marketing website (landing pages) and the in-app
-dashboard** is an **important** product goal, but it is **explicitly not an
-immediate kickoff**.
+Marketing site and auth are migrating to **[Radix Themes](https://www.radix-ui.com/themes)**
+(`@radix-ui/themes`) as the primary component layer. Dashboard views migrate
+incrementally (strangler pattern).
 
-| Do now | Do later (after Meta go-live + backend gaps) |
-|--------|-----------------------------------------------|
-| Meta activation smoke — `docs/05-operations/meta-activation-smoke.md` | Rebuild landing + dashboard UX / IA / visual system |
-| Harden LOCAL_ONLY Rules, Autopilot defaults, trust gate | Polish or deep-refactor current Campaigns / Overview / CDP screens |
-| Thin API clients the **new** FE can call | Large dashboard UI features the redesign will replace |
+| Phase | Status |
+|-------|--------|
+| Meta activation hub (`/dashboard/activation`) + required Marketing API token | **Shipped** |
+| Home, login, signup, `PageLayout` content pages | **In progress** (Radix Themes) |
+| Dashboard shell + feature views | Planned — keep API hooks; restyle per module |
 
-**Rule for agents/contributors:** treat redesign as a tracked priority, not the
-next sprint. Prefer durable backend and Meta activation over investing in
-throwaway UI on the present frontend.
+**Rule for agents/contributors:** new marketing and auth UI uses Radix Themes +
+`MarketingShell`. Do not add ad-hoc HoloGlass inline theme objects to new pages.
+Dashboard internals may still use Tailwind + Primitives until their module is migrated.
 
-### Design system when redesign starts
-
-Use **[Radix Themes](https://www.radix-ui.com/themes)** (`@radix-ui/themes`) as
-the primary component + theme layer for the new marketing site and dashboard —
-not ad-hoc restyling of the current Tailwind / Radix **Primitives** stack.
-
-- Today the SPA already depends on Radix Primitives (unstyled).
-- Themes adds the styled system (`Theme` provider, tokens for accent / gray /
-  radius / scaling, layout primitives like `Flex` / `Box` / `Text`).
-- Keep brand typography and atmosphere constraints from product design rules.
-- Do **not** default to purple-on-white Themes demos.
-- Do **not** install Themes early just to polish screens the redesign will
-  replace.
+Brand: midnight `#0b1215`, teal accent `#00c7be`, gold CTA `#e2b347`. Dark appearance only.
 
 ## Rules → Meta policy (decided)
 
