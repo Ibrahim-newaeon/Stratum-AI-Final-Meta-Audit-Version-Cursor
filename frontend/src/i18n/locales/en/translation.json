@@ -293,6 +293,8 @@
     "delete": "Delete",
     "name": "Name",
     "type": "Type",
+    "statusLabel": "Status",
+    "actionsLabel": "Actions",
     "noResults": "No assets match your filters",
     "fatigueScore": "Fatigue Score",
     "fatigueWarning": "High fatigue - consider refreshing creative",

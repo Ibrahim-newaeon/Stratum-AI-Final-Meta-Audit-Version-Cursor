@@ -524,10 +524,10 @@ export function Assets() {
                 </th>
                 <th className="p-4 text-left text-sm font-medium">{t('assets.name')}</th>
                 <th className="p-4 text-left text-sm font-medium">{t('assets.type')}</th>
-                <th className="p-4 text-left text-sm font-medium">{t('assets.status')}</th>
+                <th className="p-4 text-left text-sm font-medium">{t('assets.statusLabel')}</th>
                 <th className="p-4 text-right text-sm font-medium">{t('assets.impressions')}</th>
                 <th className="p-4 text-right text-sm font-medium">CTR</th>
-                <th className="p-4 text-right text-sm font-medium">{t('assets.actions')}</th>
+                <th className="p-4 text-right text-sm font-medium">{t('assets.actionsLabel')}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
