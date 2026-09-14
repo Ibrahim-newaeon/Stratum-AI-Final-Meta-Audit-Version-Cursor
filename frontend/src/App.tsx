@@ -254,6 +254,26 @@ function App() {
                         </Suspense>
                       }
                     />
+                    {/* Public Studio design preview (no auth) */}
+                    <Route path="/studio-preview" element={<DashboardLayout />}>
+                      <Route index element={<Navigate to="workspace" replace />} />
+                      <Route
+                        path="workspace"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <WorkspaceOverview />
+                          </Suspense>
+                        }
+                      />
+                      <Route
+                        path="design-system"
+                        element={
+                          <Suspense fallback={<LoadingSpinner />}>
+                            <DesignSystemPage />
+                          </Suspense>
+                        }
+                      />
+                    </Route>
                     <Route
                       path="/forgot-password"
                       element={
