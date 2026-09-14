@@ -1,0 +1,265 @@
+/**
+ * Evidence Room — Paper, Ink, Intervention
+ * Brand: restraint as spectacle. Every decision leaves a paper trail.
+ */
+
+:root,
+html.light,
+html.evidence {
+  --bone: #f2eee5;
+  --paper: #faf8f3;
+  --carbon: #191919;
+  --graphite: #5e5a55;
+  --limestone: #d8d1c5;
+  --line: #d5cec2;
+  --oxblood: #762c38;
+  --oxblood-dark: #5d202b;
+  --deep-teal: #245a55;
+  --signal-orange: #f04a1a;
+  --warning-amber: #b87518;
+  --critical-red: #b5302c;
+
+  --er-bg: var(--bone);
+  --er-surface: var(--paper);
+  --er-surface-2: var(--limestone);
+  --er-text: var(--carbon);
+  --er-muted: var(--graphite);
+  --er-border: var(--line);
+  --er-accent: var(--oxblood);
+  --er-accent-hover: var(--oxblood-dark);
+  --er-accent-contrast: #faf8f3;
+  --er-pass: var(--deep-teal);
+  --er-warn: var(--warning-amber);
+  --er-critical: var(--critical-red);
+  --er-highlight: var(--signal-orange);
+  --er-focus: 0 0 0 2px var(--paper), 0 0 0 4px var(--oxblood);
+  --er-radius: 3px;
+  --er-sidebar-width: 260px;
+  --er-sidebar-collapsed: 64px;
+  --er-font-serif: 'Instrument Serif', 'Times New Roman', serif;
+  --er-font-sans: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+  --er-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* Dark evidence room — ink on charcoal paper */
+html.dark {
+  --bone: #1a1917;
+  --paper: #242220;
+  --carbon: #f2eee5;
+  --graphite: #a8a29a;
+  --limestone: #2e2c29;
+  --line: #3d3a36;
+  --oxblood: #c45a68;
+  --oxblood-dark: #a84856;
+  --deep-teal: #6bb3ac;
+  --signal-orange: #f06a40;
+  --warning-amber: #d4a04a;
+  --critical-red: #e0605c;
+
+  --er-bg: var(--bone);
+  --er-surface: var(--paper);
+  --er-surface-2: var(--limestone);
+  --er-text: var(--carbon);
+  --er-muted: var(--graphite);
+  --er-border: var(--line);
+  --er-accent: var(--oxblood);
+  --er-accent-hover: var(--oxblood-dark);
+  --er-accent-contrast: #1a1917;
+  --er-pass: var(--deep-teal);
+  --er-warn: var(--warning-amber);
+  --er-critical: var(--critical-red);
+  --er-highlight: var(--signal-orange);
+  --er-focus: 0 0 0 2px var(--paper), 0 0 0 4px var(--oxblood);
+}
+
+.er-shell {
+  font-family: var(--er-font-sans);
+  background: var(--er-bg);
+  color: var(--er-text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.er-shell *:focus-visible {
+  outline: none;
+  box-shadow: var(--er-focus);
+}
+
+.er-serif {
+  font-family: var(--er-font-serif);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.er-mono {
+  font-family: var(--er-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.er-label {
+  font-family: var(--er-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--er-muted);
+}
+
+.er-panel {
+  background: var(--er-surface);
+  border: 1px solid var(--er-border);
+  border-radius: var(--er-radius);
+}
+
+.er-tray {
+  background: var(--er-surface-2);
+  border: 1px solid var(--er-border);
+  border-radius: var(--er-radius);
+}
+
+.er-rule {
+  height: 1px;
+  background: var(--er-border);
+  border: none;
+  margin: 0;
+}
+
+/* Horizontal incision / seam motif */
+.er-seam {
+  position: relative;
+  height: 1px;
+  background: var(--er-border);
+  margin: 0;
+}
+
+.er-seam::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 48px;
+  height: 3px;
+  background: var(--er-accent);
+}
+
+.er-seam-active {
+  height: 2px;
+  background: var(--er-border);
+}
+
+.er-seam-active::before {
+  width: 100%;
+  height: 2px;
+  top: 0;
+  background: var(--er-accent);
+  transition: width 200ms ease;
+}
+
+.er-seam-open {
+  margin: 0;
+  border: none;
+  height: 0;
+  position: relative;
+}
+
+.er-seam-open::before {
+  content: '';
+  display: block;
+  height: 1px;
+  background: var(--er-border);
+}
+
+.er-seam-open::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--er-accent) 0%, var(--er-accent) 32%, transparent 32%);
+}
+
+.er-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--er-accent);
+  color: var(--er-accent-contrast);
+  border: 1px solid var(--er-accent);
+  border-radius: var(--er-radius);
+  font-family: var(--er-font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 160ms ease;
+}
+
+.er-btn-primary:hover {
+  background: var(--er-accent-hover);
+  border-color: var(--er-accent-hover);
+}
+
+.er-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: transparent;
+  color: var(--er-text);
+  border: 1px solid var(--er-border);
+  border-radius: var(--er-radius);
+  font-family: var(--er-font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.er-btn-ghost:hover {
+  border-color: var(--er-text);
+}
+
+.er-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--er-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.er-status-held,
+.er-status-critical {
+  color: var(--er-critical);
+}
+
+.er-status-pass,
+.er-status-healthy {
+  color: var(--er-pass);
+}
+
+.er-status-warn,
+.er-status-degraded,
+.er-status-review {
+  color: var(--er-warn);
+}
+
+.er-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .er-seam-active::before,
+  .er-btn-primary {
+    transition: none;
+  }
+}

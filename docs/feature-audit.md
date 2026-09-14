@@ -5,21 +5,26 @@ priority decisions; it is not a live feature inventory.
 
 ## Full frontend redesign (in progress)
 
-Visual system is **Stratum Studio** from the Pearl & Indigo / Navy & Periwinkle
-concept boards (`docs/design/`). Same layout geometry in both themes; only color
-tokens and artwork change.
+**Live shell:** Evidence Room (bone/oxblood) on marketing + dashboard.
+
+**Proposed next system (design preview only):** **Luminous Control** — Pearl &
+Indigo / Navy & Periwinkle, Inter, Trust-Gated Autopilot + CDP Identity Graph
+hero modules. Preview: `/studio-preview/luminous`. See `docs/design/README.md`.
+
+Do not migrate app-wide until Luminous is approved. Until then:
 
 | Phase | Status |
 |-------|--------|
 | Meta activation hub + required Marketing API token | **Shipped** |
-| Studio design tokens + AppShell (light/dark) | **Shipped** |
-| Workspace overview + Design system content page | **Shipped** |
-| Home, login, signup, marketing PageLayout | **Shipped** (Studio tokens) |
-| Remaining dashboard feature views (Campaigns, CDP, …) | Planned — strangler under StudioAppShell |
+| Evidence Room tokens, marketing homepage narrative, cross-examination | **Shipped** |
+| Dashboard shell + Overview (Attention Ledger, Decision Under Review) | **Shipped** |
+| Luminous Control Command Overview (design approval) | **Preview** |
+| Remaining Operate / Intelligence feature views | Hold — migrate after design sign-off |
 
-**Rule for agents/contributors:** new UI uses Studio CSS variables
-(`--studio-*`) and Inter. Do not reintroduce teal HoloGlass theme objects or
-the NeuralNetworkBg dashboard chrome. Toggle light/dark via ThemeProvider.
+**Rule:** live UI keeps `--er-*` / Evidence Room. Luminous uses scoped `--lc-*`
+inside `.lc-root` only. Sample data must be labeled. No fabricated confidence
+scores. Prior Pearl/Indigo Studio tokens remain superseded by Evidence Room
+until Luminous replaces both.
 
 ## Rules → Meta policy (decided)
 

@@ -1,5 +1,5 @@
 /**
- * Sign up — Studio Pearl & Indigo / Navy & Periwinkle
+ * Sign up — Evidence Room
  */
 
 import { useState } from 'react';
@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import FacebookLoginButton from '@/components/auth/FacebookLoginButton';
 import type { FacebookCredential } from '@/lib/facebookSdk';
 import { SEO, pageSEO } from '@/components/common/SEO';
-import { MarketingShell } from '@/components/marketing/MarketingShell';
+import { EvidenceMarketingShell } from '@/components/evidence/EvidenceMarketingShell';
 
 const signupSchema = z
   .object({
@@ -54,7 +54,7 @@ export default function SignupPage() {
       });
       navigate('/login', { state: { registered: true } });
     } catch {
-      // surfaced via mutation error
+      /* mutation error */
     }
   };
 
@@ -72,33 +72,26 @@ export default function SignupPage() {
     }
   };
 
-  const fieldStyle = {
-    background: 'var(--studio-search-bg)',
-    borderColor: 'var(--studio-border)',
-    color: 'var(--studio-text)',
+  const field = {
+    background: 'var(--er-bg)',
+    borderColor: 'var(--er-border)',
+    color: 'var(--er-text)',
+    borderRadius: 'var(--er-radius)',
   } as const;
 
   return (
     <>
       <SEO {...pageSEO.signup} />
-      <MarketingShell>
+      <EvidenceMarketingShell>
         <div className="mx-auto max-w-md px-6 py-16">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-semibold" style={{ color: 'var(--studio-text)' }}>
-              Create your workspace
-            </h1>
-            <p className="mt-2 text-sm" style={{ color: 'var(--studio-text-secondary)' }}>
-              Free to start. After signup you&apos;ll connect OAuth, CAPI, and your Marketing API
-              token.
-            </p>
-          </div>
-
-          <div className="studio-card p-6">
+          <p className="er-label text-center">Start free trial</p>
+          <h1 className="er-serif mt-2 text-center text-4xl">Create your workspace</h1>
+          <p className="mt-3 text-center text-sm" style={{ color: 'var(--er-muted)' }}>
+            Start with a read-only review. Connect data. Inspect the first decision trail.
+          </p>
+          <div className="er-panel mt-8 p-6">
             {apiError && (
-              <div
-                className="mb-4 rounded-[10px] border px-3 py-2 text-sm"
-                style={{ borderColor: 'var(--studio-border)', color: '#DC2626' }}
-              >
+              <div className="mb-4 border p-3 text-sm" style={{ borderColor: 'var(--er-critical)', color: 'var(--er-critical)' }}>
                 {apiError}
               </div>
             )}
@@ -113,44 +106,27 @@ export default function SignupPage() {
                 ] as const
               ).map(([key, label, type]) => (
                 <div key={key}>
-                  <label className="mb-1 block text-sm font-medium" style={{ color: 'var(--studio-text)' }}>
-                    {label}
-                  </label>
-                  <input
-                    type={type}
-                    className="studio-search w-full rounded-[10px] border px-3 py-2.5 text-sm"
-                    style={fieldStyle}
-                    {...register(key)}
-                  />
-                  {errors[key] && (
-                    <p className="mt-1 text-xs text-red-600">{errors[key]?.message}</p>
-                  )}
+                  <label className="mb-1 block text-sm font-medium">{label}</label>
+                  <input type={type} className="w-full border px-3 py-2.5 text-sm" style={field} {...register(key)} />
+                  {errors[key] && <p className="mt-1 text-xs" style={{ color: 'var(--er-critical)' }}>{errors[key]?.message}</p>}
                 </div>
               ))}
-              <button type="submit" className="studio-btn-primary w-full justify-center" disabled={isLoading}>
-                {isLoading ? 'Creating account…' : 'Create account'}
+              <button type="submit" className="er-btn-primary w-full" disabled={isLoading}>
+                {isLoading ? 'Creating…' : 'Create account'}
               </button>
             </form>
-
             <div className="my-5 flex items-center gap-3">
-              <div className="h-px flex-1" style={{ background: 'var(--studio-border)' }} />
-              <span className="text-xs" style={{ color: 'var(--studio-text-secondary)' }}>
-                or
-              </span>
-              <div className="h-px flex-1" style={{ background: 'var(--studio-border)' }} />
+              <div className="h-px flex-1" style={{ background: 'var(--er-border)' }} />
+              <span className="text-xs" style={{ color: 'var(--er-muted)' }}>or</span>
+              <div className="h-px flex-1" style={{ background: 'var(--er-border)' }} />
             </div>
-
             <FacebookLoginButton onCredential={handleFacebookCredential} disabled={isLoading} />
-
-            <p className="mt-5 text-center text-sm" style={{ color: 'var(--studio-text-secondary)' }}>
-              Already have an account?{' '}
-              <Link to="/login" style={{ color: 'var(--studio-accent)' }}>
-                Sign in
-              </Link>
+            <p className="mt-5 text-center text-sm" style={{ color: 'var(--er-muted)' }}>
+              Already have an account? <Link to="/login" style={{ color: 'var(--er-accent)' }}>Sign in</Link>
             </p>
           </div>
         </div>
-      </MarketingShell>
+      </EvidenceMarketingShell>
     </>
   );
 }
